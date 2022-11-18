@@ -1,0 +1,28 @@
+[package]
+name = "dora-bin"
+version = "0.1.0"
+edition = "2021"
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+default-run = "dora"
+
+[dependencies]
+dora-core = { path = "../dora-core" }
+external-api = { path = "../external-api" }
+# plugins
+message-type = { path = "../plugins/message-type" }
+leases = { path = "../plugins/leases" }
+static-addr = { path = "../plugins/static-addr" }
+# libs
+ip-manager = { path = "../libs/ip-manager" }
+config = { path = "../libs/config" }
+# external
+anyhow = { workspace = true }
+tracing-futures = { workspace = true }
+dotenv = "0.15.0"
+
+[target.'cfg(not(target_env = "musl"))'.dependencies]
+jemallocator = { version = "0.3.2", features = ["background_threads"] }
+
+[[bin]]
+name = "dora"
+path = "src/main.rs"

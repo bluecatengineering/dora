@@ -1,0 +1,17 @@
+[package]
+name = "leases"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+dora-core = { path = "../../dora-core" }
+config = { path = "../../libs/config" }
+
+register_derive = { path = "../../libs/register_derive" }
+static-addr = { path = "../static-addr" }
+ip-manager = { path = "../../libs/ip-manager" }
+
+ipnet = { workspace = true }
+ 

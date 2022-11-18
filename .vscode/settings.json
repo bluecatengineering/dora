@@ -1,0 +1,15 @@
+{
+  "search.exclude": {
+    "**/.git": true,
+    "**/build": true,
+    "**/docker-context": true,
+    "**/target": true,
+    "**/resources": true
+  },
+  "files.watcherExclude": {
+    "**/.git/objects/**": true,
+    "**/.git/subtree-cache/**": true,
+    "**/target": true,
+    "**/build": true
+  }
+}

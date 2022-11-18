@@ -1,0 +1,20 @@
+[package]
+name = "icmp-ping"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rand = "0.8"
+socket2 = { version = "0.4", features = ["all"] }
+tokio = { version = "1.17.0", features = ["time", "net", "sync", "macros"] }
+parking_lot = "0.12"
+pnet = { workspace = true }
+thiserror = { workspace = true }
+tracing ={ workspace = true }
+ 
+[dev-dependencies]
+tokio = { version = "1.17.0", features = ["full"] }
+tracing-subscriber = "0.3"
+tracing-test = "0.1"

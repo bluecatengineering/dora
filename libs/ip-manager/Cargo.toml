@@ -1,0 +1,19 @@
+[package]
+name = "ip-manager"
+version = "0.1.0"
+edition = "2021"
+workspace = "../../"
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+config = { path = "../../libs/config" }
+icmp-ping = { path = "../icmp-ping" }
+
+async-trait = { workspace = true }
+ipnet = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+chrono = "0.4.19"
+moka = { version = "0.9.2", features = ["future"] }
+# TODO: hopefully the rustls feature can go away, the lib requires it
+sqlx = { version = "0.5.13", features = ["sqlite", "runtime-tokio-rustls", "chrono", "offline"] }

@@ -1,0 +1,116 @@
+chaddr_only: false
+networks:
+    192.168.1.100/30:
+        probation_period: 86400
+        ranges:
+            -
+                start: 192.168.1.100
+                end: 192.168.1.103
+                config:
+                    lease_time:
+                        default: 3600
+                        min: 1200
+                        max: 4800
+                options:
+                    values:
+                        1:
+                            type: ip
+                            value: 192.168.1.1
+                        3:
+                            type: ip_list
+                            value:
+                                - 192.168.1.1
+
+    192.168.0.0/24:
+        probation_period: 86400
+        ranges:
+            -
+                start: 192.168.0.100
+                end: 192.168.0.150
+                config:
+                    lease_time:
+                        default: 3600
+                        min: 1200
+                        max: 4800
+                options:
+                    values:
+                        1:
+                            type: ip
+                            value: 192.168.0.1
+                        3:
+                            type: ip_list
+                            value:
+                                - 192.168.0.1
+                        40:
+                            type: str
+                            value: testdomain.com
+                        253:
+                            type: hex
+                            value: 123ABC
+                except:
+                    - 192.168.0.123
+                    - 192.168.0.124
+
+        reservations:
+            -
+                ip: 192.168.0.160
+                config:
+                    lease_time:
+                        default: 3600
+                        min: 1200
+                        max: 4800
+                options:
+                    values:
+                        1:
+                            type: ip
+                            value: 192.168.0.1
+                        3:
+                            type: ip_list
+                            value:
+                                - 192.168.0.1
+                match:
+                    options:
+                        values:
+                            61:
+                                type: hex
+                                value: 001122334455
+            -
+                ip: 192.168.0.170
+                config:
+                    lease_time:
+                        default: 3600
+                        min: 1200
+                        max: 4800
+                options:
+                    values:
+                        1:
+                            type: ip
+                            value: 10.10.0.1
+                        3:
+                            type: ip_list
+                            value:
+                                - 10.10.0.1
+                match:
+                    chaddr: aa:bb:cc:dd:ee:ff
+    10.0.0.0/16:
+        ranges:
+            -
+                start: 10.0.0.10
+                end: 10.0.6.254
+                config:
+                    lease_time:
+                        default: 3600
+                        min: 1200
+                        max: 4800
+                options:
+                    values:
+                        1:
+                            type: ip
+                            value: 10.10.0.1
+                        3:
+                            type: ip_list
+                            value:
+                                - 10.10.0.1
+                except:
+                    - 10.0.0.123
+                    - 10.0.0.124

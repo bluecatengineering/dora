@@ -1,0 +1,174 @@
+# Normally, client id is determined by (opt 61) client identifier option, 
+# or the DHCP header field `chaddr`. Sometimes, we want to configure
+# the server to only look at the `chaddr` field. Setting `chaddr_only` to true
+# will do that.
+#
+# chaddr_only: false
+#
+# Dora binds to inaddr_any, if an interface is specified dora will filter 
+# all traffic not from this interface.
+# If no interface is specified, we will listen on inaddr_any (0.0.0.0) and send
+# each response on the same interface we recv'd it on.
+#
+# interfaces: 
+#   - enp6s0
+#
+networks:
+    192.168.5.0/24:
+        # Authoritative:
+        # When the DHCP server is configured as authoritative, the server will respond with
+        # ACK or NACK as appropriate for all the received REQUEST and INFORM messages
+        # belonging to the subnet. If non-authoritative, INFORM will be ignored on this network
+        #
+        # authoritative: true
+        #
+        # `ping_check` (default false) set to true will ping before assigning an IP
+        #
+        # ping_check: false
+        #
+        # adjust the default ping timeout (default: 500ms)
+        #
+        # ping_timeout_ms: 500
+        #
+        # Decline & Duplicate Address Detection:
+        # `probation_period` is defined per-network. If any DHCP messages are received from
+        # this network with a message type of DECLINE, or if a ping check is succesful
+        # (meaning the address is in use), dora will not attempt to lease the IP inside of
+        # the probation period.
+        #
+        probation_period: 86400
+        # (optional) 
+        # `server_id` _must_ be an IP that dora is reachable on. 
+        # OR IF IT IS NOT specified, dora will use the IP of the interface we recv'd the message on. 
+        # OR If bound to loopback, we will just use the first non-loopback interface IP
+        server_id: 192.168.5.1
+        ranges:
+            -
+                # start of your range
+                start: 192.168.5.2
+                # end of your range
+                end: 192.168.5.250
+                # configured lease time (only `default` is required)
+                config:
+                    lease_time:
+                        default: 3600
+                        min: 1200
+                        max: 4800
+                # Both reservations & ranges can include an options map, if an incoming dhcp msg gets
+                # an IP from that reservation or range, it will also use the corresponding `options`
+                # to respond to any parameter request list values.
+                options:
+                    values:
+                        1: # subnet mask (optional, if not specified, we will pull from the interface config)
+                            type: ip
+                            value: 255.255.255.0
+                        3: # router (required)
+                            type: ip_list
+                            value:
+                                - 192.168.5.1
+                        6: # domain name required (if running a DNS server like dnsmasq also, use it's IP)
+                            type: ip_list
+                            value:
+                                - 8.8.8.8
+                        28: # broadcast addr (optional, if not specified, will pull from interface config)
+                           type: ip
+                           value: 192.168.5.255
+                # you can add exceptions each range
+                #
+                # except:
+                #     - 192.168.0.123
+                #     - 192.168.0.124
+        # each network block can have reservations
+        reservations:
+            -
+                ip: 192.168.5.166
+                config:
+                    lease_time:
+                        default: 3600
+                        min: 1200
+                        max: 4800
+                options:
+                    values:
+                        1:
+                            type: ip
+                            value: 255.255.255.0
+                        3:
+                            type: ip_list
+                            value:
+                                - 192.168.5.1
+                        6:
+                            type: ip_list
+                            value:
+                                - 8.8.8.8
+                        28:
+                           type: ip
+                           value: 192.168.5.255
+                # Reservations are supported based on `chaddr`, or `options`. Currently, only a single
+                # options may be specified for a match. There is no AND/OR logic for matching on options.
+                match:
+                    chaddr: f8:1a:67:1f:c9:7d
+                # OR use an option
+                # options:
+                #   values:
+                #       x: 
+                #           type: ip
+                #           value: x.x.x.x
+    #
+    # You can have as many networks as you want
+    #
+    # 192.168.0.0/24:
+    #     ping_check: false
+    #     probation_period: 86400
+    #     server_id: 192.168.0.1
+#
+# DHCPv6 
+v6:
+    # optional, what interfaces we will bind to
+    interfaces:
+        - enp6s0
+    # TODO: SERVER ID
+    # server_id: 
+    #       type: DUID-LLT (default) | DUID-LL | DUID-EN | ...
+    #       value: ""
+    # global options (optional)
+    options:
+        values:
+            # dns
+            23:
+                type: ip_list
+                value:
+                    - 2001:db8::1
+                    - 2001:db8::2
+    # optional
+    networks:
+        # subnet selection:
+        # we will attempt to match first the IP of the `interfaces` field below to determine
+        # which subnet to apply, if none is specified we will use the link-local, then the global IP
+        # of the interface we received the message on.
+        # (this method should be double checked, I'm not sure it's correct)
+        #
+        # https://kea.readthedocs.io/en/kea-1.6.0/arm/dhcp6-srv.html#dhcp6-config-subnets
+        # https://datatracker.ietf.org/doc/html/rfc8415#section-13.1
+        # https://techhub.hpe.com/eginfolib/networking/docs/switches/5130ei/5200-3942_l3-ip-svcs_cg/content/483572577.htm
+        #
+        2001:db8:1::/64: # https://en.wikipedia.org/wiki/IPv6_address#Documentation
+            # optional - what interfaces we will apply to this network
+            interfaces: 
+                - enp6s0
+            # no explicit ranges (yet)
+            config:
+                lease_time:
+                    default: 3600
+                preferred_time:
+                    default: 3600
+            # same with options
+            # inspiration: https://kea.readthedocs.io/en/kea-2.2.0/arm/dhcp6-srv.html?highlight=router%20advertisement#dhcp6-std-options-list
+            options:
+                values:
+                    # dns
+                    23:
+                        type: ip_list
+                        value:
+                            - 2001:db8::1
+                            - 2001:db8::2
+        

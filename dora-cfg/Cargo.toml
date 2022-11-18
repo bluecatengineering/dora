@@ -1,0 +1,17 @@
+[package]
+name = "dora-cfg"
+version = "0.1.0"
+edition = "2021"
+description = "dora is a DHCP server written from the ground up in Rust"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+clap = { workspace = true }
+jsonschema = "0.16.0"
+
+config = { path = "../libs/config" }

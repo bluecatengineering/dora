@@ -1,0 +1,4 @@
+out/
+target/
+*.db*
+.vscode/*.log

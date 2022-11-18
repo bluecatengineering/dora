@@ -1,0 +1,18 @@
+[package]
+name = "config"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = { workspace = true }
+ipnet = { workspace = true }
+tracing = { workspace = true }
+serde_yaml = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }
+base64 = "0.13"
+hex = "0.4"
+
+dora-core = { path = "../../dora-core" }

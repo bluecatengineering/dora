@@ -1,0 +1,104 @@
+//! Server state. Used to count how many live messages are processing in the
+//! system right now, and keep track of message id's
+use tokio::sync::Semaphore;
+
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
+
+use crate::metrics::IN_FLIGHT;
+
+/// Represents the current Server state
+#[derive(Debug)]
+pub struct State {
+    /// current live message count
+    live_msgs: Arc<Semaphore>,
+    /// max live message count
+    live_limit: usize,
+    /// live msgs interval count for average
+    live_interval_count: AtomicUsize,
+    /// live msgs sum
+    live_interval_sum: AtomicUsize,
+    /// current running average of live msgs
+    live_avg: AtomicUsize,
+    /// id to assign incoming messages
+    next_id: AtomicUsize,
+}
+
+impl State {
+    /// Create new state with a set max live message count
+    pub fn new(max_live: usize) -> State {
+        State {
+            live_msgs: Arc::new(Semaphore::new(max_live)),
+            live_limit: max_live,
+            live_interval_count: AtomicUsize::new(0),
+            live_interval_sum: AtomicUsize::new(0),
+            live_avg: AtomicUsize::new(0),
+            next_id: AtomicUsize::new(0),
+        }
+    }
+
+    /// Increments the count of live in-flight messages
+    pub async fn inc_live_msgs(&self) {
+        // forget() must be used on the semaphore after acquire otherwise
+        // it will add the permit back when the semaphore is dropped,
+        // and we don't actually want to do that, we want to add it back
+        //  when MsgContext is dropped
+        //
+        // SAFETY: acquire returns an Err when the semaphore is closed, which we never
+        // do
+        self.live_msgs.acquire().await.unwrap().forget();
+        IN_FLIGHT.inc();
+    }
+
+    /// Decrements the count of live in-flight messages
+    #[inline]
+    pub fn dec_live_msgs(&self) {
+        self.live_msgs.add_permits(1);
+        IN_FLIGHT.dec();
+    }
+
+    /// Return the current number of live queries
+    #[inline]
+    pub fn live_msgs(&self) -> usize {
+        self.live_limit - self.live_msgs.available_permits()
+    }
+
+    /// Increment the context id
+    #[inline]
+    pub fn inc_id(&self) -> usize {
+        self.next_id.fetch_add(1, Ordering::Acquire)
+    }
+
+    /// Add the current live msgs count and increment the interval
+    #[inline]
+    pub fn add_live_msgs(&self) {
+        // incr live msgs count
+        let live_count = self.live_interval_count.fetch_add(1, Ordering::Relaxed);
+        // add current live msgs to sum
+        let live_sum = self
+            .live_interval_sum
+            .fetch_add(live_count, Ordering::Relaxed);
+
+        // calculate average
+        if live_count != 0 {
+            self.live_avg.swap(live_sum / live_count, Ordering::Relaxed);
+        }
+    }
+
+    /// The average of live msgs
+    #[inline]
+    pub fn live_avg(&self) -> usize {
+        self.live_avg.load(Ordering::Relaxed)
+    }
+
+    /// Reset msgs count
+    #[inline]
+    pub fn reset_live(&self) {
+        self.live_interval_count.swap(0, Ordering::Relaxed);
+        self.live_interval_sum.swap(0, Ordering::Relaxed);
+        self.live_avg.swap(0, Ordering::Relaxed);
+        IN_FLIGHT.set(0);
+    }
+}

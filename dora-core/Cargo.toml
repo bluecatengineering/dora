@@ -1,0 +1,40 @@
+[package]
+name = "dora-core"
+version = "0.1.0"
+edition = "2021"
+authors = ["BlueCat Networks <support@bluecatnetworks.com>"]
+description = "dora is a DHCP server written from the ground up in Rust"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+# local
+env-parser = { path = "../libs/env-parser" }
+# third party
+async-trait = { workspace = true } 
+anyhow = { workspace = true }
+bytes = { workspace = true }
+chrono = "0.4"
+chrono-tz = "0.6"
+dhcproto = { workspace = true }
+futures = { workspace = true }
+lazy_static = "1.4"
+tokio = { workspace = true }
+tokio-stream = "0.1"
+tokio-util = { version = "0.7.0", features = [ "codec", "net" ] }
+tracing = { workspace = true }
+tracing-futures = { workspace = true }
+tracing-subscriber = { workspace = true }
+thiserror = { workspace = true }
+pin-project = "1.0"
+prometheus = { workspace = true }
+prometheus-static-metric = { workspace = true }
+rand = { workspace = true }
+clap = { workspace = true }
+socket2 = { version = "0.4.4", features = ["all"] }
+libc = "0.2.126"
+unix-udp-sock = "0.4.0"
+pnet = { workspace = true }
+
+[dev-dependencies]
+tokio-test = "0.4.1"

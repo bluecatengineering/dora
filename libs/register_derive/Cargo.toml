@@ -1,0 +1,11 @@
+[package]
+name = "register_derive"
+version = "0.1.0"
+authors = ["Bluecat Networks <support@bluecatnetworks.com>"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+register_derive_impl = { path = "../register_derive_impl" }
+dora-core = { path = "../../dora-core" }
