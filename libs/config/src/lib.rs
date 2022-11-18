@@ -53,8 +53,11 @@ impl EnvConfig {
 impl DhcpConfig {
     /// attempts to decode the config first as JSON, then YAML, finally erroring if neither work
     pub fn parse<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let config =
-            v4::Config::new(&std::fs::read_to_string(path).context("failed to find config.yaml")?)?;
+        let path = path.as_ref();
+        let config = v4::Config::new(
+            &std::fs::read_to_string(path)
+                .with_context(|| format!("failed to find config at {}", &path.display()))?,
+        )?;
         debug!(?config);
 
         Ok(Self { v4: config })

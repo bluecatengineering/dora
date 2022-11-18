@@ -1,0 +1,258 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://example.com/product.schema.json",
+    "title": "dora schema",
+    "description": "dora JSON schema",
+    "definitions": {
+        "lease_time": {
+            "type": "object",
+            "required": ["default"],
+            "properties": {
+                "default": {
+                    "type": "integer"
+                },
+                "min": {
+                    "type": "integer"
+                },
+                "max": {
+                    "type": "integer"
+                }
+            }
+        },
+        "config": {
+            "type": "object",
+            "required": ["lease_time"],
+            "properties": {
+                "lease_time": {
+                    "$ref": "#/definitions/lease_time"
+                }
+            }
+        },
+        "option": {
+            "type": "object",
+            "required": ["type", "value"],
+            "oneOf": [
+                {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "const": "ip"
+                        },
+                        "value": {
+                            "type": "string",
+                            "format": "ipv4"
+                        }
+                    }
+                },
+                {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "const": "ip_list"
+                        },
+                        "value": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "format": "ipv4"
+                            }
+                        }
+                    }
+                },
+                {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "const": "u32"
+                        },
+                        "value": {
+                            "type": "number"
+                        }
+                    }
+                },
+                {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "const": "u16"
+                        },
+                        "value": {
+                            "type": "number"
+                        }
+                    }
+                },
+                {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "const": "hex"
+                        },
+                        "value": {
+                            "type": "string"
+                        }
+                    }
+                },
+                {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "const": "str"
+                        },
+                        "value": {
+                            "type": "string"
+                        }
+                    }
+                },
+                {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "const": "b64"
+                        },
+                        "value": {
+                            "type": "string"
+                        }
+                    }
+                }
+            ]
+        },
+        "options": {
+            "type": "object",
+            "properties": {
+                "values": {
+                    "type": "object",
+                    "patternProperties": {
+                        "\"[0-255]\"": {
+                            "$ref": "#/definitions/option"
+                        }
+                    }
+                }
+            }
+        },
+        "except": {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "format": "ipv4"
+            }
+        },
+        "range": {
+            "type": "object",
+            "required": ["config", "start", "end", "options"],
+            "properties": {
+                "config": {
+                    "$ref": "#/definitions/config"
+                },
+                "start": {
+                    "type": "string",
+                    "format": "ipv4"
+                },
+                "end": {
+                    "type": "string",
+                    "format": "ipv4"
+                },
+                "options": {
+                    "$ref": "#/definitions/options"
+                },
+                "except": {
+                    "$ref": "#/definitions/except"
+                }
+            }
+        },
+        "match": {
+            "type": "object",
+            "oneOf": [
+                {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "chaddr": {
+                            "type": "string"
+                        }
+                    }
+                },
+                {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "options": {
+                            "$ref": "#/definitions/options"
+                        }
+                    }
+                }
+            ]
+        },
+        "reservation": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["config", "ip", "match", "options"],
+            "properties": {
+                "config": {
+                    "$ref": "#/definitions/config"
+                },
+                "ip": {
+                    "type": "string",
+                    "format": "ipv4"
+                },
+                "options": {
+                    "$ref": "#/definitions/options"
+                },
+                "match": {
+                    "$ref": "#/definitions/match"
+                }
+            }
+        }
+    },
+    "type": "object",
+    "properties": {
+        "chaddr_only": {
+            "type": "boolean"
+        },
+        "interfaces": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
+        },
+        "networks": {
+            "description": "top level bucket for network configurations",
+            "type": "object",
+            "additionalProperties": {
+                "type": "object",
+                "properties": {
+                    "ping_check": {
+                        "type": "boolean"
+                    },
+                    "ping_timeout_ms": {
+                        "type": "integer"
+                    },
+                    "authoritative": {
+                        "type": "boolean"
+                    },
+                    "probation_period": {
+                        "type": "integer"
+                    },
+                    "ranges": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/definitions/range"
+                        }
+                    },
+                    "reservations": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/definitions/reservation"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
