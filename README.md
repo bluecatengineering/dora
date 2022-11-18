@@ -12,14 +12,7 @@ If started on non-default dhcp port, it is assumed this is for testing, and dora
 
 ## Features
 
-A non-exhaustive list of features, and their location in the project. Developers can use this as a starting point to explore dora's implementation.
-
-| Feature                                       | Description                                                                                        |
-| --------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| [Leases (plugin)](plugins/leases)             | Handles assignment of dynamic IPs                                                                  |
-| [Static (plugin)](plugins/static_addr)        | Handles assignment of static IPs                                                                   |
-| [Message type (plugin)](plugins/message_type) | Sets up preliminary return message type given received message type (other plugins can alter this) |
-| [Ip Manager](libs/ip_manager)                 | IP acquisition & storage                                                                           |
+[see example.yaml for all available options](./example.yaml). |
 
 ## Build/Run
 
@@ -133,7 +126,7 @@ It will pretty-print the internal dora config representation as well as parse th
 -   [v4 RFC4578](https://datatracker.ietf.org/doc/html/rfc4578)
 -   [v4 RFC6842](https://datatracker.ietf.org/doc/html/rfc6842)
 -   [v4 RFC3046](https://datatracker.ietf.org/doc/html/rfc3046)
--   see [dhcproto](https://github.com/bluecatengineering/dhcproto) for protocol level support, this list is dora only
+-   see [dhcproto](https://github.com/bluecatengineering/dhcproto) for protocol level support
 
 #### v6
 
@@ -141,9 +134,9 @@ It will pretty-print the internal dora config representation as well as parse th
 
 ## Performance
 
-Dora keeps no leases in memory at the moment. It relies totally on the database in order to determine which is the next IP to allocate within a range. The db workload is fairly write-heavy, and `sqlite` seems to bottleneck the tokio runtime at a certain point depending on how many threads you give to the runtime.
+In synthetic tests with `perfdhcp` I was able to get to around 5000 leases/sec, but `dora` was nowhere near close to consuming available CPU. `dora` keeps no leases in memory at the moment. It relies totally on the database in order to determine which is the next IP to allocate within a range. The db workload is fairly write-heavy, and `sqlite` seems to bottleneck the tokio runtime at a certain point.
 
-We _could_ go much faster by keeping things in memory and writing to db after the fact like more traditional DHCP implementations, but this is a trade-off for complexity. I've experimented with `roaring-rs`, a bitmap and it seems pretty fast, although we'd need logic to reload the database into memory again on startup among other changes. There may be other ways to squeeze more performance out without having to go down this road.
+We _could_ go much faster by keeping leases in memory and appending to the db like more traditional DHCP implementations, but this is a trade-off for complexity. I've experimented with the bitmap from `roaring-rs` and it seems pretty fast, although we'd need logic to reload the database into memory again on startup and be able to evict entries after lease expiration. Additional complexity we don't care for at the moment. There may be other ways to squeeze more performance out without having to go down this road.
 
 ## Troubleshooting/Testing
 
