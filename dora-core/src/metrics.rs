@@ -97,10 +97,10 @@ lazy_static! {
     pub static ref IN_FLIGHT: IntGauge =
         register_int_gauge!("in_flight", "count of currently processing messages").unwrap();
 
-        // TODO: set in external-api
+    // TODO: set in external-api
     /// # of declined IPs
-    pub static ref DECLINED_ADDRS: IntGauge =
-        register_int_gauge!("declined_addrs", "count of addresses currently on probation from decline").unwrap();
+    // pub static ref DECLINED_ADDRS: IntGauge =
+        // register_int_gauge!("declined_addrs", "count of addresses currently on probation from decline").unwrap();
 
     // TODO: set in external-api
     /// # of leased IPs

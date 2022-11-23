@@ -91,11 +91,6 @@ impl<T> MsgContext<T> {
     pub fn meta(&self) -> RecvMeta {
         self.meta
     }
-    // cannot use Bytes mutably, if we need to do this maybe we should stay with Vec<u8>
-    // /// Get the `SerialMsg` bytes by mutable ref
-    // pub fn bytes_mut(&mut self) -> &mut [u8] {
-    //     self.msg.bytes_mut()
-    // }
 
     /// Get `Serial` message by shared ref
     pub fn msg(&self) -> &SerialMsg {

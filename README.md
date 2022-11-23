@@ -58,10 +58,10 @@ cross build --target armv7-unknown-linux-gnueabihf --bin dora --release
 
 **Note** Remember to pass `--release` to `cross` if you want an optimized version of the binary
 
-The `musl` target also works, although it will not have `jemallocator`:
+You can compile for the `musl` target also, although it will not have `jemallocator`:
 
 ```
-cross build --target armv7-unknown-linux-musleabihf --bin dora
+cross build --target armv7-unknown-linux-musleabihf --bin dora --release
 ```
 
 If that works, you should have a `dora` binary in `target/armv7-unknown-linux-gnueabihf/debug/dora` or `target/armv7-unknown-linux-musleabihf/debug/dora`

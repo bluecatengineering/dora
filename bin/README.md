@@ -62,7 +62,7 @@ OPTIONS:
 Run on non-standard ports:
 
 ```
-dora -c /path/to/config.yaml --v4-addr "0.0.0.0:9901"
+dora -c /path/to/config.yaml --v4-addr 0.0.0.0:9901
 ```
 
 is equivalent to:

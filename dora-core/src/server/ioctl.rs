@@ -43,13 +43,13 @@ pub fn arp_set(
         ..unsafe { std::mem::zeroed() }
     };
 
-    let res = unsafe {
-        libc::ioctl(
-            soc.as_raw_fd(),
-            libc::SIOCSARP,
-            &arp_req as *const libc::arpreq,
-        )
-    };
+    // conversion needed for musl target
+    #[cfg(not(target_env = "musl"))]
+    let siocsarp = libc::SIOCSARP;
+    #[cfg(target_env = "musl")]
+    let siocsarp = libc::SIOCSARP.try_into().unwrap();
+
+    let res = unsafe { libc::ioctl(soc.as_raw_fd(), siocsarp, &arp_req as *const libc::arpreq) };
     if res == -1 {
         return Err(io::Error::last_os_error());
     }

@@ -44,17 +44,9 @@ wpa_passphrase=somepassword
 
 ```
 interface wlan0
-static ip_address=192.168.5.1/24 # pick some static IP
+static ip_address=192.168.5.1/24 # <- pick some static IP, this is the subnet we'll serve dora on
 nohook wpa_supplicant
 denyinterfaces wlan0
-```
-
-1. clone and build dnsmasq
-
-```
-git clone git://thekelleys.org.uk/dnsmasq.git
-cd dnsmasq
-make all-i18n
 ```
 
 1. set up IP forwarding to eth0
@@ -77,16 +69,45 @@ sudo netfilter-persistent save
 sudo reboot
 ```
 
-## Set up & run dora/hostapd/dnsmasq
+## Set up & run dora/hostapd
 
-1. get yourself a dora ARM binary. Contact @ecameron on slack or [see cross compiling](#cross-compiling-to-arm)
+1. get yourself a dora ARM binary. See the [README](../README.md) the section "Cross Compiling to ARM"
 
-1. Run dora, You can see dora's options with `dora --help`, you may need to edit the config file. `dora`'s config is in a format that's easy to generate programmatically, not with manual editing as a priority. Make sure the broadcast address, router, and subnet all match what is configured for the wireless interface.
+1. Run dora, You can see dora's options with `dora --help`, you likely need to edit the config file. `dora`'s config is in a format that's easy to generate programmatically, not with manual editing as the first priority. zzRemember to specify an `interfaces` section in the config.yaml so hostapd and dora don't use the same interface.
 
-(use --help to see dora opts)
+A very simple config that matches how this guide has configured hostapd might look like (see [example.yaml](../example.yaml) for the full set of options):
+
+```yaml
+interfaces:
+    - wlan0
+networks:
+    192.168.5.0/24:
+        authoritative: true
+        probation_period: 86400
+        ranges:
+            - start: 192.168.5.2
+              end: 192.168.5.250
+              config:
+                  lease_time:
+                      default: 3600
+              options:
+                  values:
+                      3: # router (required)
+                          type: ip_list
+                          value:
+                              - 192.168.5.1
+                      6: # domain name required (if running a DNS server like dnsmasq also, use it's IP)
+                          type: ip_list
+                          value:
+                              - 8.8.8.8
+```
+
+(use --help to see `dora` arguments)
+
+Run dora:
 
 ```
-sudo DORA_LOG="debug" ./dora -c example.yaml --v4-addr 0.0.0.0:9901 -d em.db
+sudo DORA_LOG="debug" ./dora -c example.yaml -d em.db
 ```
 
 You can delete `rm em.*` to wipe the database and start fresh.
@@ -95,12 +116,6 @@ You can delete `rm em.*` to wipe the database and start fresh.
 
 ```
 sudo hostapd -d /etc/hostapd/hostapd.conf
-```
-
-1. run dnsamsq
-
-```
-sudo ./dnsmasq/src/dnsmasq -d --dhcp-relay=192.168.5.1,127.0.0.1#9901,wlan0
 ```
 
 Try connecting to the `PI_AP` wirelessly, you can check the dora logs to see if DHCP traffic is being received.
@@ -112,26 +127,7 @@ If everything works, it's time to add it all to start on boot
 ```
 sudo systemctl unmask hostapd # this may or may not be necessary
 sudo systemctl enable hostapd
-sudo systemctl enable dnsmasq
 sudo reboot
 ```
 
 We don't have a way to add the dora binary to systemd at the moment, so it must be run manually. You probably want to ssh in to look at the logs anyway.
-
-## (optional) Running dora bound to an interface
-
-You can skip the `dnsmasq` step and run dora directly bound to `wlan0`, if you include:
-
-```
-interface: wlan0
-```
-
-in `example.yaml` (the dora config file), and start dora:
-
-```
-sudo DORA_LOG="debug" ./dora -c example.yaml -d em.db
-```
-
-If no `--v4-addr` is specified, then dora uses `0.0.0.0:67` the default DHCP ports. With this config, dora will respond to broadcast traffic on the interface specified.
-
-**CAVEATS** You can only bind one interface, and only the first block in the `networks` map will be used. This may change in the future, this is limited initial support.
