@@ -2,7 +2,7 @@
 
 ![](dora.jpg)
 
-`dora` is a DHCP server written in Rust using tokio. It is built on the `dhcproto` library and `sqlx`. We currently use the sqlite backend, although that could change in the future. The goal of `dora` is to provide a complete DHCP implementation for IPv4, and eventually IPv6. Dora supports duplicate address detection, ping, binding multiple interfaces, static addresses, etc [see example.yaml for all options](./example.yaml).
+`dora` is a DHCP server written in Rust using tokio. It is built on the [`dhcproto`](https://github.com/bluecatengineering/dhcproto) library and `sqlx`. We currently use the sqlite backend, although that could change in the future. The goal of `dora` is to provide a complete DHCP implementation for IPv4, and eventually IPv6. Dora supports duplicate address detection, ping, binding multiple interfaces, static addresses, etc [see example.yaml for all options](./example.yaml).
 
 It is, however, an **early release version** and may contain bugs. We hope to build an active community around this project so we can create a new DHCP server together. PRs, issues, and constructive comments are welcome.
 
@@ -140,10 +140,6 @@ We _could_ go much faster by keeping leases in memory and appending to the db li
 
 ## Troubleshooting/Testing
 
-### sqlx is giving me issues
-
-If `sqlx` continues to cause problems, perhaps we can consider changing to `rusqlite` and an async connection pooling mechanism like `deadpool`, [see here](https://crates.io/crates/deadpool-sqlite/0.2.0)
-
 ### Using perfdhcp
 
 [perfdhcp](https://kea.readthedocs.io/en/kea-2.0.1/man/perfdhcp.8.html) can be used to test dora, include `giaddr`, the subnet select option or the relay agent link selection opt, you can use this as a starting point:
@@ -157,3 +153,7 @@ This will start perfdhcp using dhcpv4, send messages to `127.0.0.1:9901`, listen
 ### Setting up dora on the PI
 
 See [PI setup](./docs/pi_setup.md)
+
+### Other issues?
+
+If you find a bug, or see something that doesn't look right, please open an issue and let us know. We welcome any and all constructive feedback.
