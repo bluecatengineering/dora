@@ -122,8 +122,10 @@ networks:
     #     server_id: 192.168.0.1
 #
 # DHCPv6 
+# v6 support is largely unfinished at the moment. There is some early support for 
+# responding to INFOREQ.
 v6:
-    # optional, what interfaces we will bind to
+    # optional, interfaces to bind
     interfaces:
         - enp6s0
     # TODO: SERVER ID
