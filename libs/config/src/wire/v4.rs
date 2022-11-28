@@ -287,7 +287,7 @@ fn decode_opt(code: &OptionCode, opt: &DhcpOption) -> Option<(u8, Opt)> {
 
 #[cfg(test)]
 mod tests {
-    pub static SAMPLE_YAML: &str = include_str!("../../../../config.yaml");
+    pub static SAMPLE_YAML: &str = include_str!("../../sample/config.yaml");
 
     // test we can encode/decode sample
     #[test]

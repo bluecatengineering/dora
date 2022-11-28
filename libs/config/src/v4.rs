@@ -425,7 +425,7 @@ mod tests {
 
     use super::*;
 
-    pub static SAMPLE_YAML: &str = include_str!("../../../config.yaml");
+    pub static SAMPLE_YAML: &str = include_str!("../sample/config.yaml");
 
     // test we can decode from wire
     #[test]

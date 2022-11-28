@@ -16,12 +16,6 @@ pub struct State {
     live_msgs: Arc<Semaphore>,
     /// max live message count
     live_limit: usize,
-    /// live msgs interval count for average
-    live_interval_count: AtomicUsize,
-    /// live msgs sum
-    live_interval_sum: AtomicUsize,
-    /// current running average of live msgs
-    live_avg: AtomicUsize,
     /// id to assign incoming messages
     next_id: AtomicUsize,
 }
@@ -32,9 +26,6 @@ impl State {
         State {
             live_msgs: Arc::new(Semaphore::new(max_live)),
             live_limit: max_live,
-            live_interval_count: AtomicUsize::new(0),
-            live_interval_sum: AtomicUsize::new(0),
-            live_avg: AtomicUsize::new(0),
             next_id: AtomicUsize::new(0),
         }
     }
@@ -71,34 +62,9 @@ impl State {
         self.next_id.fetch_add(1, Ordering::Acquire)
     }
 
-    /// Add the current live msgs count and increment the interval
-    #[inline]
-    pub fn add_live_msgs(&self) {
-        // incr live msgs count
-        let live_count = self.live_interval_count.fetch_add(1, Ordering::Relaxed);
-        // add current live msgs to sum
-        let live_sum = self
-            .live_interval_sum
-            .fetch_add(live_count, Ordering::Relaxed);
-
-        // calculate average
-        if live_count != 0 {
-            self.live_avg.swap(live_sum / live_count, Ordering::Relaxed);
-        }
-    }
-
-    /// The average of live msgs
-    #[inline]
-    pub fn live_avg(&self) -> usize {
-        self.live_avg.load(Ordering::Relaxed)
-    }
-
     /// Reset msgs count
     #[inline]
     pub fn reset_live(&self) {
-        self.live_interval_count.swap(0, Ordering::Relaxed);
-        self.live_interval_sum.swap(0, Ordering::Relaxed);
-        self.live_avg.swap(0, Ordering::Relaxed);
         IN_FLIGHT.set(0);
     }
 }

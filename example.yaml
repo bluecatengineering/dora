@@ -59,18 +59,20 @@ networks:
                 # to respond to any parameter request list values.
                 options:
                     values:
-                        1: # subnet mask (optional, if not specified, we will pull from the interface config)
+                        # each option has a `type`/`value`. valid types are:
+                        # ip/ip_list/str/u32/u16/b64/hex
+                        1: # subnet mask (optional, if not specified, comes from `interfaces`)
                             type: ip
                             value: 255.255.255.0
-                        3: # router (required)
+                        3: # router *required*
                             type: ip_list
                             value:
                                 - 192.168.5.1
-                        6: # domain name required (if running a DNS server like dnsmasq also, use it's IP)
+                        6: # domain name *required* (if running a DNS server like dnsmasq also, use it's IP)
                             type: ip_list
                             value:
                                 - 8.8.8.8
-                        28: # broadcast addr (optional, if not specified, will pull from interface config)
+                        28: # broadcast addr (optional, if not specified, comes from `interfaces`)
                            type: ip
                            value: 192.168.5.255
                 # you can add exceptions each range
