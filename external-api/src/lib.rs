@@ -27,7 +27,7 @@ pub use crate::models::{Health, State};
 
 /// The task runner for the [`ExternalApi`]
 ///
-/// [`ExernalAPI`]: crate::ExternalApi
+/// [`ExternalAPI`]: crate::ExternalApi
 #[derive(Debug)]
 pub struct ExternalApiGuard {
     task_handle: JoinHandle<()>,

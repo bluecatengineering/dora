@@ -400,7 +400,7 @@ where
     /// found, then if we're authoritative we will just try to insert the IP, and
     /// if not we return.
     /// Returns
-    ///     Err if ip/id don't match whats in storage or if it's expired
+    ///     Err if ip/id don't match what's in storage or if it's expired
     ///     Ok(()) entry created successfully for lease
     pub async fn try_lease(
         &self,
