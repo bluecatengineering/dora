@@ -13,7 +13,7 @@ pub enum Error {
         #[source]
         err: tokio::sync::oneshot::error::RecvError,
     },
-    #[error("recieved mismatched reply for request: {seq_cnt:?} {payload:?}")]
+    #[error("received mismatched reply for request: {seq_cnt:?} {payload:?}")]
     WrongReply { seq_cnt: u16, payload: Token },
 }
 

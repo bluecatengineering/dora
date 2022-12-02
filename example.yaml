@@ -32,7 +32,7 @@ networks:
         #
         # Decline & Duplicate Address Detection:
         # `probation_period` is defined per-network. If any DHCP messages are received from
-        # this network with a message type of DECLINE, or if a ping check is succesful
+        # this network with a message type of DECLINE, or if a ping check is successful
         # (meaning the address is in use), dora will not attempt to lease the IP inside of
         # the probation period.
         #

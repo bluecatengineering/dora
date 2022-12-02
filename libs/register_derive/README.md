@@ -24,7 +24,7 @@ Defines a new plugin called `PluginName` and a `Register` implementation. It is 
 #[automatically_derived]
 impl dora_core::Register<Message> for StaticAddr {
     fn register(self, srv: &mut dora_core::Server<Message>) {
-         // some logging stuff ommitted
+         // some logging stuff omitted
         let this = std::sync::Arc::new(self);
         srv.plugin_order::<Self, _>(this, &[std::any::TypeId::of::<MsgType>()]);
     }

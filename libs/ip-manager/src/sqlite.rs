@@ -101,7 +101,7 @@ impl Storage for SqliteDb {
         expires_at: SystemTime,
     ) -> Result<Option<IpAddr>, Self::Error> {
         // a different Error type here would let us remove Option
-        // Option is currently doing work as the method to say "cant find an IP in the range",
+        // Option is currently doing work as the method to say "can't find an IP in the range",
         // this should probably be an error variant
         match (*range.start(), *range.end(), network) {
             (IpAddr::V4(start), IpAddr::V4(end), IpAddr::V4(network)) => {

@@ -2,7 +2,7 @@
 
 //! # metrics
 //!
-//! contains statics for server metrics
+//! contains statistics for server metrics
 use std::time::Instant;
 
 use lazy_static::lazy_static;

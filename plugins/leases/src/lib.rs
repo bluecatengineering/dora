@@ -213,7 +213,7 @@ where
                 return Ok(Action::Respond);
             }
             None => {
-                debug!("couldn't get requested IP, No reponse");
+                debug!("couldn't get requested IP, No response");
                 return Ok(Action::NoResponse);
             }
         };
@@ -246,7 +246,7 @@ where
                 }
                 // ip not reserved or chaddr doesn't match
                 Err(err) if network.authoritative() => {
-                    debug!(?err, "cant give out lease");
+                    debug!(?err, "can't give out lease");
                     ctx.update_resp_msg(MessageType::Nak)
                         .context("failed to set msg type")?;
                     return Ok(Action::Respond);

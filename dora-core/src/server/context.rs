@@ -282,7 +282,7 @@ impl MsgContext<v4::Message> {
             _ => None,
         })
     }
-    /// determing the response addr based on request. Sets response giaddr
+    /// determine the response addr based on request. Sets response giaddr
     /// if we are talking to a relay. Injects into ARP cache if response will be
     /// unicast to yiaddr.
     //
