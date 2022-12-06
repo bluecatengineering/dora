@@ -106,7 +106,7 @@ impl Discover {
 }
 
 /// Send a REQUEST msg
-#[derive(Builder, PartialEq, Debug, Clone)]
+#[derive(Builder, PartialEq, Eq, Debug, Clone)]
 #[builder(setter(into), field(private))]
 pub struct Request {
     /// supply a mac address for DHCPv4 [default: first avail mac]

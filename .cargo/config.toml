@@ -6,3 +6,6 @@ linker = "arm-linux-gnueabihf-gcc"
 
 # [target.x86_64-unknown-linux-gnu]
 # runner = 'sudo -E'
+
+[env]
+RUST_TEST_THREADS = "1"

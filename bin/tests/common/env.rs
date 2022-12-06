@@ -3,42 +3,14 @@ use std::{
     process::{Child, Command},
 };
 
-pub const TEST_DORA_NETNS: &str = "dora_test";
-pub const TEST_NIC_CLI: &str = "dhcpcli";
-pub const TEST_NIC_SRV: &str = "dhcpsrv";
-
-pub const TEST_DHCP_SRV_IP: &str = "192.168.2.1";
-
-const DNSMASQ_OPTS: &str = r#"
---log-dhcp
---keep-in-foreground
---no-daemon
---conf-file=/dev/null
---dhcp-leasefile=/tmp/mozim_test_dhcpd_lease
---no-hosts
---dhcp-host=foo1,192.0.2.99
---dhcp-host=00:11:22:33:44:55,192.0.2.51
---dhcp-option=option:dns-server,8.8.8.8,1.1.1.1
---dhcp-option=option:mtu,1492
---dhcp-option=option:domain-name,example.com
---dhcp-option=option:ntp-server,192.0.2.1
---keep-in-foreground
---bind-interfaces
---except-interface=lo
---clear-on-reload
---listen-address=192.0.2.1
---dhcp-range=192.0.2.2,192.0.2.50,60 --no-ping
-"#;
-
 #[derive(Debug)]
 pub(crate) struct DhcpServerEnv {
     daemon: Child,
-    config_filename: String,
     db: String,
     netns: String,
     veth_cli: String,
-    veth_srv: String,
-    srv_ip: String,
+    // veth_srv: String,
+    // srv_ip: String,
 }
 
 impl DhcpServerEnv {
@@ -54,12 +26,11 @@ impl DhcpServerEnv {
         create_test_veth_nics(netns, srv_ip, veth_cli, veth_srv);
         Self {
             daemon: start_dhcp_server(config, netns, db),
-            config_filename: config.to_owned(),
             db: db.to_owned(),
             netns: netns.to_owned(),
             veth_cli: veth_cli.to_owned(),
-            veth_srv: veth_srv.to_owned(),
-            srv_ip: srv_ip.to_owned(),
+            // veth_srv: veth_srv.to_owned(),
+            // srv_ip: srv_ip.to_owned(),
         }
     }
 }
@@ -70,9 +41,15 @@ impl Drop for DhcpServerEnv {
         stop_dhcp_server(&mut self.daemon);
         remove_test_veth_nics(&self.veth_cli);
         remove_test_net_namespace(&self.netns);
-        std::fs::remove_file(db);
-        std::fs::remove_file(format!("{db}-shm"));
-        std::fs::remove_file(format!("{db}-wal"));
+        if let Err(err) = std::fs::remove_file(db) {
+            eprintln!("{:?}", err);
+        }
+        if let Err(err) = std::fs::remove_file(format!("{db}-shm")) {
+            eprintln!("{:?}", err);
+        }
+        if let Err(err) = std::fs::remove_file(format!("{db}-wal")) {
+            eprintln!("{:?}", err);
+        }
     }
 }
 
@@ -94,6 +71,8 @@ fn create_test_veth_nics(netns: &str, srv_ip: &str, veth_cli: &str, veth_srv: &s
     run_cmd(&format!(
         "ip netns exec {netns} ip addr add {srv_ip}/24 dev {veth_srv}",
     ));
+    // TODO: remove this eventually
+    run_cmd(&format!("ip addr add 192.168.2.99/24 dev {veth_cli}"));
 }
 
 fn remove_test_veth_nics(veth_cli: &str) {
@@ -104,7 +83,7 @@ fn start_dhcp_server(config: &str, netns: &str, db: &str) -> Child {
     let workspace_root = env::var("WORKSPACE_ROOT").unwrap_or_else(|_| "..".to_owned());
     let config_path = format!("{workspace_root}/bin/tests/test_configs/{config}");
     let dora_debug = format!(
-        "./{workspace_root}/target/debug/dora -d={db} --config-path={config_path} --threads=2 --dora-log=debug",
+        "./{workspace_root}/target/debug/dora -d={db} --config-path={config_path} --threads=2 --dora-log=debug --v4-addr=0.0.0.0:9901",
     );
     let cmd = format!("ip netns exec {netns} {dora_debug}");
 
