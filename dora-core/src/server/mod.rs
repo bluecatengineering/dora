@@ -455,9 +455,7 @@ macro_rules! impl_server {
         }
 
         impl Service<$t> {
-            // handles listening on UDP and spawning a new task per `MsgContext` created
-            // Also, we spawn a separate task that handles sending data on UDP to avoid
-            // locking on the sender
+            // handles listening on UDP and spawning a new task per `MsgContext`
             async fn listen(&mut self) -> Result<()> {
                 let soc = self.create_socket().await?;
 
@@ -486,7 +484,7 @@ macro_rules! impl_server {
                         // & `JoinSet` and have simpler shutdown code by avoiding
                         // broadcast/mpsc channels and explicit drops.
                         // Using JoinSet will likely mean that we no longer need `_shutdown_complete`
-                        // and using CancellationToken will replace `shutdown`
+                        // and using CancellationToken could replace `shutdown`
                         tokio::spawn(task.run());
                     }
                 }
@@ -504,7 +502,7 @@ impl Service<v4::Message> {
     async fn create_socket(&self) -> Result<unix_udp_sock::UdpSocket> {
         let addr = self.plugins.config.v4_addr;
         let interfaces = self.plugins.interfaces.clone();
-        debug!(?addr, "binding UDP socket");
+        info!(?addr, "binding UDP socket");
         let soc = if interfaces.len() == 1 {
             trace!("binding exactly one interface so use SO_BINDTODEVICE");
             // to bind to an interface, we must create the socket using libc

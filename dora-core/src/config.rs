@@ -33,6 +33,8 @@ pub mod cli {
     pub const DEFAULT_DATABASE_URL: &str = "/var/lib/dora/leases.db";
     /// default dora id
     pub const DEFAULT_DORA_ID: &str = "dora_id";
+    /// default log level. Can use this argument or DORA_LOG env var
+    pub const DEFAULT_DORA_LOG: &str = "info";
 
     use std::{
         net::{Ipv6Addr, SocketAddr},
@@ -83,6 +85,9 @@ pub mod cli {
         /// ID of this instance
         #[clap(long, env, value_parser, default_value = DEFAULT_DORA_ID)]
         pub dora_id: String,
+        /// set the log level. All valid RUST_LOG arguments are accepted
+        #[clap(long, env, value_parser, default_value = DEFAULT_DORA_LOG)]
+        pub dora_log: String,
         /// Path to the database use "sqlite::memory:" for in mem db ex. "em.db"
         /// NOTE: in memory sqlite db connection idle timeout is 5 mins
         #[clap(short, env, value_parser, default_value = DEFAULT_DATABASE_URL)]
@@ -136,11 +141,11 @@ pub mod trace {
 
     impl Config {
         /// Make new runtime config
-        pub fn parse() -> Result<Self> {
+        pub fn parse(dora_log: &str) -> Result<Self> {
             let log_frmt: String = parse_var_with_err("LOG_FORMAT", DEFAULT_LOG_FORMAT)?;
 
             // Log level comes from DORA_LOG
-            let filter = EnvFilter::try_from_env("DORA_LOG")
+            let filter = EnvFilter::try_new(dora_log)
                 .or_else(|_| EnvFilter::try_new("info"))?
                 .add_directive("hyper=off".parse()?);
 
