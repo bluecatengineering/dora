@@ -157,3 +157,5 @@ See [PI setup](./docs/pi_setup.md)
 ### Other issues?
 
 If you find a bug, or see something that doesn't look right, please open an issue and let us know. We welcome any and all constructive feedback.
+
+We're still actively working on this. Some of the things we'd like to add in the future include: DDNS updates, stateful DHCPv6, HA & Client classification. 
