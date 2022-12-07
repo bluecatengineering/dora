@@ -61,6 +61,10 @@ networks:
                     values:
                         # each option has a `type`/`value`. valid types are:
                         # ip/ip_list/str/u32/u16/b64/hex
+                        # Look at: https://docs.rs/dhcproto/latest/dhcproto/v4/enum.DhcpOption.html for a list of opts and their type.
+                        #
+                        # In the future, we could support a nicer way to handwrite 
+                        # these options, perhaps matching a string name to the opt code and type. 
                         1: # subnet mask (optional, if not specified, comes from `interfaces`)
                             type: ip
                             value: 255.255.255.0
