@@ -28,14 +28,14 @@ use jemallocator::Jemalloc;
 static GLOBAL: Jemalloc = Jemalloc;
 
 fn main() -> Result<()> {
-    let trace_config = trace::Config::parse()?;
+    // parses from cli or environment var
+    let config = cli::Config::parse();
+    let trace_config = trace::Config::parse(&config.dora_log)?;
+    debug!(?config);
     debug!(?trace_config);
     if let Err(err) = dotenv::dotenv() {
         debug!(?err, ".env file not loaded");
     }
-    // parses from cli or environment var
-    let config = cli::Config::parse();
-    debug!(?config);
 
     let mut builder = Builder::new_multi_thread();
     // configure thread name & enable IO/time
@@ -68,13 +68,13 @@ async fn start(config: cli::Config) -> Result<()> {
     std::env::set_var("DORA_ID", &dora_id);
     // start external api for healthchecks
     let api = ExternalApi::new(config.external_api);
-    info!("parsing DHCP config");
+    debug!("parsing DHCP config");
     let dhcp_cfg = Arc::new(DhcpConfig::parse(&config.config_path)?);
     // start v4 server
-    info!("starting v4 server");
+    debug!("starting v4 server");
     let mut v4: Server<v4::Message> =
         Server::new(config.clone(), dhcp_cfg.v4().interfaces().to_owned())?;
-    info!("starting v4 plugins");
+    debug!("starting v4 plugins");
 
     // perhaps with only one plugin chain we will just register deps here
     // in order? we could get rid of derive macros & topo sort
