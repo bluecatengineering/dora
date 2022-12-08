@@ -92,11 +92,11 @@ networks:
                       default: 3600
               options:
                   values:
-                      3: # router (required)
+                      3: # router
                           type: ip_list
                           value:
                               - 192.168.5.1
-                      6: # domain name required (if running a DNS server like dnsmasq also, use it's IP)
+                      6: # domain name (if running a DNS server like dnsmasq also, use it's IP)
                           type: ip_list
                           value:
                               - 8.8.8.8

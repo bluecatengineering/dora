@@ -616,8 +616,8 @@ impl MsgContext<v4::Message> {
             resp.opts_mut().insert(id.clone());
         }
 
-        // insert net mask & broadcast from interface
-        // if the config provides these also, these will be overwritten
+        // insert router & net mask & broadcast from interface
+        // if the config provides these also, they will be overwritten
         if let Some(IpNetwork::V4(interface)) = self.interface {
             resp.opts_mut()
                 .insert(DhcpOption::Router(vec![interface.ip()]));

@@ -65,18 +65,18 @@ networks:
                         #
                         # In the future, we could support a nicer way to handwrite 
                         # these options, perhaps matching a string name to the opt code and type. 
-                        1: # subnet mask (optional, if not specified, comes from `interfaces`)
+                        1: # subnet mask (if not specified, comes from `interfaces`)
                             type: ip
                             value: 255.255.255.0
-                        3: # router *required*
+                        3: # router (if not specified, will come from `interfaces`)
                             type: ip_list
                             value:
                                 - 192.168.5.1
-                        6: # domain name *required* (if running a DNS server like dnsmasq also, use it's IP)
+                        6: # domain name (if running a DNS server like dnsmasq also, use its IP)
                             type: ip_list
                             value:
                                 - 8.8.8.8
-                        28: # broadcast addr (optional, if not specified, comes from `interfaces`)
+                        28: # broadcast addr (if not specified, comes from `interfaces`)
                            type: ip
                            value: 192.168.5.255
                 # you can add exceptions each range
@@ -109,6 +109,7 @@ networks:
                         28:
                            type: ip
                            value: 192.168.5.255
+                        
                 # Reservations are supported based on `chaddr`, or `options`. Currently, only a single
                 # options may be specified for a match. There is no AND/OR logic for matching on options.
                 match:
