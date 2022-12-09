@@ -68,6 +68,15 @@ networks:
                             type: ip_list
                             value:
                                 - 192.168.0.1
+                        43:
+                            type: sub_option
+                            value:
+                                1:
+                                    type: str
+                                    value: "foobar"
+                                2:
+                                    type: ip
+                                    value: 1.2.3.4
                 match:
                     options:
                         values:

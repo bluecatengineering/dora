@@ -60,7 +60,7 @@ networks:
                 options:
                     values:
                         # each option has a `type`/`value`. valid types are:
-                        # ip/ip_list/str/u32/u16/b64/hex
+                        # ip/ip_list/str/u32/u16/b64/hex/sub_option
                         # Look at: https://docs.rs/dhcproto/latest/dhcproto/v4/enum.DhcpOption.html for a list of opts and their type.
                         #
                         # In the future, we could support a nicer way to handwrite 
@@ -109,6 +109,16 @@ networks:
                         28:
                            type: ip
                            value: 192.168.5.255
+                        43:
+                            type: sub_option
+                            value:
+                                1:
+                                    type: str
+                                    value: "foobar"
+                                2:
+                                    type: ip
+                                    value: 1.2.3.4
+
                         
                 # Reservations are supported based on `chaddr`, or `options`. Currently, only a single
                 # options may be specified for a match. There is no AND/OR logic for matching on options.
