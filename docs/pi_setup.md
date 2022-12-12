@@ -17,20 +17,7 @@ Then ensure you acquire the prerequisites:
 sudo apt-get -y install hostapd bridge-utils iptables gettext libdbus-1-dev libidn11-dev libnetfilter-conntrack-dev nettle-dev netfilter-persistent iptables-persistent
 ```
 
-Also, if you have not yet installed Rust on your Pi, this can be achieved rather painlessly:
-
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
-
-Furthermore, you may wish to also install `docker` if you have not yet done so:
-
-```bash
-curl -fsSL https://get.docker.com -o get-docker.sh
-sudo sh get-docker.sh
-# Ensure you add your user to the docker group to make it easier to use cross.
-sudo usermod -aG docker $USER
-```
+Also, if you have not yet installed Rust on your Pi, this can be achieved rather painlessly using [`rustup`](https://rustup.rs)
 
 ## Set up the Pi as an access point
 
@@ -107,9 +94,9 @@ sudo netfilter-persistent save
 
 ## Set up & run dora/hostapd
 
-1. get yourself a dora ARM binary. See the [README](../README.md) the section "Cross Compiling to ARM"
+1. get yourself a dora ARM binary. See the [README](../README.md#cross-compiling-to-arm) the section "Cross Compiling to ARM". Note that if you choose to build the binary directly on the Pi, you may find it easier to [not use cross](../README.md#not-using-cross).
 
-1. Run dora, You can see dora's options with `dora --help`, you likely need to edit the config file. `dora`'s config is in a format that's easy to generate programmatically, not with manual editing as the first priority. Remember to specify an `interfaces` section in the config.yaml so hostapd and dora don't use the same interface.
+1. Run dora, You can see dora's options with `dora --help`, you likely need to edit the config file. `dora`'s config is in a format that's easy to generate programmatically, not with manual editing as the first priority.
 
 A very simple config (IPv4 only) that matches how this guide has configured hostapd might look like:
 
@@ -150,10 +137,10 @@ You may wish to save this minimal config to `pi.yaml` to try it out, or see [exa
 
 Run dora:
 
-After you have saved the above minimal config to `pi.yaml`, you should be able to run the following (assuming you compiled a release binary with `armv7-unknown-linux-gnueabihf` as a target earlier, if not please alter the path to your `dora` bin appropriately):
+After you have saved the above minimal config to `pi.yaml` in the workspace on the Pi, go ahead and [setup the sqlx database](../README.md#buildrun) if you haven't already. You should then be able to run the following (you may also need to substitute your path to the dora binary for `./dora` depending on whether you compiled it directly on the Pi or copied it from elsewhere):
 
 ```
-sudo DORA_LOG="debug" target/armv7-unknown-linux-gnueabihf/release/dora -c pi.yaml -d em.db
+sudo DORA_LOG="debug" ./dora -c pi.yaml -d em.db
 ```
 
 You can delete `rm em.*` to wipe the database and start fresh.
@@ -176,4 +163,4 @@ sudo systemctl enable hostapd
 sudo reboot
 ```
 
-We don't have a way to add the dora binary to systemd at the moment, so it must be run manually. You probably want to ssh in to look at the logs anyway. There are a number of ways that you can ensure `dora` will continue to run beyond your SSH session (e.g. using [tmux](https://github.com/tmux/tmux/wiki), so feel free to use your favorite solution.
+We don't have a way to add the dora binary to systemd at the moment, so it must be run manually. You probably want to SSH in to look at the logs anyway. There are a number of ways that you can ensure `dora` will continue to run beyond your SSH session (e.g. using [tmux](https://github.com/tmux/tmux/wiki), so feel free to use your favorite solution.

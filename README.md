@@ -49,7 +49,7 @@ Use `DORA_LOG` env var for adjusting log level and which targets, see [here](htt
 
 #### Using cross
 
-There is a project called `cross` that does most of the heavy lifting and will build everything in a docker container, this is the first thing to try.
+There is a project called `cross` that does most of the heavy lifting and will build everything in a container, this is the first thing to try. Note that [you will need either docker or podman](https://github.com/cross-rs/cross#dependencies), so we recommend that you install [`docker`](https://docs.docker.com/engine/install/) if you have not yet done so.
 
 ```
 cargo install cross
@@ -64,7 +64,7 @@ You can compile for the `musl` target also, although it will not have `jemalloca
 cross build --target armv7-unknown-linux-musleabihf --bin dora --release
 ```
 
-If that works, you should have a `dora` binary in `target/armv7-unknown-linux-gnueabihf/debug/dora` or `target/armv7-unknown-linux-musleabihf/debug/dora`
+If that works, you should have a `dora` binary in `target/armv7-unknown-linux-gnueabihf/release/dora` or `target/armv7-unknown-linux-musleabihf/release/dora`
 
 #### Not using cross
 
@@ -81,13 +81,11 @@ Notice that `.cargo/config.toml` has an entry for replacing the linker when cros
 linker = "arm-linux-gnueabihf-gcc"
 ```
 
-This means `arm-linux gnueabihf-gcc` must be available on the system and will be used as the linker. Once you have it installed, you can use:
+This means `arm-linux gnueabihf-gcc` must be available on the system and will be used as the linker. Once you have it installed, you can produce an ARMv7 binary using:
 
 ```
 TARGET_CC=arm-linux-gnueabihf-gcc TARGET_AR=arm-linux-gnueabihf-gcc-ar cargo build --target=armv7-unknown-linux-gnueabihf --bin dora
 ```
-
-To produce an ARMv7 binary. I have not tested this on an actual system, but it appears to compile & link.
 
 ## Dora options & environment vars
 
