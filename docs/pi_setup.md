@@ -94,7 +94,7 @@ sudo netfilter-persistent save
 
 ## Set up & run dora/hostapd
 
-1. get yourself a dora ARM binary. See the [README](../README.md#cross-compiling-to-arm) the section "Cross Compiling to ARM". Note that if you choose to build the binary directly on the Pi, you may find it easier to [not use cross](../README.md#not-using-cross).
+1. get yourself a dora ARM binary. See the [README](../README.md#cross-compiling-to-arm) the section "Cross Compiling to ARM". Note that if you choose to build the binary directly on the Pi, you can simply [follow the build instructions](../README.md#buildrun).
 
 1. Run dora, You can see dora's options with `dora --help`, you likely need to edit the config file. `dora`'s config is in a format that's easy to generate programmatically, not with manual editing as the first priority.
 

@@ -81,7 +81,7 @@ Notice that `.cargo/config.toml` has an entry for replacing the linker when cros
 linker = "arm-linux-gnueabihf-gcc"
 ```
 
-This means `arm-linux gnueabihf-gcc` must be available on the system and will be used as the linker. Once you have it installed, you can produce an ARMv7 binary using:
+This means `arm-linux-gnueabihf-gcc` must be available on the system and will be used as the linker. Once you have it installed, you can produce an ARMv7 binary using:
 
 ```
 TARGET_CC=arm-linux-gnueabihf-gcc TARGET_AR=arm-linux-gnueabihf-gcc-ar cargo build --target=armv7-unknown-linux-gnueabihf --bin dora
