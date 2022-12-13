@@ -507,7 +507,7 @@ impl Service<v4::Message> {
             trace!("binding exactly one interface so use SO_BINDTODEVICE");
             // to bind to an interface, we must create the socket using libc
             let socket = socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None)
-                .context("failed to bind v6 UDP socket")?;
+                .context("failed to bind v4 UDP socket")?;
             // SO_BINDTODEVICE
             socket
                 .bind_device(Some(interfaces.first().unwrap().name.as_bytes()))
