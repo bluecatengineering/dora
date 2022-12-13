@@ -42,6 +42,11 @@ networks:
         # OR IF IT IS NOT specified, dora will use the IP of the interface we recv'd the message on. 
         # OR If bound to loopback, we will just use the first non-loopback interface IP
         server_id: 192.168.5.1
+        # this will replace the `sname` field in the DHCP header
+        # server_name: "example.org"
+        #
+        # this will replace the `fname` field in the DHCP header
+        # file_name: "bootfile.efi" 
         ranges:
             -
                 # start of your range

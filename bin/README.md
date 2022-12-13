@@ -62,13 +62,13 @@ OPTIONS:
 Run on non-standard ports:
 
 ```
-dora -c /path/to/config.yaml --v4-addr 0.0.0.0:9901
+dora -c /path/to/config.yaml --v4-addr 0.0.0.0:9900
 ```
 
 is equivalent to:
 
 ```
-V4_ADDR="0.0.0.0:9901" CONFIG_PATH="/path/to/config.yaml" dora
+V4_ADDR="0.0.0.0:9900" CONFIG_PATH="/path/to/config.yaml" dora
 ```
 
 Use `DORA_LOG` to control dora's log level. Takes same arguments as `RUST_LOG`
