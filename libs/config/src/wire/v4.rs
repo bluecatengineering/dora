@@ -71,6 +71,8 @@ pub struct Net {
     /// Whether we are authoritative for this network (default: true)
     #[serde(default = "super::default_authoritative")]
     pub authoritative: bool,
+    pub server_name: Option<String>,
+    pub file_name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
