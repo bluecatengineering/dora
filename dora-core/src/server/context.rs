@@ -465,6 +465,8 @@ impl MsgContext<v4::Message> {
             v4::MessageType::Nak => {
                 let giaddr = resp.giaddr();
                 resp.clear_addrs();
+                resp.clear_fname();
+                resp.clear_sname();
                 resp.set_giaddr(giaddr);
                 // remove all opts. in the future, we may need to remove exclusively
                 // what was added in the param req list, for now we will just remove all

@@ -124,6 +124,8 @@ impl Config {
                     authoritative,
                     server_id,
                     ping_timeout_ms,
+                    server_name,
+                    file_name,
                 } = net;
 
                 let ranges = ranges.into_iter().map(|range| range.into()).collect();
@@ -160,6 +162,8 @@ impl Config {
                     reserved_opts,
                     authoritative,
                     ping_timeout_ms: Duration::from_millis(ping_timeout_ms),
+                    server_name,
+                    file_name,
                 };
                 // set total addr space for metrics
                 dora_core::metrics::TOTAL_AVAILABLE_ADDRS.set(network.total_addrs() as i64);
@@ -225,9 +229,17 @@ pub struct Network {
     /// with authoritative == true then dora will always try to respond
     /// to REQUEST/INFORM
     authoritative: bool,
+    server_name: Option<String>,
+    file_name: Option<String>,
 }
 
 impl Network {
+    pub fn server_name(&self) -> Option<&str> {
+        self.server_name.as_deref()
+    }
+    pub fn file_name(&self) -> Option<&str> {
+        self.file_name.as_deref()
+    }
     pub fn subnet(&self) -> Ipv4Addr {
         self.subnet.network()
     }

@@ -66,9 +66,12 @@ impl Plugin<Message> for MsgType {
             .v4()
             .server_id(meta.ifindex, subnet)
             .context("cannot find server_id")?;
-
+        // look up which network the message belongs to
+        let network = self.cfg.v4().get_network(subnet);
+        let sname = network.and_then(|net| net.server_name());
+        let fname = network.and_then(|net| net.file_name());
         // message that will be returned
-        let mut resp = util::new_msg(req, server_id);
+        let mut resp = util::new_msg(req, server_id, sname, fname);
 
         // if there is a server identifier it must match ours
         if matches!(req.opts().get(OptionCode::ServerIdentifier), Some(DhcpOption::ServerIdentifier(id)) if *id != server_id && !id.is_unspecified())
@@ -83,9 +86,6 @@ impl Plugin<Message> for MsgType {
         // add server id to response
         resp.opts_mut()
             .insert(DhcpOption::ServerIdentifier(server_id));
-
-        // look up which network the message belongs to
-        let network = self.cfg.v4().get_network(subnet);
 
         match msg_type.context("no option 53 (message type) found")? {
             MessageType::Discover => {
@@ -148,7 +148,12 @@ impl Plugin<Message> for MsgType {
 pub mod util {
     use super::*;
 
-    pub fn new_msg(req: &Message, siaddr: Ipv4Addr) -> Message {
+    pub fn new_msg(
+        req: &Message,
+        siaddr: Ipv4Addr,
+        sname: Option<&str>,
+        fname: Option<&str>,
+    ) -> Message {
         let mut msg = Message::new_with_id(
             req.xid(),
             Ipv4Addr::UNSPECIFIED,
@@ -160,6 +165,13 @@ pub mod util {
         msg.set_opcode(Opcode::BootReply)
             .set_htype(req.htype())
             .set_flags(req.flags());
+        // set the sname & fname header fields
+        if let Some(sname) = sname {
+            msg.set_sname_str(sname);
+        }
+        if let Some(fname) = fname {
+            msg.set_fname_str(fname);
+        }
         msg
     }
 }
