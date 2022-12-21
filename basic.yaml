@@ -1,6 +1,6 @@
 chaddr_only: false
 interfaces: 
-    - srv
+    - enp6s0
 networks:
     192.168.1.100/30:
         probation_period: 86400
@@ -116,3 +116,9 @@ networks:
                 except:
                     - 10.0.0.123
                     - 10.0.0.124
+
+ddns:
+    # values: client_update | use_update
+    # If `client_update` is used, dora will not do a DDNS update
+    # if `use_update` is used, we will honor the flags in the client FQDN option
+    update: client_update

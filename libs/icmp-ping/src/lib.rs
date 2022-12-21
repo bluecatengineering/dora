@@ -396,7 +396,7 @@ mod tests {
         let listener = Listener::<Icmpv4>::new()?;
         let pinger = listener.pinger("127.0.0.1".parse().unwrap());
         for i in 0..5 {
-            let res = pinger.ping(i as u16).await?;
+            let res = pinger.ping(i).await?;
             assert_eq!(res.reply.seq_cnt, i);
         }
 
@@ -410,7 +410,7 @@ mod tests {
         let pinger = listener.pinger("1.1.1.1".parse().unwrap());
         let a = tokio::spawn(async move {
             for i in 1..5 {
-                let res = pinger.ping(i as u16).await?;
+                let res = pinger.ping(i).await?;
                 assert_eq!(res.reply.seq_cnt, i);
             }
             Ok::<_, errors::Error>(())
@@ -418,7 +418,7 @@ mod tests {
         let pinger = listener.pinger("8.8.8.8".parse().unwrap());
         let b = tokio::spawn(async move {
             for i in 1..5 {
-                let res = pinger.ping(i as u16).await?;
+                let res = pinger.ping(i).await?;
                 assert_eq!(res.reply.seq_cnt, i);
             }
             Ok::<_, errors::Error>(())
@@ -426,7 +426,7 @@ mod tests {
         let pinger = listener.pinger("1.0.0.1".parse().unwrap());
         let c = tokio::spawn(async move {
             for i in 10..15 {
-                let res = pinger.ping(i as u16).await?;
+                let res = pinger.ping(i).await?;
                 assert_eq!(res.reply.seq_cnt, i);
             }
             Ok::<_, errors::Error>(())

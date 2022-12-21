@@ -1,0 +1,20 @@
+{
+    "DhcpDdns": {
+        "ip-address": "127.0.0.1",
+        "port": 53001,
+        "forward-ddns": {
+            "ddns-domains": [
+                {
+                    "name": "other.example.com.",
+                    "key-name": "",
+                    "dns-servers": [
+                        {
+                            "ip-address": "172.88.99.10",
+                            "port": 53
+                        }
+                    ]
+                }
+            ]
+        }
+    }
+}

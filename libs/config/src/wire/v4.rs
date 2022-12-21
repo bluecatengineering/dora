@@ -285,6 +285,93 @@ fn decode_opt(code: &OptionCode, opt: &DhcpOption) -> Option<(u8, Opt)> {
     }
 }
 
+pub mod ddns {
+    use super::*;
+
+    fn default_true() -> bool {
+        true
+    }
+    fn default_false() -> bool {
+        false
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+    pub struct Ddns {
+        #[serde(default = "default_true")]
+        pub enable_updates: bool,
+        #[serde(default = "default_false")]
+        pub override_client_updates: bool,
+        #[serde(default = "default_false")]
+        pub override_no_updates: bool,
+        /// if present, when we receive a hostname option but no FQDN option,
+        /// we will append this to create an fqdn.
+        /// ex. [hostname].[hostname_suffix]
+        pub hostname_suffix: Option<String>,
+        pub forward: Vec<DdnsServer>,
+        pub reverse: Vec<DdnsServer>,
+        pub tsig_keys: Vec<TsigKey>,
+    }
+
+    impl Default for Ddns {
+        fn default() -> Self {
+            Self {
+                enable_updates: true,
+                override_client_updates: false,
+                override_no_updates: false,
+                hostname_suffix: None,
+                forward: Vec::new(),
+                reverse: Vec::default(),
+                tsig_keys: Vec::default(),
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+    pub struct TsigKey {
+        pub name: String,
+        pub algorithm: String,
+        pub data: String,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+    pub struct DdnsServer {
+        pub name: String,
+        pub key: String,
+        pub ip: Ipv4Addr,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+    #[serde(rename_all = "kebab-case")]
+    pub enum Algorithm {
+        HmacShaMd5,
+        HmacSha1,
+        HmacSha256,
+        HmacSha384,
+        HmacSha512,
+    }
+
+    impl Ddns {
+        pub fn enable_updates(&self) -> bool {
+            self.enable_updates
+        }
+        pub fn override_client_updates(&self) -> bool {
+            self.override_client_updates
+        }
+        pub fn override_no_updates(&self) -> bool {
+            self.override_no_updates
+        }
+        pub fn keys(&self) -> &[TsigKey] {
+            &self.tsig_keys
+        }
+        pub fn forward(&self) -> &[DdnsServer] {
+            &self.forward
+        }
+        pub fn reverse(&self) -> &[DdnsServer] {
+            &self.reverse
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     pub static SAMPLE_YAML: &str = include_str!("../../sample/config.yaml");

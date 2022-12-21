@@ -4,6 +4,7 @@ members = [
     # main server code
     "dora-core",
     "dora-cfg",
+    "ddns-test",
     # healthcheck/diagnostics,etc
     "external-api",
     # libs
@@ -22,7 +23,7 @@ serde_json = "1.0"
 serde_yaml = "0.8"
 clap = { version = "3.2.4", features = ["derive", "env"] }
 bytes = "1.1"
-dhcproto = { git = "https://github.com/bluecatengineering/dhcproto" }
+dhcproto = { git = "https://github.com/bluecatengineering/dhcproto", branch = "remove_domain" }
 futures = { version = "0.3", default-features = false, features = ["std"] }
 tokio = { version = "1.17.0", features = [ "full" ] }
 tracing = "0.1.22"
