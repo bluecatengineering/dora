@@ -18,6 +18,7 @@ use std::{
 };
 
 use client_protection::RenewThreshold;
+use ddns::{dhcid::DhcId, DdnsUpdate};
 use dora_core::{
     anyhow::anyhow,
     chrono::{DateTime, SecondsFormat, Utc},
@@ -44,6 +45,7 @@ where
     S: Storage,
 {
     cfg: Arc<DhcpConfig>,
+    ddns: DdnsUpdate,
     ip_mgr: IpManager<S>,
     renew_cache: Option<RenewThreshold<Vec<u8>>>,
 }
@@ -66,6 +68,7 @@ where
             renew_cache: cfg.v4().cache_threshold().map(RenewThreshold::new),
             ip_mgr,
             cfg,
+            ddns: DdnsUpdate::new(),
         }
     }
 
@@ -355,6 +358,16 @@ where
                     self.set_lease(ctx, lease, ip, expires_at, classes, range)?;
                     // insert lease into cache
                     self.cache_insert(client_id, lease.0);
+
+                    // do ddns update. Consider this as a plugin?
+                    let dhcid = dhcid(self.cfg.v4(), ctx.msg());
+                    if let Err(err) = self
+                        .ddns
+                        .update(ctx, dhcid, self.cfg.v4().ddns(), range, ip)
+                        .await
+                    {
+                        error!(?err, "error during ddns update");
+                    }
                     return Ok(Action::Continue);
                 }
                 // ip not reserved or chaddr doesn't match
@@ -421,6 +434,20 @@ pub struct ExpiresAt(pub SystemTime);
 
 fn print_time(expires_at: SystemTime) -> String {
     DateTime::<Utc>::from(expires_at).to_rfc3339_opts(SecondsFormat::Secs, true)
+}
+
+/// If opt 61 (client id) exists return that, otherwise return `chaddr` from the message
+/// header.
+pub fn dhcid(cfg: &config::v4::Config, msg: &Message) -> DhcId {
+    if cfg.chaddr_only() {
+        DhcId::chaddr(msg.chaddr())
+    } else if let Some(DhcpOption::ClientIdentifier(id)) =
+        msg.opts().get(OptionCode::ClientIdentifier)
+    {
+        DhcId::client_id(&id[..])
+    } else {
+        DhcId::chaddr(msg.chaddr())
+    }
 }
 
 #[cfg(test)]

@@ -11,10 +11,12 @@ dora-core = { path = "../../dora-core" }
 config = { path = "../../libs/config" }
 client-protection = { path = "../../libs/client-protection" }
 
-register_derive = { path = "../../libs/register_derive" }
 static-addr = { path = "../static-addr" }
 message-type = { path = "../message-type" }
+
+register_derive = { path = "../../libs/register_derive" }
 ip-manager = { path = "../../libs/ip-manager" }
+ddns = { path = "../../libs/ddns" }
 
 ipnet = { workspace = true }
 

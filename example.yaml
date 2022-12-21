@@ -1,4 +1,4 @@
-# (default false) Normally, client id is determined by (opt 61) client identifier option, 
+# (default false) Normally, client id is determined by (opt 61) client identifier option,
 # or the DHCP header field `chaddr`. Sometimes, we want to configure
 # the server to only look at the `chaddr` field. Setting `chaddr_only` to true
 # will do that.
@@ -142,8 +142,6 @@ networks:
                 config:
                     lease_time:
                         default: 3600
-                        min: 1200
-                        max: 4800
                 options:
                     values:
                         1:
@@ -306,7 +304,7 @@ v6:
 #   infix: == != or and (`1 == 1 and 2 != 3 or true`)
 #
 #   options: option[12]
-#    option[xx].hex: gets the data as a byte string. 
+#    option[xx].hex: gets the data as a byte string.
 #       You can still compare with 'strings' as long as the byte representation matches (`option[12].hex == 'hostname'` or `option[244].hex == 0x1234`)
 #    option[xx].text: gets the data as a utf-8 encoded string (`option[12].text == 'hostname'`)
 #    option[xx].exists: returns true/false if the option exists (`option[12].exists`)
@@ -334,7 +332,7 @@ v6:
 #
 #  Vendor classes:
 #
-#   To match on the standard option 60 vendor class identifier, use `option[60].hex` or `option[60].text` 
+#   To match on the standard option 60 vendor class identifier, use `option[60].hex` or `option[60].text`
 #   in your assertion— depending if you want a byte string or utf-8 string representation.
 #   You can then specify options for the class providing option 43, for the encapsulated vendor options.
 #   example.
@@ -368,3 +366,28 @@ client_classes:
                         type: ip
                         value: [ 1.1.1.1 ]
 
+# DDNS config
+# This section is optional, if not included, no DDNS updates will
+# be sent
+ddns:
+    # send updates. If the ddns section header is defined, enable_updates defaults to true
+    enable_updates: true
+    # default false. whether to override the client update FQDN flags
+    override_client_updates: false
+    # default false. whether to override the no update FQDN flags
+    override_no_updates: false
+    # list of forward DNS servers
+    # selects based on FQDN longest match
+    forward:
+       - name: "example.com."
+         # key: (optional) "key_foo"
+         ip: 192.168.3.111
+    reverse:
+       - name: "168.192.in-addr.arpa."
+         ip: 192.168.3.111
+    # map of tsig keys. DNS servers reference these by name
+    tsig_keys:
+        key_foo:
+          algorithm: "hmac-sha1"
+          # b64 key data
+          data: "<keydata>"
