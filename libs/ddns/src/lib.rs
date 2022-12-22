@@ -16,10 +16,17 @@ use dora_core::{
 use trust_dns_client::{
     client::AsyncClient,
     rr::{
-        rdata::tsig::{TsigAlgorithm, TSIG},
+        rdata::{
+            tsig::{TsigAlgorithm, TSIG},
+            NULL,
+        },
         RData, Record,
     },
 };
+
+pub mod dhcid;
+
+use dhcid::DhcId;
 
 pub struct DdnsUpdateV4 {
     dns: AsyncClient,
@@ -46,7 +53,7 @@ impl DdnsUpdateV4 {
     pub async fn do_update(
         &self,
         ctx: &mut MsgContext<v4::Message>,
-        client_id: Vec<u8>,
+        duid: DhcId,
         cfg: Option<&Ddns>,
         leased: Ipv4Addr,
     ) -> Result<(), DdnsError> {
@@ -55,7 +62,7 @@ impl DdnsUpdateV4 {
                 let domain = resp_fqdn.domain().clone();
                 ctx.decoded_resp_msg_mut()
                     .map(|msg| msg.opts_mut().insert(DhcpOption::ClientFQDN(resp_fqdn)));
-                self.send_ddns(ctx, cfg, client_id, leased, domain, forward, reverse)
+                self.send_ddns(ctx, cfg, duid, leased, domain, forward, reverse)
                     .await;
             }
             Ok(Action::DontUpdate(mut resp_fqdn)) => {
@@ -152,7 +159,7 @@ impl DdnsUpdateV4 {
         &self,
         ctx: &mut MsgContext<v4::Message>,
         ddns_config: &Ddns,
-        client_id: Vec<u8>,
+        duid: DhcId,
         leased: Ipv4Addr,
         domain: Name,
         forward: bool,
@@ -163,8 +170,15 @@ impl DdnsUpdateV4 {
             return Err(DdnsError::SendFailed)
         };
         let ttl = calculate_ttl(*lease_length);
-        let record = Record::from_rdata(domain, ttl, RData::A(leased));
-
+        let a_record = Record::from_rdata(domain.clone(), ttl, RData::A(leased));
+        let dhcid_record = Record::from_rdata(
+            domain.clone(),
+            ttl,
+            RData::Unknown {
+                code: 49,
+                rdata: NULL::with(duid.rdata(&domain)?),
+            },
+        );
         Ok(())
         // self.dns.
     }
