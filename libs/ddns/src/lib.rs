@@ -1,4 +1,6 @@
-use std::{collections::HashMap, net::Ipv4Addr, str::FromStr};
+#![allow(clippy::too_many_arguments)]
+
+use std::{net::Ipv4Addr, str::FromStr};
 
 use config::v4::Ddns;
 use dora_core::{
@@ -15,14 +17,7 @@ use dora_core::{
 };
 use trust_dns_client::{
     client::AsyncClient,
-    rr::{
-        dnssec::tsig::TSigner,
-        rdata::{
-            tsig::{TsigAlgorithm, TSIG},
-            NULL,
-        },
-        RData, Record,
-    },
+    rr::{dnssec::tsig::TSigner, rdata::NULL, RData, Record},
 };
 
 pub mod dhcid;
@@ -180,7 +175,6 @@ impl DdnsUpdateV4 {
             },
         );
 
-
         if forward {
             for srv in config.forward() {
                 let tsig = if let Some(key_name) = &srv.key {
@@ -188,15 +182,13 @@ impl DdnsUpdateV4 {
                         error!(?key_name, "configured key for forward server not found");
                         continue;
                     };
-                    let Ok(tsig) = 
-                        TSigner::new(
-                            key_name.as_bytes().to_owned(),
-                            key.algorithm.into(),
-                            Name::from_ascii(key_name).unwrap(),
-                            // ??
-                            60,
-                        )
-                     else {
+                    let Ok(tsig) = TSigner::new(
+                        key_name.as_bytes().to_owned(),
+                        key.algorithm.into(),
+                        Name::from_ascii(key_name).unwrap(),
+                        // ??
+                        60,
+                    ) else {
                         error!(?key_name, "failed to create or retrieve tsigner");
                         continue;
                     };
@@ -204,9 +196,9 @@ impl DdnsUpdateV4 {
                 } else {
                     None
                 };
-                    // todo: likely re-creating the same client for each update
-                    // should cache this in parent type
-                    // AsyncClient::new(, stream_handle, tsig)
+                // todo: likely re-creating the same client for each update
+                // should cache this in parent type
+                // AsyncClient::new(, stream_handle, tsig)
             }
         }
         if reverse {}
@@ -323,7 +315,7 @@ mod tests {
             (true, true, false),
             FqdnFlags::default().set_s(true).set_n(false).set_o(true),
             true,
-            false,
+            true,
         );
     }
     // N 0 S 1
