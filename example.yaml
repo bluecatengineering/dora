@@ -180,4 +180,32 @@ v6:
                         value:
                             - 2001:db8::1
                             - 2001:db8::2
-        
+# TODO: allow at subnet & range/reservation level of config
+# DDNS config
+# This section is optional, if not included, no DDNS updates will
+# be sent
+ddns:
+    # send updates. If the ddns section header is defined, enable_updates defaults to true
+    enable_updates: true
+    # default false. whether to override the client update FQDN flags
+    override_client_updates: false
+    # default false. whether to override the no update FQDN flags
+    override_no_updates: false
+    # optional, appends this suffix to the hostname option (opt 12)
+    hostname_suffix: "text.suffix."
+    # list of forward DNS servers
+    forward: 
+       - name: "foo"
+         # optional, must match key name in tsig_keys
+         key: "key_foo"
+         ip: 192.168.3.111
+    reverse:
+       - name: "reverse"
+         key: "key_foo"
+         ip: 192.168.3.111
+    # map of tsig keys. DNS servers reference these by name
+    tsig_keys:
+        key_foo:
+          algorithm: "hmac-sha1"
+          data: "<keydata>"
+       

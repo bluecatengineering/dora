@@ -309,7 +309,7 @@ pub mod ddns {
         pub hostname_suffix: Option<String>,
         pub forward: Vec<DdnsServer>,
         pub reverse: Vec<DdnsServer>,
-        pub tsig_keys: Vec<TsigKey>,
+        pub tsig_keys: HashMap<String, TsigKey>,
     }
 
     impl Default for Ddns {
@@ -321,14 +321,13 @@ pub mod ddns {
                 hostname_suffix: None,
                 forward: Vec::new(),
                 reverse: Vec::default(),
-                tsig_keys: Vec::default(),
+                tsig_keys: HashMap::default(),
             }
         }
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
     pub struct TsigKey {
-        pub name: String,
         pub algorithm: String,
         pub data: String,
     }
@@ -336,17 +335,22 @@ pub mod ddns {
     #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
     pub struct DdnsServer {
         pub name: String,
-        pub key: String,
+        pub key: Option<String>,
         pub ip: Ipv4Addr,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
     #[serde(rename_all = "kebab-case")]
     pub enum Algorithm {
-        HmacShaMd5,
+        #[serde(rename = "hmac-md5")]
+        HmacMd5,
+        #[serde(rename = "hmac-sha1")]
         HmacSha1,
+        #[serde(rename = "hmac-sha256")]
         HmacSha256,
+        #[serde(rename = "hmac-sha384")]
         HmacSha384,
+        #[serde(rename = "hmac-sha512")]
         HmacSha512,
     }
 
@@ -360,8 +364,11 @@ pub mod ddns {
         pub fn override_no_updates(&self) -> bool {
             self.override_no_updates
         }
-        pub fn keys(&self) -> &[TsigKey] {
-            &self.tsig_keys
+        pub fn keys(&self) -> impl Iterator<Item = (&str, &TsigKey)> {
+            self.tsig_keys.iter().map(|(name, k)| (name.as_str(), k))
+        }
+        pub fn key(&self, name: &str) -> Option<&TsigKey> {
+            self.tsig_keys.get(name)
         }
         pub fn forward(&self) -> &[DdnsServer] {
             &self.forward
