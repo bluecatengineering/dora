@@ -1,4 +1,4 @@
-use std::{net::Ipv4Addr, str::FromStr};
+use std::{collections::HashMap, net::Ipv4Addr, str::FromStr};
 
 use config::v4::Ddns;
 use dora_core::{
@@ -16,6 +16,7 @@ use dora_core::{
 use trust_dns_client::{
     client::AsyncClient,
     rr::{
+        dnssec::tsig::TSigner,
         rdata::{
             tsig::{TsigAlgorithm, TSIG},
             NULL,
@@ -28,9 +29,7 @@ pub mod dhcid;
 
 use dhcid::DhcId;
 
-pub struct DdnsUpdateV4 {
-    dns: AsyncClient,
-}
+pub struct DdnsUpdateV4;
 
 #[derive(thiserror::Error, Debug)]
 pub enum DdnsError {
@@ -158,7 +157,7 @@ impl DdnsUpdateV4 {
     async fn send_ddns(
         &self,
         ctx: &mut MsgContext<v4::Message>,
-        ddns_config: &Ddns,
+        config: &Ddns,
         duid: DhcId,
         leased: Ipv4Addr,
         domain: Name,
@@ -170,6 +169,7 @@ impl DdnsUpdateV4 {
             return Err(DdnsError::SendFailed)
         };
         let ttl = calculate_ttl(*lease_length);
+        // todo: ipv6
         let a_record = Record::from_rdata(domain.clone(), ttl, RData::A(leased));
         let dhcid_record = Record::from_rdata(
             domain.clone(),
@@ -179,6 +179,38 @@ impl DdnsUpdateV4 {
                 rdata: NULL::with(duid.rdata(&domain)?),
             },
         );
+
+
+        if forward {
+            for srv in config.forward() {
+                let tsig = if let Some(key_name) = &srv.key {
+                    let Some(key) = config.key(&srv.name) else {
+                        error!(?key_name, "configured key for forward server not found");
+                        continue;
+                    };
+                    let Ok(tsig) = 
+                        TSigner::new(
+                            key_name.as_bytes().to_owned(),
+                            key.algorithm.into(),
+                            Name::from_ascii(key_name).unwrap(),
+                            // ??
+                            60,
+                        )
+                     else {
+                        error!(?key_name, "failed to create or retrieve tsigner");
+                        continue;
+                    };
+                    Some(tsig)
+                } else {
+                    None
+                };
+                    // todo: likely re-creating the same client for each update
+                    // should cache this in parent type
+                    // AsyncClient::new(, stream_handle, tsig)
+            }
+        }
+        if reverse {}
+
         Ok(())
         // self.dns.
     }

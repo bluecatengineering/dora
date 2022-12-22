@@ -775,6 +775,7 @@ dependencies = [
  "tracing",
  "tracing-futures",
  "tracing-subscriber 0.3.16",
+ "trust-dns-proto 0.22.0",
  "unix-udp-sock",
 ]
 

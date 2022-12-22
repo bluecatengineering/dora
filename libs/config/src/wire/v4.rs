@@ -287,6 +287,7 @@ fn decode_opt(code: &OptionCode, opt: &DhcpOption) -> Option<(u8, Opt)> {
 
 pub mod ddns {
     use super::*;
+    pub use dora_core::trust_dns_proto::rr::dnssec::rdata::tsig::TsigAlgorithm;
 
     fn default_true() -> bool {
         true
@@ -328,7 +329,7 @@ pub mod ddns {
 
     #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
     pub struct TsigKey {
-        pub algorithm: String,
+        pub algorithm: Algorithm,
         pub data: String,
     }
 
@@ -339,7 +340,7 @@ pub mod ddns {
         pub ip: Ipv4Addr,
     }
 
-    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Deserialize, Serialize)]
     #[serde(rename_all = "kebab-case")]
     pub enum Algorithm {
         #[serde(rename = "hmac-md5")]
@@ -352,6 +353,18 @@ pub mod ddns {
         HmacSha384,
         #[serde(rename = "hmac-sha512")]
         HmacSha512,
+    }
+
+    impl From<Algorithm> for TsigAlgorithm {
+        fn from(value: Algorithm) -> Self {
+            match value {
+                Algorithm::HmacMd5 => TsigAlgorithm::HmacMd5,
+                Algorithm::HmacSha1 => TsigAlgorithm::HmacSha1,
+                Algorithm::HmacSha256 => TsigAlgorithm::HmacSha256,
+                Algorithm::HmacSha384 => TsigAlgorithm::HmacSha384,
+                Algorithm::HmacSha512 => TsigAlgorithm::HmacSha512,
+            }
+        }
     }
 
     impl Ddns {
