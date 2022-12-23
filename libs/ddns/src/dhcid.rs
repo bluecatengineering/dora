@@ -2,7 +2,7 @@ use dora_core::dhcproto::{v4::HType, Name, NameError};
 use ring::digest::{Context, SHA256};
 use trust_dns_client::serialize::binary::BinEncoder;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct DhcId {
     ty: IdType,
     id: Vec<u8>,
@@ -68,7 +68,7 @@ impl DhcId {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
 #[repr(u8)]
 pub enum IdType {
     Chaddr = 0x0000,

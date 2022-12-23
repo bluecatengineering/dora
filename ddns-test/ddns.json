@@ -5,7 +5,7 @@
         "forward-ddns": {
             "ddns-domains": [
                 {
-                    "name": "other.example.com.",
+                    "name": "example.com.",
                     "key-name": "",
                     "dns-servers": [
                         {

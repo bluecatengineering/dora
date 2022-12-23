@@ -1,6 +1,6 @@
 #![allow(clippy::too_many_arguments)]
 
-use std::{net::Ipv4Addr, str::FromStr};
+use std::{net::Ipv4Addr, str::FromStr, sync::Arc, time::Duration};
 
 use config::v4::Ddns;
 use dora_core::{
@@ -13,11 +13,15 @@ use dora_core::{
         Name, NameError,
     },
     prelude::MsgContext,
+    tokio,
+    tokio::net::UdpSocket,
     tracing::{debug, error, info},
+    trust_dns_proto::{xfer::FirstAnswer, DnsHandle},
 };
 use trust_dns_client::{
-    client::AsyncClient,
-    rr::{dnssec::tsig::TSigner, rdata::NULL, RData, Record},
+    client::{AsyncClient, ClientHandle, Signer},
+    rr::dnssec::tsig::TSigner,
+    udp::{UdpClientConnection, UdpClientStream},
 };
 
 pub mod dhcid;
@@ -57,7 +61,7 @@ impl DdnsUpdateV4 {
                 ctx.decoded_resp_msg_mut()
                     .map(|msg| msg.opts_mut().insert(DhcpOption::ClientFQDN(resp_fqdn)));
                 self.send_ddns(ctx, cfg, duid, leased, domain, forward, reverse)
-                    .await;
+                    .await?;
             }
             Ok(Action::DontUpdate(mut resp_fqdn)) => {
                 resp_fqdn.set_flags(resp_fqdn.flags().set_n(true));
@@ -163,18 +167,6 @@ impl DdnsUpdateV4 {
             error!("address lease time not available for DDNS update");
             return Err(DdnsError::SendFailed)
         };
-        let ttl = calculate_ttl(*lease_length);
-        // todo: ipv6
-        let a_record = Record::from_rdata(domain.clone(), ttl, RData::A(leased));
-        let dhcid_record = Record::from_rdata(
-            domain.clone(),
-            ttl,
-            RData::Unknown {
-                code: 49,
-                rdata: NULL::with(duid.rdata(&domain)?),
-            },
-        );
-
         if forward {
             for srv in config.forward() {
                 let tsig = if let Some(key_name) = &srv.key {
@@ -183,11 +175,11 @@ impl DdnsUpdateV4 {
                         continue;
                     };
                     let Ok(tsig) = TSigner::new(
-                        key_name.as_bytes().to_owned(),
+                        key.data.as_bytes().to_owned(),
                         key.algorithm.into(),
                         Name::from_ascii(key_name).unwrap(),
                         // ??
-                        60,
+                        300,
                     ) else {
                         error!(?key_name, "failed to create or retrieve tsigner");
                         continue;
@@ -196,9 +188,29 @@ impl DdnsUpdateV4 {
                 } else {
                     None
                 };
+                let message = update(
+                    // todo: get zone origin
+                    domain.clone(),
+                    domain.clone(),
+                    duid.clone(),
+                    leased,
+                    calculate_ttl(*lease_length),
+                    false,
+                )?;
+
                 // todo: likely re-creating the same client for each update
                 // should cache this in parent type
-                // AsyncClient::new(, stream_handle, tsig)
+                let stream =
+                    UdpClientStream::<UdpSocket, TSigner>::with_timeout_and_signer_and_bind_addr(
+                        (srv.ip, 53).into(),
+                        Duration::from_secs(5),
+                        tsig.map(Arc::new),
+                        None,
+                    );
+                let (mut client, bg) = AsyncClient::connect(stream).await?;
+                let handle = tokio::spawn(bg);
+                // wthis task will keep running in the bg after the client task is dropped?
+                let resp = client.send(message).first_answer().await;
             }
         }
         if reverse {}
@@ -206,6 +218,59 @@ impl DdnsUpdateV4 {
         Ok(())
         // self.dns.
     }
+}
+
+pub fn update(
+    zone_origin: Name,
+    name: Name,
+    duid: DhcId,
+    leased: Ipv4Addr,
+    ttl: u32,
+    use_edns: bool,
+) -> Result<trust_dns_client::op::Message, NameError> {
+    use trust_dns_client::{
+        op::{Edns, Message, MessageType, OpCode, Query, UpdateMessage},
+        rr::{dnssec::tsig::TSigner, rdata::NULL, DNSClass, RData, Record, RecordType},
+    };
+    const MAX_PAYLOAD_LEN: u16 = 1232;
+
+    let mut zone = Query::new();
+    zone.set_name(zone_origin)
+        .set_query_class(DNSClass::IN)
+        .set_query_type(RecordType::SOA);
+
+    let mut message = Message::new();
+    message
+        .set_id(rand::random())
+        .set_message_type(MessageType::Query)
+        .set_op_code(OpCode::Update)
+        .set_recursion_desired(false);
+
+    message.add_zone(zone);
+
+    let mut prerequisite = Record::with(name.clone(), RecordType::ANY, 0);
+    prerequisite.set_dns_class(DNSClass::NONE);
+    message.add_pre_requisite(prerequisite);
+
+    let a_record = Record::from_rdata(name.clone(), ttl, RData::A(leased));
+    let dhcid_record = Record::from_rdata(
+        name.clone(),
+        ttl,
+        RData::Unknown {
+            code: 49,
+            rdata: NULL::with(duid.rdata(&name)?),
+        },
+    );
+    message.add_update(a_record);
+    message.add_update(dhcid_record);
+
+    if use_edns {
+        let edns = message.extensions_mut().get_or_insert_with(Edns::new);
+        edns.set_max_payload(MAX_PAYLOAD_LEN);
+        edns.set_version(0);
+    }
+
+    Ok(message)
 }
 
 fn calculate_ttl(lease_length: u32) -> u32 {
