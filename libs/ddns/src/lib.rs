@@ -1,8 +1,8 @@
 #![allow(clippy::too_many_arguments)]
 
-use std::{net::Ipv4Addr, str::FromStr, sync::Arc, time::Duration};
+use std::{net::Ipv4Addr, str::FromStr};
 
-use config::{v4::Ddns, wire::v4::ddns::DdnsServer};
+use config::v4::Ddns;
 use dora_core::{
     dhcproto::{
         v4::{
@@ -13,21 +13,16 @@ use dora_core::{
         Name, NameError,
     },
     prelude::MsgContext,
-    tokio,
-    tokio::net::UdpSocket,
     tracing::{debug, error, info},
-    trust_dns_proto::{xfer::FirstAnswer, DnsHandle},
 };
-use trust_dns_client::{
-    client::{AsyncClient, ClientHandle, Signer},
-    op::ResponseCode,
-    rr::dnssec::tsig::TSigner,
-    udp::{UdpClientConnection, UdpClientStream},
-};
+use trust_dns_client::rr::dnssec::tsig::TSigner;
 
 pub mod dhcid;
+pub mod update;
 
 use dhcid::DhcId;
+
+use crate::update::Updater;
 
 pub struct DdnsUpdateV4;
 
@@ -41,6 +36,8 @@ pub enum DdnsError {
     SendFailed,
     #[error("error manipulating domain name {0:?}")]
     DomainError(#[from] NameError),
+    #[error("update failed {0:?}")]
+    UpdateError(#[from] crate::update::UpdateError),
 }
 
 pub enum Action<'a> {
@@ -170,15 +167,6 @@ impl DdnsUpdateV4 {
         };
         if forward {
             for srv in config.forward() {
-                let message = update(
-                    // todo: get zone origin
-                    domain.clone(),
-                    domain.clone(),
-                    duid.clone(),
-                    leased,
-                    calculate_ttl(*lease_length),
-                    false,
-                )?;
                 let tsig = if let Some(key_name) = &srv.key {
                     let tsig = match tsigner(key_name, config) {
                         Err(err) => {
@@ -193,48 +181,66 @@ impl DdnsUpdateV4 {
                 };
                 // todo: likely re-creating the same client for each update
                 // should cache this in parent type
-                let stream =
-                    UdpClientStream::<UdpSocket, TSigner>::with_timeout_and_signer_and_bind_addr(
-                        (srv.ip, 53).into(),
-                        Duration::from_secs(5),
-                        tsig.map(Arc::new),
-                        None,
-                    );
-                let (mut client, bg) = AsyncClient::connect(stream).await?;
-                let handle = tokio::spawn(bg);
-                let resp = client.send(message).first_answer().await;
-                match resp {
-                    Ok(resp) => {
-                        if resp.response_code() == ResponseCode::NoError {
-                            info!(?domain, "successfully updated DNS");
-                        } else if resp.response_code() == ResponseCode::YXDomain {
-                            debug!(?resp, "got back YXDOMAIN, sending update with dhcid prereq");
-                            let new_msg = update_present(
-                                // todo: get zone origin
-                                domain.clone(),
-                                domain.clone(),
-                                duid.clone(),
-                                leased,
-                                calculate_ttl(*lease_length),
-                                false,
-                            )?;
-                            let yx_resp = client.send(new_msg).first_answer().await?;
-                            if yx_resp.response_code() == ResponseCode::NoError {
-                                info!(?domain, "got NOERROR, updated DNS");
-                            } else {
-                                error!(?domain, "failed to updated dns");
-                            }
-                        }
+                let mut client = Updater::new(srv.ip, tsig).await?;
+
+                // todo: zone origin same as domain?
+                match client
+                    .forward(
+                        domain.clone(),
+                        domain.clone(),
+                        duid.clone(),
+                        leased,
+                        *lease_length,
+                    )
+                    .await
+                {
+                    Ok(_) => {
+                        info!(?domain, "successfully updated DNS");
                     }
-                    Err(_) => {
-                        error!(?domain, "failed to updated dns");
+                    Err(err) => {
+                        error!(?err, ?domain, "failed to update DNS");
                     }
                 }
-                // todo - need to handle this better
-                handle.abort();
             }
         }
-        if reverse {}
+        if reverse {
+            for srv in config.reverse() {
+                let tsig = if let Some(key_name) = &srv.key {
+                    let tsig = match tsigner(key_name, config) {
+                        Err(err) => {
+                            error!(?err, "failed to create tsigner");
+                            continue;
+                        }
+                        Ok(t) => t,
+                    };
+                    Some(tsig)
+                } else {
+                    None
+                };
+                // todo: likely re-creating the same client for each update
+                // should cache this in parent type
+                let mut client = Updater::new(srv.ip, tsig).await?;
+
+                // todo: zone origin same as domain?
+                match client
+                    .reverse(
+                        domain.clone(),
+                        domain.clone(),
+                        duid.clone(),
+                        leased,
+                        *lease_length,
+                    )
+                    .await
+                {
+                    Ok(_) => {
+                        info!(?domain, "successfully updated DNS");
+                    }
+                    Err(err) => {
+                        error!(?err, ?domain, "failed to update DNS");
+                    }
+                }
+            }
+        }
 
         Ok(())
         // self.dns.
@@ -262,125 +268,6 @@ pub fn tsigner(key_name: &str, config: &Ddns) -> Result<TSigner, TsigError> {
         // ??
         300,
     )?)
-}
-
-pub fn update(
-    zone_origin: Name,
-    name: Name,
-    duid: DhcId,
-    leased: Ipv4Addr,
-    ttl: u32,
-    use_edns: bool,
-) -> Result<trust_dns_client::op::Message, NameError> {
-    use trust_dns_client::{
-        op::{Edns, Message, MessageType, OpCode, Query, UpdateMessage},
-        rr::{dnssec::tsig::TSigner, rdata::NULL, DNSClass, RData, Record, RecordType},
-    };
-    const MAX_PAYLOAD_LEN: u16 = 1232;
-
-    let mut zone = Query::new();
-    zone.set_name(zone_origin)
-        .set_query_class(DNSClass::IN)
-        .set_query_type(RecordType::SOA);
-
-    let mut message = Message::new();
-    message
-        .set_id(rand::random())
-        .set_message_type(MessageType::Query)
-        .set_op_code(OpCode::Update)
-        .set_recursion_desired(false);
-
-    message.add_zone(zone);
-
-    let mut prerequisite = Record::with(name.clone(), RecordType::ANY, 0);
-    prerequisite.set_dns_class(DNSClass::NONE);
-    message.add_pre_requisite(prerequisite);
-
-    let a_record = Record::from_rdata(name.clone(), ttl, RData::A(leased));
-    let dhcid_record = Record::from_rdata(
-        name.clone(),
-        ttl,
-        RData::Unknown {
-            code: 49,
-            rdata: NULL::with(duid.rdata(&name)?),
-        },
-    );
-    message.add_update(a_record);
-    message.add_update(dhcid_record);
-
-    if use_edns {
-        let edns = message.extensions_mut().get_or_insert_with(Edns::new);
-        edns.set_max_payload(MAX_PAYLOAD_LEN);
-        edns.set_version(0);
-    }
-
-    Ok(message)
-}
-
-pub fn update_present(
-    zone_origin: Name,
-    name: Name,
-    duid: DhcId,
-    leased: Ipv4Addr,
-    ttl: u32,
-    use_edns: bool,
-) -> Result<trust_dns_client::op::Message, NameError> {
-    use trust_dns_client::{
-        op::{Edns, Message, MessageType, OpCode, Query, UpdateMessage},
-        rr::{dnssec::tsig::TSigner, rdata::NULL, DNSClass, RData, Record, RecordType},
-    };
-    const MAX_PAYLOAD_LEN: u16 = 1232;
-
-    let mut zone = Query::new();
-    zone.set_name(zone_origin)
-        .set_query_class(DNSClass::IN)
-        .set_query_type(RecordType::SOA);
-
-    let mut message = Message::new();
-    message
-        .set_id(rand::random())
-        .set_message_type(MessageType::Query)
-        .set_op_code(OpCode::Update)
-        .set_recursion_desired(false);
-
-    message.add_zone(zone);
-
-    let mut prerequisite = Record::with(name.clone(), RecordType::ANY, 0);
-    // use ANY to check only update if this name is present
-    prerequisite.set_dns_class(DNSClass::ANY);
-    message.add_pre_requisite(prerequisite);
-
-    // add dhcid to prereqs, will only update if dhcid is present
-    let mut dhcid_record = Record::from_rdata(
-        name.clone(),
-        ttl,
-        RData::Unknown {
-            code: 49,
-            rdata: NULL::with(duid.rdata(&name)?),
-        },
-    );
-    message.add_pre_requisite(dhcid_record);
-
-    let a_record = Record::from_rdata(name.clone(), ttl, RData::A(leased));
-    message.add_update(a_record);
-
-    if use_edns {
-        let edns = message.extensions_mut().get_or_insert_with(Edns::new);
-        edns.set_max_payload(MAX_PAYLOAD_LEN);
-        edns.set_version(0);
-    }
-
-    Ok(message)
-}
-
-fn calculate_ttl(lease_length: u32) -> u32 {
-    // Per RFC 4702 DDNS RR TTL should be given by:
-    // ((lease life time / 3) < 10 minutes) ? 10 minutes : (lease life time / 3)
-    if lease_length < 1800 {
-        600
-    } else {
-        lease_length / 3
-    }
 }
 
 fn handle_flags(

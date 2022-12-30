@@ -1,28 +1,18 @@
-use std::{net::Ipv4Addr, str::FromStr, sync::Arc, time::Duration};
+use std::str::FromStr;
 
-use config::{v4::Ddns, wire::v4::ddns::TsigAlgorithm};
-use ddns::dhcid::{self, IdType};
+use config::wire::v4::ddns::TsigAlgorithm;
+use ddns::{
+    dhcid::{self, IdType},
+    update::Updater,
+};
 use dora_core::{
     anyhow::{self, Result},
     config::trace,
-    dhcproto::{
-        v4::{
-            self,
-            fqdn::{ClientFQDN, FqdnFlags},
-            DhcpOption, OptionCode,
-        },
-        Name, NameError,
-    },
-    prelude::MsgContext,
-    tokio::{self, net::UdpSocket},
-    tracing::{debug, error, info},
-    trust_dns_proto::{xfer::FirstAnswer, DnsHandle},
+    dhcproto::Name,
+    tokio::{self},
+    tracing::{debug, error},
 };
-use trust_dns_client::{
-    client::{AsyncClient, ClientHandle, Signer},
-    rr::{dnssec::tsig::TSigner, rdata::NULL, RData, Record, RecordSet},
-    udp::{UdpClientConnection, UdpClientStream},
-};
+use trust_dns_client::rr::dnssec::tsig::TSigner;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -40,25 +30,16 @@ async fn main() -> Result<()> {
         anyhow::bail!("failed to create tsigner")
     };
 
-    // UdpClientStream::<UdpSocket, TSigner>
-    let stream = UdpClientStream::<UdpSocket, TSigner>::with_timeout_and_signer_and_bind_addr(
-        ([8, 8, 8, 8], 53).into(),
-        Duration::from_secs(5),
-        // Some(Arc::new(tsig)),
-        None,
-        None,
-    );
-    let msg = ddns::update(
-        Name::from_str("example.com.").unwrap(),
-        Name::from_str("other.example.com.").unwrap(),
-        dhcid::DhcId::new(IdType::ClientId, [0x01, 0x02, 0x03, 0x04, 0x05, 0x06]),
-        "192.168.2.1".parse().unwrap(),
-        1300,
-        false,
-    )?;
-    let (mut client, bg) = AsyncClient::connect(stream).await?;
-    let handle = tokio::spawn(bg);
-    client.send(msg).first_answer().await?;
+    let mut client = Updater::new([8, 8, 8, 8].into(), None).await?;
+    client
+        .forward(
+            Name::from_str("example.com.").unwrap(),
+            Name::from_str("other.example.com.").unwrap(),
+            dhcid::DhcId::new(IdType::ClientId, [0x01, 0x02, 0x03, 0x04, 0x05, 0x06]),
+            "192.168.2.1".parse().unwrap(),
+            1300,
+        )
+        .await?;
     // RecordSet::
     // client.compare_and_swap(current, new, zone_origin)
     Ok(())
