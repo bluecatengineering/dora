@@ -82,6 +82,19 @@ mod tests {
 
     use super::*;
 
+    //      A DHCP server allocates the IPv4 address 192.0.2.2 to a client that
+    //    included the DHCP client-identifier option data 01:07:08:09:0a:0b:0c
+    //    in its DHCP request.  The server updates the name "chi.example.com"
+    //    on the client's behalf and uses the DHCP client identifier option
+    //    data as input in forming a DHCID RR.  The DHCID RDATA is formed by
+    //    setting the two type octets to the value 0x0001, the 1-octet digest
+    //    type to 1 for SHA-256, and performing a SHA-256 hash computation
+    //    across a buffer containing the seven octets from the client-id option
+    //    and the FQDN (represented as specified in Section 3.5).
+
+    //      chi.example.com.      A       192.0.2.2
+    //      chi.example.com.      DHCID   ( AAEBOSD+XR3Os/0LozeXVqcNc7FwCfQdW
+    //                                      L3b/NaiUDlW2No= )
     #[test]
     fn test_dhcid_client_id() {
         let dhcid = DhcId::new(IdType::ClientId, hex::decode("010708090a0b0c").unwrap());
@@ -94,6 +107,19 @@ mod tests {
         );
     }
 
+    //    A DHCP server allocating the IPv4 address 192.0.2.3 to a client with
+    //    the Ethernet MAC address 01:02:03:04:05:06 using domain name
+    //    "client.example.com" uses the client's link-layer address to identify
+    //    the client.  The DHCID RDATA is composed by setting the two type
+    //    octets to zero, the 1-octet digest type to 1 for SHA-256, and
+    //    performing an SHA-256 hash computation across a buffer containing the
+    //    1-octet 'htype' value for Ethernet, 0x01, followed by the six octets
+    //    of the Ethernet MAC address, and the domain name (represented as
+    //    specified in Section 3.5).
+
+    //      client.example.com.   A       192.0.2.3
+    //      client.example.com.   DHCID   ( AAABxLmlskllE0MVjd57zHcWmEH3pCQ6V
+    //                                      ytcKD//7es/deY= )
     #[test]
     fn test_dhcid_chaddr() {
         let dhcid = DhcId::new(IdType::Chaddr, hex::decode("010203040506").unwrap());

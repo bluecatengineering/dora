@@ -30,15 +30,17 @@ async fn main() -> Result<()> {
         trace::Config::parse(&std::env::var("RUST_LOG").unwrap_or_else(|_| "debug".to_owned()))?;
     debug!(?trace_config);
     let Ok(tsig) = TSigner::new(
-                        "key_foo".as_bytes().to_owned(),
-                        TsigAlgorithm::HmacSha256,
-                        Name::from_ascii("key_foo").unwrap(),
-                        // ??
-                        300,
-                    ) else {
-                        error!("failed to create or retrieve tsigner");
-                        anyhow::bail!("failed to create tsigner")
-                    };
+        "key_foo".as_bytes().to_owned(),
+        TsigAlgorithm::HmacSha256,
+        Name::from_ascii("key_foo").unwrap(),
+        // ??
+        300,
+    ) else {
+        error!("failed to create or retrieve tsigner");
+        anyhow::bail!("failed to create tsigner")
+    };
+
+    // UdpClientStream::<UdpSocket, TSigner>
     let stream = UdpClientStream::<UdpSocket, TSigner>::with_timeout_and_signer_and_bind_addr(
         ([8, 8, 8, 8], 53).into(),
         Duration::from_secs(5),
@@ -49,7 +51,7 @@ async fn main() -> Result<()> {
     let msg = ddns::update(
         Name::from_str("example.com.").unwrap(),
         Name::from_str("other.example.com.").unwrap(),
-        dhcid::DhcId::new(IdType::Chaddr, [0x01, 0x02, 0x03, 0x04, 0x05, 0x06]),
+        dhcid::DhcId::new(IdType::ClientId, [0x01, 0x02, 0x03, 0x04, 0x05, 0x06]),
         "192.168.2.1".parse().unwrap(),
         1300,
         false,

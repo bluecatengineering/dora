@@ -2,7 +2,7 @@
 
 use std::{net::Ipv4Addr, str::FromStr, sync::Arc, time::Duration};
 
-use config::v4::Ddns;
+use config::{v4::Ddns, wire::v4::ddns::DdnsServer};
 use dora_core::{
     dhcproto::{
         v4::{
@@ -20,6 +20,7 @@ use dora_core::{
 };
 use trust_dns_client::{
     client::{AsyncClient, ClientHandle, Signer},
+    op::ResponseCode,
     rr::dnssec::tsig::TSigner,
     udp::{UdpClientConnection, UdpClientStream},
 };
@@ -169,25 +170,6 @@ impl DdnsUpdateV4 {
         };
         if forward {
             for srv in config.forward() {
-                let tsig = if let Some(key_name) = &srv.key {
-                    let Some(key) = config.key(&srv.name) else {
-                        error!(?key_name, "configured key for forward server not found");
-                        continue;
-                    };
-                    let Ok(tsig) = TSigner::new(
-                        key.data.as_bytes().to_owned(),
-                        key.algorithm.into(),
-                        Name::from_ascii(key_name).unwrap(),
-                        // ??
-                        300,
-                    ) else {
-                        error!(?key_name, "failed to create or retrieve tsigner");
-                        continue;
-                    };
-                    Some(tsig)
-                } else {
-                    None
-                };
                 let message = update(
                     // todo: get zone origin
                     domain.clone(),
@@ -197,7 +179,18 @@ impl DdnsUpdateV4 {
                     calculate_ttl(*lease_length),
                     false,
                 )?;
-
+                let tsig = if let Some(key_name) = &srv.key {
+                    let tsig = match tsigner(key_name, config) {
+                        Err(err) => {
+                            error!(?err, "failed to create tsigner");
+                            continue;
+                        }
+                        Ok(t) => t,
+                    };
+                    Some(tsig)
+                } else {
+                    None
+                };
                 // todo: likely re-creating the same client for each update
                 // should cache this in parent type
                 let stream =
@@ -209,8 +202,36 @@ impl DdnsUpdateV4 {
                     );
                 let (mut client, bg) = AsyncClient::connect(stream).await?;
                 let handle = tokio::spawn(bg);
-                // wthis task will keep running in the bg after the client task is dropped?
                 let resp = client.send(message).first_answer().await;
+                match resp {
+                    Ok(resp) => {
+                        if resp.response_code() == ResponseCode::NoError {
+                            info!(?domain, "successfully updated DNS");
+                        } else if resp.response_code() == ResponseCode::YXDomain {
+                            debug!(?resp, "got back YXDOMAIN, sending update with dhcid prereq");
+                            let new_msg = update_present(
+                                // todo: get zone origin
+                                domain.clone(),
+                                domain.clone(),
+                                duid.clone(),
+                                leased,
+                                calculate_ttl(*lease_length),
+                                false,
+                            )?;
+                            let yx_resp = client.send(new_msg).first_answer().await?;
+                            if yx_resp.response_code() == ResponseCode::NoError {
+                                info!(?domain, "got NOERROR, updated DNS");
+                            } else {
+                                error!(?domain, "failed to updated dns");
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        error!(?domain, "failed to updated dns");
+                    }
+                }
+                // todo - need to handle this better
+                handle.abort();
             }
         }
         if reverse {}
@@ -218,6 +239,29 @@ impl DdnsUpdateV4 {
         Ok(())
         // self.dns.
     }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum TsigError {
+    #[error("key not found {key_name:?}")]
+    KeyNotFound { key_name: String },
+    #[error("failed to create TSigner {0:?}")]
+    TSignerFailed(#[from] NameError),
+}
+
+pub fn tsigner(key_name: &str, config: &Ddns) -> Result<TSigner, TsigError> {
+    // get the key data from the tsig hashmap
+    let Some(key) = config.key(key_name) else {
+        return Err(TsigError::KeyNotFound { key_name: key_name.to_owned() });
+    };
+    // create new tsigner
+    Ok(TSigner::new(
+        key.data.as_bytes().to_owned(),
+        key.algorithm.into(),
+        Name::from_ascii(key_name).unwrap(), // TODO: remove unwrap
+        // ??
+        300,
+    )?)
 }
 
 pub fn update(
@@ -263,6 +307,62 @@ pub fn update(
     );
     message.add_update(a_record);
     message.add_update(dhcid_record);
+
+    if use_edns {
+        let edns = message.extensions_mut().get_or_insert_with(Edns::new);
+        edns.set_max_payload(MAX_PAYLOAD_LEN);
+        edns.set_version(0);
+    }
+
+    Ok(message)
+}
+
+pub fn update_present(
+    zone_origin: Name,
+    name: Name,
+    duid: DhcId,
+    leased: Ipv4Addr,
+    ttl: u32,
+    use_edns: bool,
+) -> Result<trust_dns_client::op::Message, NameError> {
+    use trust_dns_client::{
+        op::{Edns, Message, MessageType, OpCode, Query, UpdateMessage},
+        rr::{dnssec::tsig::TSigner, rdata::NULL, DNSClass, RData, Record, RecordType},
+    };
+    const MAX_PAYLOAD_LEN: u16 = 1232;
+
+    let mut zone = Query::new();
+    zone.set_name(zone_origin)
+        .set_query_class(DNSClass::IN)
+        .set_query_type(RecordType::SOA);
+
+    let mut message = Message::new();
+    message
+        .set_id(rand::random())
+        .set_message_type(MessageType::Query)
+        .set_op_code(OpCode::Update)
+        .set_recursion_desired(false);
+
+    message.add_zone(zone);
+
+    let mut prerequisite = Record::with(name.clone(), RecordType::ANY, 0);
+    // use ANY to check only update if this name is present
+    prerequisite.set_dns_class(DNSClass::ANY);
+    message.add_pre_requisite(prerequisite);
+
+    // add dhcid to prereqs, will only update if dhcid is present
+    let mut dhcid_record = Record::from_rdata(
+        name.clone(),
+        ttl,
+        RData::Unknown {
+            code: 49,
+            rdata: NULL::with(duid.rdata(&name)?),
+        },
+    );
+    message.add_pre_requisite(dhcid_record);
+
+    let a_record = Record::from_rdata(name.clone(), ttl, RData::A(leased));
+    message.add_update(a_record);
 
     if use_edns {
         let edns = message.extensions_mut().get_or_insert_with(Edns::new);

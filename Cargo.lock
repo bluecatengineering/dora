@@ -457,6 +457,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "tracing",
+ "trust-dns-proto 0.22.0",
 ]
 
 [[package]]
