@@ -223,13 +223,7 @@ impl DdnsUpdateV4 {
 
                 // todo: zone origin same as domain?
                 match client
-                    .reverse(
-                        domain.clone(),
-                        domain.clone(),
-                        duid.clone(),
-                        leased,
-                        *lease_length,
-                    )
+                    .reverse(domain.clone(), duid.clone(), leased, *lease_length)
                     .await
                 {
                     Ok(_) => {

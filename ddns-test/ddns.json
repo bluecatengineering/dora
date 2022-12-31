@@ -9,7 +9,21 @@
                     "key-name": "",
                     "dns-servers": [
                         {
-                            "ip-address": "172.88.99.10",
+                            "ip-address": "8.8.8.8",
+                            "port": 53
+                        }
+                    ]
+                }
+            ]
+        },
+        "reverse-ddns": {
+            "ddns-domains": [
+                {
+                    "name": "1.2.168.192.in-addr.arpa.",
+                    "key-name": "",
+                    "dns-servers": [
+                        {
+                            "ip-address": "8.8.8.8",
                             "port": 53
                         }
                     ]

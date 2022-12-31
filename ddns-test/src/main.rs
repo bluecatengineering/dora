@@ -54,8 +54,8 @@ fn main() -> Result<()> {
     let soc = UdpSocket::bind("0.0.0.0:0")?;
     let update = NcrUpdate {
         change_type: 0,
-        forward_change: true,
-        reverse_change: false,
+        forward_change: false,
+        reverse_change: true,
         fqdn: "other.example.com.".to_owned(),
         ip_address: Ipv4Addr::from([192, 168, 2, 1]),
         dhcid: "0102030405060708".to_owned(),
