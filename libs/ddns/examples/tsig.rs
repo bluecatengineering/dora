@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{fs::File, io::Read, str::FromStr};
 
 use config::wire::v4::ddns::TsigAlgorithm;
 use ddns::{
@@ -19,10 +19,19 @@ async fn main() -> Result<()> {
     let trace_config =
         trace::Config::parse(&std::env::var("RUST_LOG").unwrap_or_else(|_| "debug".to_owned()))?;
     debug!(?trace_config);
+    let pem_path = "./examples/tsig.raw".to_owned();
+    println!("loading key from: {}", pem_path);
+    let mut key_file = File::open(pem_path).expect("could not find key file");
+
+    let mut key = Vec::new();
+    key_file
+        .read_to_end(&mut key)
+        .expect("error reading key file");
+
     let Ok(tsig) = TSigner::new(
-        "key_foo".as_bytes().to_owned(),
-        TsigAlgorithm::HmacSha256,
-        Name::from_ascii("key_foo").unwrap(),
+        key,
+        TsigAlgorithm::HmacSha512,
+        Name::from_ascii("tsig-key").unwrap(),
         // ??
         300,
     ) else {
@@ -30,17 +39,30 @@ async fn main() -> Result<()> {
         anyhow::bail!("failed to create tsigner")
     };
 
-    let mut client = Updater::new([8, 8, 8, 8].into(), None).await?;
-    client
-        .forward(
-            Name::from_str("example.com.").unwrap(),
-            Name::from_str("other.example.com.").unwrap(),
-            dhcid::DhcId::new(IdType::ClientId, [0x01, 0x02, 0x03, 0x04, 0x05, 0x06]),
-            "192.168.2.1".parse().unwrap(),
-            1300,
-        )
-        .await?;
-    // RecordSet::
-    // client.compare_and_swap(current, new, zone_origin)
+    let mut client = Updater::new([8, 8, 8, 8].into(), Some(tsig)).await?;
+    // forward
+    dbg!(
+        client
+            .forward(
+                Name::from_str("example.com.").unwrap(),
+                Name::from_str("other.example.com.").unwrap(),
+                dhcid::DhcId::new(IdType::ClientId, [0x01, 0x02, 0x03, 0x04, 0x05, 0x06]),
+                "192.168.2.1".parse().unwrap(),
+                1300,
+            )
+            .await?
+    );
+    // reverse
+    // dbg!(
+    //     client
+    //         .reverse(
+    //             Name::from_str("other.example.com.").unwrap(),
+    //             dhcid::DhcId::new(IdType::ClientId, [0x01, 0x02, 0x03, 0x04, 0x05, 0x06]),
+    //             "192.168.2.1".parse().unwrap(),
+    //             1300,
+    //         )
+    //         .await?
+    // );
+
     Ok(())
 }

@@ -635,6 +635,7 @@ dependencies = [
  "config",
  "dora-core",
  "hex",
+ "ipnet",
  "rand",
  "ring",
  "thiserror",
@@ -1456,6 +1457,7 @@ name = "leases"
 version = "0.1.0"
 dependencies = [
  "config",
+ "ddns",
  "dora-core",
  "ip-manager",
  "ipnet",

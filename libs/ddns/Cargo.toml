@@ -13,6 +13,7 @@ thiserror = { workspace = true }
 ring = "0.16.20"
 hex = "0.4"
 rand = { workspace = true }
+ipnet = { workspace = true }
 
 [dev-dependencies]
 base64 = "0.20"

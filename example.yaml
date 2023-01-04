@@ -195,12 +195,12 @@ ddns:
     hostname_suffix: "text.suffix."
     # list of forward DNS servers
     forward: 
-       - name: "foo.example.com." # todo: make optional and use first label in FQDN?
+       - name: "example.com." # optional, will set the `zone` of the DNS update
          # optional, must match key name in tsig_keys
          key: "key_foo"
          ip: 192.168.3.111
     reverse:
-       - name: "reverse.example.com."
+       - # name: "168.192.in-addr.arpa." # optional, will set the `zone` of the DNS update
          key: "key_foo"
          ip: 192.168.3.111
     # map of tsig keys. DNS servers reference these by name

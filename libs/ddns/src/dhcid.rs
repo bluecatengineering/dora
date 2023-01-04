@@ -13,6 +13,24 @@ impl DhcId {
     pub fn new<T: Into<Vec<u8>>>(ty: IdType, id: T) -> Self {
         Self { ty, id: id.into() }
     }
+    pub fn chaddr<T: Into<Vec<u8>>>(id: T) -> Self {
+        Self {
+            ty: IdType::Chaddr,
+            id: id.into(),
+        }
+    }
+    pub fn client_id<T: Into<Vec<u8>>>(id: T) -> Self {
+        Self {
+            ty: IdType::ClientId,
+            id: id.into(),
+        }
+    }
+    pub fn duid<T: Into<Vec<u8>>>(id: T) -> Self {
+        Self {
+            ty: IdType::Duid,
+            id: id.into(),
+        }
+    }
     pub fn id(&self) -> Vec<u8> {
         if self.ty == IdType::Chaddr {
             // https://www.rfc-editor.org/rfc/rfc4701#section-3.5.3

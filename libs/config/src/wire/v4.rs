@@ -321,7 +321,7 @@ pub mod ddns {
                 override_no_updates: false,
                 hostname_suffix: None,
                 forward: Vec::new(),
-                reverse: Vec::default(),
+                reverse: Vec::new(),
                 tsig_keys: HashMap::default(),
             }
         }
@@ -335,7 +335,7 @@ pub mod ddns {
 
     #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
     pub struct DdnsServer {
-        pub name: String,
+        pub name: Option<String>,
         pub key: Option<String>,
         pub ip: Ipv4Addr,
     }

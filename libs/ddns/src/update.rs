@@ -25,6 +25,7 @@ pub struct Updater {
 
 impl Updater {
     pub async fn new(ip: Ipv4Addr, tsig: Option<TSigner>) -> Result<Self, UpdateError> {
+        // todo: create stream per forward/reverse server
         let stream = UdpClientStream::<UdpSocket, TSigner>::with_timeout_and_signer_and_bind_addr(
             (ip, 53).into(),
             Duration::from_secs(5),
@@ -74,20 +75,15 @@ impl Updater {
     }
     pub async fn reverse(
         &mut self,
+        zone: Option<Name>,
         domain: Name,
         duid: DhcId,
         leased: Ipv4Addr,
         lease_length: u32,
     ) -> Result<(), UpdateError> {
         let ttl = calculate_ttl(lease_length);
-        let message = delete(
-            // todo: get zone origin
-            domain.clone(),
-            duid.clone(),
-            leased,
-            ttl,
-            false,
-        )?;
+
+        let message = delete(zone, domain.clone(), duid.clone(), leased, ttl, false)?;
         let resp = self.client.send(message).first_answer().await?;
         if resp.response_code() == ResponseCode::NoError {
             Ok(())
@@ -174,7 +170,7 @@ pub fn update_present(
 }
 
 pub fn delete(
-    // zone_origin: Name,
+    zone_origin: Option<Name>,
     name: Name,
     duid: DhcId,
     leased: Ipv4Addr,
@@ -187,7 +183,9 @@ pub fn delete(
     };
 
     let rev_ip = Name::from_str(&reverse_ip(leased)).unwrap();
-    let mut message = update_msg(rev_ip.clone(), use_edns); // TODO <- is this correct?
+
+    let zone_origin = zone_origin.unwrap_or_else(|| rev_ip.clone());
+    let mut message = update_msg(zone_origin, use_edns);
 
     // delete
     let owner = Record::with(rev_ip.clone(), RecordType::ANY, 0);

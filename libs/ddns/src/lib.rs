@@ -24,7 +24,8 @@ use dhcid::DhcId;
 
 use crate::update::Updater;
 
-pub struct DdnsUpdateV4;
+#[derive(Debug, Default)]
+pub struct DdnsUpdate;
 
 #[derive(thiserror::Error, Debug)]
 pub enum DdnsError {
@@ -45,8 +46,11 @@ pub enum Action<'a> {
     Update((ClientFQDN, bool, bool, &'a Ddns)),
 }
 
-impl DdnsUpdateV4 {
-    pub async fn do_update(
+impl DdnsUpdate {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub async fn update(
         &self,
         ctx: &mut MsgContext<v4::Message>,
         duid: DhcId,
@@ -58,7 +62,7 @@ impl DdnsUpdateV4 {
                 let domain = resp_fqdn.domain().clone();
                 ctx.decoded_resp_msg_mut()
                     .map(|msg| msg.opts_mut().insert(DhcpOption::ClientFQDN(resp_fqdn)));
-                self.send_ddns(ctx, cfg, duid, leased, domain, forward, reverse)
+                self.send_dns(ctx, cfg, duid, leased, domain, forward, reverse)
                     .await?;
             }
             Ok(Action::DontUpdate(mut resp_fqdn)) => {
@@ -154,7 +158,7 @@ impl DdnsUpdateV4 {
         }
     }
 
-    async fn send_ddns(
+    async fn send_dns(
         &self,
         ctx: &mut MsgContext<v4::Message>,
         config: &Ddns,
@@ -182,19 +186,18 @@ impl DdnsUpdateV4 {
                 } else {
                     None
                 };
+                let zone = srv
+                    .name
+                    .as_ref()
+                    .map(|name| Name::from_str(name).unwrap())
+                    .unwrap_or_else(|| domain.base_name());
                 // todo: likely re-creating the same client for each update
                 // should cache this in parent type
                 let mut client = Updater::new(srv.ip, tsig).await?;
 
                 // todo: zone origin same as domain?
                 match client
-                    .forward(
-                        domain.clone(),
-                        domain.clone(),
-                        duid.clone(),
-                        leased,
-                        *lease_length,
-                    )
+                    .forward(zone, domain.clone(), duid.clone(), leased, *lease_length)
                     .await
                 {
                     Ok(_) => {
@@ -220,13 +223,13 @@ impl DdnsUpdateV4 {
                 } else {
                     None
                 };
-                // todo: likely re-creating the same client for each update
-                // should cache this in parent type
+                // todo: parse to Name on config parse
+                let zone = srv.name.as_ref().map(|name| Name::from_str(name).unwrap());
+                // todo: should cache this in parent type
                 let mut client = Updater::new(srv.ip, tsig).await?;
 
-                // todo: zone origin same as domain?
                 match client
-                    .reverse(domain.clone(), duid.clone(), leased, *lease_length)
+                    .reverse(zone, domain.clone(), duid.clone(), leased, *lease_length)
                     .await
                 {
                     Ok(_) => {
