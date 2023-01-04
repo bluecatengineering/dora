@@ -98,7 +98,10 @@ impl DdnsUpdateV4 {
                     info!("got client FQDN but no DDNS config is present. No update performed");
                     return Ok(Action::DontUpdate(resp_fqdn));
                 };
-
+                if !ddns_config.enable_updates() {
+                    info!("got client FQDN but DDNS updates are disabled. No update performed");
+                    return Ok(Action::DontUpdate(resp_fqdn));
+                }
                 let Some((resp_flags, forward, reverse)) = handle_flags(fqdn.flags(), ddns_config, resp_flags) else {
                     error!(flags = ?fqdn.flags(), "got impossible client flag combination");
                     return Err(DdnsError::FlagConfig(fqdn.flags()))
@@ -114,7 +117,8 @@ impl DdnsUpdateV4 {
 
                 let resp_flags = FqdnFlags::default().set_e(true);
                 // TODO: Not sure if this empty Name is valid
-                let mut resp_fqdn = ClientFQDN::new(resp_flags, Name::new());
+                let resp_hostname = Name::from_str(hostname)?;
+                let mut resp_fqdn = ClientFQDN::new(resp_flags, resp_hostname.clone());
                 let Some(ddns_config) = cfg else {
                     info!("got hostname but no DDNS config is present. No update performed"); 
                     return Ok(Action::DontUpdate(resp_fqdn));
@@ -129,8 +133,7 @@ impl DdnsUpdateV4 {
                         return Ok(Action::DontUpdate(resp_fqdn));
                     };
                     // append the suffix
-                    let new_domain = Name::from_str(hostname)?.append_name(&suffix)?;
-                    resp_fqdn.set_domain(new_domain);
+                    resp_fqdn.set_domain(resp_hostname.append_name(&suffix)?);
                     // set update to true
                     resp_fqdn.set_flags(resp_fqdn.flags().set_s(true));
                     Ok(Action::Update((resp_fqdn, true, true, ddns_config)))
@@ -237,7 +240,6 @@ impl DdnsUpdateV4 {
         }
 
         Ok(())
-        // self.dns.
     }
 }
 
