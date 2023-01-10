@@ -15,6 +15,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use ddns::{dhcid::DhcId, DdnsUpdate};
 use dora_core::{
     anyhow::anyhow,
     chrono::{DateTime, SecondsFormat, Utc},
@@ -38,6 +39,7 @@ where
     S: Storage,
 {
     cfg: Arc<DhcpConfig>,
+    ddns: DdnsUpdate,
     ip_mgr: IpManager<S>,
 }
 
@@ -55,7 +57,11 @@ where
     S: Storage,
 {
     pub fn new(cfg: Arc<DhcpConfig>, ip_mgr: IpManager<S>) -> Self {
-        Self { cfg, ip_mgr }
+        Self {
+            cfg,
+            ip_mgr,
+            ddns: DdnsUpdate::new(),
+        }
     }
 
     async fn set_response(
@@ -242,6 +248,16 @@ where
                     );
                     ctx.populate_opts_lease(range.opts(), lease, t1, t2);
                     ctx.set_local(ExpiresAt(expires_at));
+
+                    // do ddns update. Consider this as a plugin?
+                    let dhcid = dhcid(self.cfg.v4(), ctx.decoded_msg());
+                    if let Err(err) = self
+                        .ddns
+                        .update(ctx, dhcid, self.cfg.v4().ddns(), range, ip)
+                        .await
+                    {
+                        error!(?err, "error during ddns update");
+                    }
                     return Ok(Action::Continue);
                 }
                 // ip not reserved or chaddr doesn't match
@@ -302,3 +318,17 @@ where
 /// When the lease will expire at
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub struct ExpiresAt(pub SystemTime);
+
+/// If opt 61 (client id) exists return that, otherwise return `chaddr` from the message
+/// header.
+pub fn dhcid(cfg: &config::v4::Config, msg: &Message) -> DhcId {
+    if cfg.chaddr_only() {
+        DhcId::chaddr(msg.chaddr())
+    } else if let Some(DhcpOption::ClientIdentifier(id)) =
+        msg.opts().get(OptionCode::ClientIdentifier)
+    {
+        DhcId::client_id(&id[..])
+    } else {
+        DhcId::chaddr(msg.chaddr())
+    }
+}

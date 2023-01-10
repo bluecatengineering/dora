@@ -17,6 +17,7 @@ pub struct Config {
     #[serde(default)]
     pub networks: HashMap<Ipv4Net, v4::Net>,
     pub v6: Option<v6::Config>,
+    pub ddns: Option<v4::ddns::Ddns>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]

@@ -91,8 +91,6 @@ networks:
                 config:
                     lease_time:
                         default: 3600
-                        min: 1200
-                        max: 4800
                 options:
                     values:
                         1:
@@ -180,4 +178,30 @@ v6:
                         value:
                             - 2001:db8::1
                             - 2001:db8::2
-        
+
+# DDNS config
+# This section is optional, if not included, no DDNS updates will
+# be sent
+ddns:
+    # send updates. If the ddns section header is defined, enable_updates defaults to true
+    enable_updates: true
+    # default false. whether to override the client update FQDN flags
+    override_client_updates: false
+    # default false. whether to override the no update FQDN flags
+    override_no_updates: false
+    # list of forward DNS servers
+    # selects based on FQDN longest match
+    forward: 
+       - name: "example.com."
+         key: ""
+         ip: 192.168.3.111
+    reverse:
+       - name: "168.192.in-addr.arpa."
+         key: ""
+         ip: 192.168.3.111
+    # map of tsig keys. DNS servers reference these by name
+    tsig_keys:
+        key_foo:
+          algorithm: "hmac-sha1"
+          # b64 key data
+          data: "<keydata>" 

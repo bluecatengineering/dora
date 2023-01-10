@@ -55,7 +55,7 @@ impl DhcpConfig {
     pub fn parse<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
         let config = v4::Config::new(
-            &std::fs::read_to_string(path)
+            std::fs::read_to_string(path)
                 .with_context(|| format!("failed to find config at {}", &path.display()))?,
         )?;
         debug!(?config);
@@ -153,7 +153,7 @@ impl LeaseTime {
         match requested {
             // time must be larger than `min` and smaller than `max`
             Some(req) => {
-                let t = req.max(min).min(max);
+                let t = req.clamp(min, max);
                 (t, renew(t), rebind(t))
             }
             None => (default, renew(default), rebind(default)),

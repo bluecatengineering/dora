@@ -1,0 +1,71 @@
+{
+    "DhcpDdns": {
+        "ip-address": "127.0.0.1",
+        "port": 53001,
+        "forward-ddns": {
+            "ddns-domains": [
+                {
+                    "name": "other.example.com.",
+                    "key-name": "",
+                    "dns-servers": [
+                        {
+                            "ip-address": "8.8.8.8",
+                            "port": 53
+                        }
+                    ]
+                },
+                {
+                    "name": "example.com.",
+                    "key-name": "",
+                    "dns-servers": [
+                        {
+                            "ip-address": "8.8.8.8",
+                            "port": 53
+                        }
+                    ]
+                },
+                {
+                    "name": "baz.other.example.com.",
+                    "key-name": "",
+                    "dns-servers": [
+                        {
+                            "ip-address": "8.8.8.8",
+                            "port": 53
+                        }
+                    ]
+                }
+            ]
+        },
+        "reverse-ddns": {
+            "ddns-domains": [
+                {
+                    "name": "168.192.in-addr.arpa.",
+                    "key-name": "",
+                    "dns-servers": [
+                        {
+                            "ip-address": "8.8.8.8",
+                            "port": 53
+                        }
+                    ]
+                },
+                {
+                    "name": "8.8.8.8.in-addr.arpa.",
+                    "key-name": "",
+                    "dns-servers": [
+                        {
+                            "ip-address": "8.8.8.8",
+                            "port": 53
+                        }
+                    ]
+                }
+            ]
+        },
+        "tsig-keys": [
+            {
+                "name": "tsig-key",
+                "algorithm": "HMAC-SHA512",
+                "secret": "cOMu4V6xeuEMyGuOiwMtvQNEp+4XZNqSbjdwxyNmpYwfZoy/ZSUctWsYq7XKKuQFjkiIrUON5HV+9aozYCB58A=="
+            }
+        ]
+    }
+}

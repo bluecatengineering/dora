@@ -19,6 +19,9 @@ use tracing::debug;
 
 use crate::{wire, LeaseTime};
 
+// re-export wire Ddns since it doesn't need to be modified (yet)
+pub use wire::v4::ddns::Ddns;
+
 pub const DEFAULT_LEASE_TIME: Duration = Duration::from_secs(86_400);
 
 /// server config for dhcpv4
@@ -31,9 +34,13 @@ pub struct Config {
     /// used to make a selection on which network or subnet to use
     networks: HashMap<Ipv4Net, Network>,
     v6: Option<crate::v6::Config>,
+    ddns: Option<Ddns>,
 }
 
 impl Config {
+    pub fn ddns(&self) -> Option<&Ddns> {
+        self.ddns.as_ref()
+    }
     pub fn v6(&self) -> Option<&crate::v6::Config> {
         self.v6.as_ref()
     }
@@ -181,6 +188,7 @@ impl Config {
             networks,
             chaddr_only: cfg.chaddr_only,
             v6,
+            ddns: cfg.ddns,
         })
     }
     /// Create a new DhcpConfig for the server. Pass in the wire
