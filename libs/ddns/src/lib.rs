@@ -2,7 +2,7 @@
 
 use std::{net::Ipv4Addr, str::FromStr};
 
-use config::v4::Ddns;
+use config::v4::{Ddns, NetRange};
 use dora_core::{
     dhcproto::{
         v4::{
@@ -39,11 +39,14 @@ pub enum DdnsError {
     DomainError(#[from] NameError),
     #[error("update failed {0:?}")]
     UpdateError(#[from] crate::update::UpdateError),
+    #[error("tsig error {0:?}")]
+    TsigError(#[from] TsigError),
 }
 
 pub enum Action<'a> {
-    DontUpdate(ClientFQDN),
-    Update((ClientFQDN, bool, bool, &'a Ddns)),
+    DontUpdateFQDN(ClientFQDN),
+    UpdateFQDN((ClientFQDN, bool, bool, &'a Ddns)),
+    UpdateHostname((Name, bool, bool, &'a Ddns)),
 }
 
 impl DdnsUpdate {
@@ -55,34 +58,45 @@ impl DdnsUpdate {
         ctx: &mut MsgContext<v4::Message>,
         duid: DhcId,
         cfg: Option<&Ddns>,
+        server_opts: &NetRange,
         leased: Ipv4Addr,
     ) -> Result<(), DdnsError> {
-        match self.get_fqdn(ctx, cfg) {
-            Ok(Action::Update((resp_fqdn, forward, reverse, cfg))) => {
+        let Some(cfg) = cfg else {
+                info!("got client FQDN but no DDNS config is present. No update performed");
+            return Ok(());
+        };
+        match self.get_fqdn(ctx, cfg, server_opts) {
+            Ok(Action::UpdateFQDN((resp_fqdn, forward, reverse, cfg))) => {
                 let domain = resp_fqdn.domain().clone();
                 ctx.decoded_resp_msg_mut()
                     .map(|msg| msg.opts_mut().insert(DhcpOption::ClientFQDN(resp_fqdn)));
                 self.send_dns(ctx, cfg, duid, leased, domain, forward, reverse)
                     .await?;
             }
-            Ok(Action::DontUpdate(mut resp_fqdn)) => {
+            Ok(Action::UpdateHostname((domain, forward, reverse, cfg))) => {
+                self.send_dns(ctx, cfg, duid, leased, domain, forward, reverse)
+                    .await?;
+            }
+            Ok(Action::DontUpdateFQDN(mut resp_fqdn)) => {
                 resp_fqdn.set_flags(resp_fqdn.flags().set_n(true));
                 ctx.decoded_resp_msg_mut()
                     .map(|msg| msg.opts_mut().insert(DhcpOption::ClientFQDN(resp_fqdn)));
-                return Ok(());
+                return Err(DdnsError::NoUpdate);
             }
             Err(err) => return Err(err),
         }
         Ok(())
     }
-    pub fn get_fqdn<'a, 'b, 'c>(
-        &'a self,
-        ctx: &'b mut MsgContext<v4::Message>,
-        cfg: Option<&'c Ddns>,
-    ) -> Result<Action<'c>, DdnsError> {
+    pub fn get_fqdn<'a>(
+        &self,
+        ctx: &mut MsgContext<v4::Message>,
+        cfg: &'a Ddns,
+        server_opts: &NetRange,
+    ) -> Result<Action<'a>, DdnsError> {
         let req = ctx.decoded_msg();
         let fqdn = req.opts().get(OptionCode::ClientFQDN);
         let hostname = req.opts().get(OptionCode::Hostname);
+        // will process fqdn first if available, if not then hostname
         match (fqdn, hostname) {
             (Some(DhcpOption::ClientFQDN(fqdn)), _) => {
                 debug!(
@@ -96,56 +110,33 @@ impl DdnsUpdate {
                 let mut resp_fqdn = ClientFQDN::new(resp_flags, domain.clone());
                 if domain.is_empty() {
                     error!(?domain, "client FQDN domain was empty. No update performed");
-                    return Ok(Action::DontUpdate(resp_fqdn));
+                    return Ok(Action::DontUpdateFQDN(resp_fqdn));
                 }
-                let Some(ddns_config) = cfg else {
-                    info!("got client FQDN but no DDNS config is present. No update performed");
-                    return Ok(Action::DontUpdate(resp_fqdn));
-                };
-                if !ddns_config.enable_updates() {
+                if !cfg.enable_updates() {
                     info!("got client FQDN but DDNS updates are disabled. No update performed");
-                    return Ok(Action::DontUpdate(resp_fqdn));
+                    return Ok(Action::DontUpdateFQDN(resp_fqdn));
                 }
-                let Some((resp_flags, forward, reverse)) = handle_flags(fqdn.flags(), ddns_config, resp_flags) else {
+                let Some((resp_flags, forward, reverse)) = handle_flags(fqdn.flags(), cfg, resp_flags) else {
                     error!(flags = ?fqdn.flags(), "got impossible client flag combination");
                     return Err(DdnsError::FlagConfig(fqdn.flags()))
                 };
                 resp_fqdn.set_flags(resp_flags);
-                // TODO: allow modifying fqdn
-                // if let Some(replace_name) = ddns_config.replace_client_name() {
-                // }
-                Ok(Action::Update((resp_fqdn, forward, reverse, ddns_config)))
+                Ok(Action::UpdateFQDN((resp_fqdn, forward, reverse, cfg)))
             }
             (_, Some(DhcpOption::Hostname(hostname))) => {
                 debug!(?fqdn, ?hostname, "received hostname but no FQDN option");
-
-                let resp_flags = FqdnFlags::default().set_e(true);
-                // TODO: Not sure if this empty Name is valid
-                let resp_hostname = Name::from_str(hostname)?;
-                let mut resp_fqdn = ClientFQDN::new(resp_flags, resp_hostname.clone());
-                let Some(ddns_config) = cfg else {
-                    info!("got hostname but no DDNS config is present. No update performed"); 
-                    return Ok(Action::DontUpdate(resp_fqdn));
+                let Some(DhcpOption::DomainName(domain)) = server_opts.opts().get(OptionCode::DomainName) else {
+                    error!(?hostname, "got hostname option but no domain name found, no update");
+                    return Err(DdnsError::NoUpdate);
                 };
-                if !ddns_config.enable_updates() {
+                // got hostname & domain name config from server, combining with opt 15 to create FQDN
+                let hostname = hostname.to_string() + "." + domain;
+                let resp_hostname = Name::from_str(&hostname)?;
+                if !cfg.enable_updates() {
                     info!("got hostname but DDNS updates are disabled. No update performed");
-                    return Ok(Action::DontUpdate(resp_fqdn));
+                    return Err(DdnsError::NoUpdate);
                 }
-                if let Some(suffix) = &ddns_config.hostname_suffix {
-                    let Ok(suffix) = Name::from_str(suffix) else {
-                        error!(?suffix, "failed to parse hostname_suffix. No update performed");
-                        return Ok(Action::DontUpdate(resp_fqdn));
-                    };
-                    // append the suffix
-                    resp_fqdn.set_domain(resp_hostname.append_name(&suffix)?);
-                    // set update to true
-                    resp_fqdn.set_flags(resp_fqdn.flags().set_s(true));
-                    Ok(Action::Update((resp_fqdn, true, true, ddns_config)))
-                } else {
-                    error!("No DDNS name configured. No update performed");
-                    resp_fqdn.set_flags(resp_fqdn.flags().set_n(true));
-                    Ok(Action::DontUpdate(resp_fqdn))
-                }
+                Ok(Action::UpdateHostname((resp_hostname, true, true, cfg)))
             }
             (_, _) => {
                 debug!(
@@ -161,7 +152,7 @@ impl DdnsUpdate {
     async fn send_dns(
         &self,
         ctx: &mut MsgContext<v4::Message>,
-        config: &Ddns,
+        cfg: &Ddns,
         duid: DhcId,
         leased: Ipv4Addr,
         domain: Name,
@@ -173,24 +164,13 @@ impl DdnsUpdate {
             return Err(DdnsError::SendFailed)
         };
         if forward {
-            for srv in config.forward() {
+            if let Some(srv) = cfg.match_longest_forward(&domain) {
                 let tsig = if let Some(key_name) = &srv.key {
-                    let tsig = match tsigner(key_name, config) {
-                        Err(err) => {
-                            error!(?err, "failed to create tsigner");
-                            continue;
-                        }
-                        Ok(t) => t,
-                    };
-                    Some(tsig)
+                    Some(tsigner(key_name, cfg)?)
                 } else {
                     None
                 };
-                let zone = srv
-                    .name
-                    .as_ref()
-                    .map(|name| Name::from_str(name).unwrap())
-                    .unwrap_or_else(|| domain.base_name());
+                let zone = srv.name.clone();
                 // todo: likely re-creating the same client for each update
                 // should cache this in parent type
                 let mut client = Updater::new(srv.ip, tsig).await?;
@@ -210,21 +190,15 @@ impl DdnsUpdate {
             }
         }
         if reverse {
-            for srv in config.reverse() {
+            let rev_ip = crate::update::reverse_ip(leased);
+            let arpa_name = Name::from_str(&rev_ip).unwrap();
+            if let Some(srv) = cfg.match_longest_reverse(&arpa_name) {
                 let tsig = if let Some(key_name) = &srv.key {
-                    let tsig = match tsigner(key_name, config) {
-                        Err(err) => {
-                            error!(?err, "failed to create tsigner");
-                            continue;
-                        }
-                        Ok(t) => t,
-                    };
-                    Some(tsig)
+                    Some(tsigner(key_name, cfg)?)
                 } else {
                     None
                 };
-                // todo: parse to Name on config parse
-                let zone = srv.name.as_ref().map(|name| Name::from_str(name).unwrap());
+                let zone = srv.name.clone();
                 // todo: should cache this in parent type
                 let mut client = Updater::new(srv.ip, tsig).await?;
 
@@ -262,7 +236,7 @@ pub fn tsigner(key_name: &str, config: &Ddns) -> Result<TSigner, TsigError> {
     // create new tsigner
     Ok(TSigner::new(
         key.data.as_bytes().to_owned(),
-        key.algorithm.into(),
+        key.algorithm.clone(),
         Name::from_ascii(key_name).unwrap(), // TODO: remove unwrap
         // ??
         300,
@@ -311,6 +285,7 @@ fn handle_flags(
             }
             Some(server_flags.set_s(s).set_n(!s))
         }
+        // invalid combination S/N can't both be true
         (true, true) => None,
     };
     let forward = flags?.s();
@@ -342,7 +317,7 @@ mod tests {
         assert_eq!(forward, expected_forward, "forward");
         assert_eq!(reverse, expected_reverse, "reverse");
     }
-    // N 0 S 1
+    // N 0 S 0
     #[test]
     fn test_flags_first_case() {
         // test the client wants to do forward updates
@@ -356,7 +331,7 @@ mod tests {
         harness(
             FqdnFlags::default(),
             (true, false, false),
-            FqdnFlags::default().set_s(false).set_n(false),
+            FqdnFlags::default(),
             false,
             true,
         );
@@ -366,6 +341,13 @@ mod tests {
             (true, true, false),
             FqdnFlags::default().set_s(true).set_n(false).set_o(true),
             true,
+            true,
+        );
+        harness(
+            FqdnFlags::default(),
+            (true, false, true),
+            FqdnFlags::default(),
+            false,
             true,
         );
     }

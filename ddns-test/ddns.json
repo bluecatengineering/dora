@@ -5,8 +5,28 @@
         "forward-ddns": {
             "ddns-domains": [
                 {
+                    "name": "other.example.com.",
+                    "key-name": "",
+                    "dns-servers": [
+                        {
+                            "ip-address": "8.8.8.8",
+                            "port": 53
+                        }
+                    ]
+                },
+                {
                     "name": "example.com.",
-                    "key-name": "tsig-key",
+                    "key-name": "",
+                    "dns-servers": [
+                        {
+                            "ip-address": "8.8.8.8",
+                            "port": 53
+                        }
+                    ]
+                },
+                {
+                    "name": "baz.other.example.com.",
+                    "key-name": "",
                     "dns-servers": [
                         {
                             "ip-address": "8.8.8.8",
@@ -20,6 +40,16 @@
             "ddns-domains": [
                 {
                     "name": "168.192.in-addr.arpa.",
+                    "key-name": "",
+                    "dns-servers": [
+                        {
+                            "ip-address": "8.8.8.8",
+                            "port": 53
+                        }
+                    ]
+                },
+                {
+                    "name": "8.8.8.8.in-addr.arpa.",
                     "key-name": "",
                     "dns-servers": [
                         {

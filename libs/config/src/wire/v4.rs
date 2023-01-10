@@ -287,6 +287,8 @@ fn decode_opt(code: &OptionCode, opt: &DhcpOption) -> Option<(u8, Opt)> {
 
 pub mod ddns {
     use super::*;
+
+    use dora_core::dhcproto::Name;
     pub use dora_core::trust_dns_proto::rr::dnssec::rdata::tsig::TsigAlgorithm;
 
     fn default_true() -> bool {
@@ -304,10 +306,6 @@ pub mod ddns {
         pub override_client_updates: bool,
         #[serde(default = "default_false")]
         pub override_no_updates: bool,
-        /// if present, when we receive a hostname option but no FQDN option,
-        /// we will append this to create an fqdn.
-        /// ex. [hostname].[hostname_suffix]
-        pub hostname_suffix: Option<String>,
         pub forward: Vec<DdnsServer>,
         pub reverse: Vec<DdnsServer>,
         pub tsig_keys: HashMap<String, TsigKey>,
@@ -319,7 +317,6 @@ pub mod ddns {
                 enable_updates: true,
                 override_client_updates: false,
                 override_no_updates: false,
-                hostname_suffix: None,
                 forward: Vec::new(),
                 reverse: Vec::new(),
                 tsig_keys: HashMap::default(),
@@ -328,16 +325,41 @@ pub mod ddns {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-    pub struct TsigKey {
-        pub algorithm: Algorithm,
-        pub data: String,
+    pub struct DdnsServer {
+        pub name: Name,
+        pub key: Option<String>,
+        pub ip: Ipv4Addr,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-    pub struct DdnsServer {
-        pub name: Option<String>,
-        pub key: Option<String>,
-        pub ip: Ipv4Addr,
+    pub struct TsigKey {
+        #[serde(with = "tsig_algo")]
+        pub algorithm: TsigAlgorithm,
+        pub data: String,
+    }
+
+    mod tsig_algo {
+        use super::*;
+        use serde::Serializer;
+
+        /// serialize
+        pub fn serialize<S>(algo: &TsigAlgorithm, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            let algo: Algorithm = algo
+                .try_into()
+                .map_err(|_| serde::ser::Error::custom("unsupported tsig algorithm"))?;
+            algo.serialize(serializer)
+        }
+
+        /// deserialize
+        pub fn deserialize<'de, D>(deserializer: D) -> Result<TsigAlgorithm, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            Ok(Algorithm::deserialize(deserializer)?.into())
+        }
     }
 
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -367,6 +389,21 @@ pub mod ddns {
         }
     }
 
+    impl TryFrom<&TsigAlgorithm> for Algorithm {
+        type Error = anyhow::Error;
+
+        fn try_from(value: &TsigAlgorithm) -> Result<Self, Self::Error> {
+            match value {
+                TsigAlgorithm::HmacMd5 => Ok(Algorithm::HmacMd5),
+                TsigAlgorithm::HmacSha1 => Ok(Algorithm::HmacSha1),
+                TsigAlgorithm::HmacSha256 => Ok(Algorithm::HmacSha256),
+                TsigAlgorithm::HmacSha384 => Ok(Algorithm::HmacSha384),
+                TsigAlgorithm::HmacSha512 => Ok(Algorithm::HmacSha512),
+                e => Err(anyhow::anyhow!("unsupported tsig type {:?}", e)),
+            }
+        }
+    }
+
     impl Ddns {
         pub fn enable_updates(&self) -> bool {
             self.enable_updates
@@ -386,15 +423,204 @@ pub mod ddns {
         pub fn forward(&self) -> &[DdnsServer] {
             &self.forward
         }
+        pub fn match_longest_forward(&self, fqdn: &Name) -> Option<&DdnsServer> {
+            match_longest_fqdn(&self.forward, fqdn)
+        }
         pub fn reverse(&self) -> &[DdnsServer] {
             &self.reverse
         }
+        pub fn match_longest_reverse(&self, arpa_domain: &Name) -> Option<&DdnsServer> {
+            match_longest_fqdn(&self.reverse, arpa_domain)
+        }
+    }
+
+    fn match_longest_fqdn<'a>(list: &'a [DdnsServer], fqdn: &Name) -> Option<&'a DdnsServer> {
+        let mut best_match = None;
+        let mut match_len = 0;
+        for srv in list {
+            let fqdn_len = fqdn.num_labels();
+            let srv_len = srv.name.num_labels();
+
+            if srv.name.is_wildcard() && srv_len == 0 {
+                return Some(srv);
+            }
+            // srv len is longer than fqdn, can't match
+            if srv_len > fqdn_len {
+                continue;
+            }
+            // if fqdn & srv have same # of labels & they are equal, then
+            // we found a match
+            if fqdn_len == srv_len {
+                if fqdn == &srv.name {
+                    return Some(srv);
+                }
+                continue;
+            } else {
+                let offset = fqdn_len - srv_len;
+                // fqdn contains the srv name
+                // count the # of matching labels
+                if fqdn
+                    .iter()
+                    .skip(offset as usize)
+                    .zip(srv.name.iter())
+                    .all(|(a, b)| a == b)
+                    && srv_len > match_len
+                {
+                    best_match = Some(srv);
+                    match_len = srv_len;
+                }
+            }
+        }
+        best_match
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use dora_core::dhcproto::Name;
+
+    use super::ddns::*;
     pub static SAMPLE_YAML: &str = include_str!("../../sample/config.yaml");
+
+    #[test]
+    fn test_forward_match() {
+        let ddns = Ddns {
+            forward: vec![
+                DdnsServer {
+                    name: "example.com.".parse().unwrap(),
+                    key: None,
+                    ip: [8, 8, 8, 8].into(),
+                },
+                DdnsServer {
+                    name: "other.example.com.".parse().unwrap(),
+                    key: None,
+                    ip: [8, 8, 8, 8].into(),
+                },
+                DdnsServer {
+                    name: "foo.example.com.".parse().unwrap(),
+                    key: None,
+                    ip: [8, 8, 8, 8].into(),
+                },
+                DdnsServer {
+                    name: "a.baz.foo.example.com.".parse().unwrap(),
+                    key: None,
+                    ip: [8, 8, 8, 8].into(),
+                },
+                DdnsServer {
+                    name: "bing.net.".parse().unwrap(),
+                    key: None,
+                    ip: [8, 8, 8, 8].into(),
+                },
+            ],
+            ..Ddns::default()
+        };
+        let fwd = ddns.match_longest_forward(&"example.com.".parse::<Name>().unwrap());
+        assert_eq!(
+            fwd.unwrap(),
+            &DdnsServer {
+                name: "example.com.".parse().unwrap(),
+                key: None,
+                ip: [8, 8, 8, 8].into(),
+            }
+        );
+        let fwd = ddns.match_longest_forward(&"other.example.com.".parse::<Name>().unwrap());
+        assert_eq!(
+            fwd.unwrap(),
+            &DdnsServer {
+                name: "other.example.com.".parse().unwrap(),
+                key: None,
+                ip: [8, 8, 8, 8].into(),
+            }
+        );
+        let fwd = ddns.match_longest_forward(&"b.foo.example.com.".parse::<Name>().unwrap());
+        assert_eq!(
+            fwd.unwrap(),
+            &DdnsServer {
+                name: "foo.example.com.".parse().unwrap(),
+                key: None,
+                ip: [8, 8, 8, 8].into(),
+            }
+        );
+        let fwd = ddns.match_longest_forward(&"bang.net.".parse::<Name>().unwrap());
+        assert_eq!(fwd, None);
+    }
+
+    #[test]
+    fn test_forward_match_wildcard() {
+        let ddns = Ddns {
+            forward: vec![
+                DdnsServer {
+                    name: "example.com.".parse().unwrap(),
+                    key: None,
+                    ip: [8, 8, 8, 8].into(),
+                },
+                DdnsServer {
+                    name: "*".parse().unwrap(),
+                    key: None,
+                    ip: [8, 8, 8, 8].into(),
+                },
+            ],
+            ..Ddns::default()
+        };
+        let fwd = ddns.match_longest_forward(&"stuff.com.".parse::<Name>().unwrap());
+        assert_eq!(
+            fwd.unwrap(),
+            &DdnsServer {
+                name: "*".parse().unwrap(),
+                key: None,
+                ip: [8, 8, 8, 8].into(),
+            }
+        );
+    }
+
+    #[test]
+    fn test_reverse() {
+        let ddns = Ddns {
+            reverse: vec![
+                DdnsServer {
+                    name: "8.8.8.8.in-addr.arpa.".parse().unwrap(),
+                    key: None,
+                    ip: [8, 8, 8, 8].into(),
+                },
+                DdnsServer {
+                    name: "168.192.in-addr.arpa.".parse().unwrap(),
+                    key: None,
+                    ip: [8, 8, 8, 8].into(),
+                },
+                DdnsServer {
+                    name: "1.192.in-addr.arpa.".parse().unwrap(),
+                    key: None,
+                    ip: [8, 8, 8, 8].into(),
+                },
+            ],
+            ..Ddns::default()
+        };
+        let rev = ddns.match_longest_reverse(&"1.2.168.192.in-addr.arpa.".parse::<Name>().unwrap());
+        assert_eq!(
+            rev.unwrap(),
+            &DdnsServer {
+                name: "168.192.in-addr.arpa.".parse().unwrap(),
+                key: None,
+                ip: [8, 8, 8, 8].into(),
+            }
+        );
+
+        let rev = ddns.match_longest_reverse(&"4.4.8.8.in-addr.arpa.".parse::<Name>().unwrap());
+        assert_eq!(rev, None);
+
+        let rev = ddns.match_longest_reverse(&"10.192.in-addr.arpa.".parse::<Name>().unwrap());
+        assert_eq!(rev, None);
+
+        let rev = ddns.match_longest_reverse(&"3.1.192.in-addr.arpa.".parse::<Name>().unwrap());
+        assert_eq!(
+            rev.unwrap(),
+            &DdnsServer {
+                name: "1.192.in-addr.arpa.".parse().unwrap(),
+                key: None,
+                ip: [8, 8, 8, 8].into(),
+            }
+        );
+    }
 
     // test we can encode/decode sample
     #[test]

@@ -410,17 +410,16 @@ impl MsgContext<v4::Message> {
 
     /// records metrics for sent DHCP message
     pub fn sent_metrics(&self) -> io::Result<()> {
-        match self
-            .decoded_resp_msg()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "v4 response not found"))?
-            .opts()
-            .msg_type()
-            .ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "v4 response message type not found",
-                )
-            })? {
+        let Some(sent) = self.decoded_resp_msg() else {
+            return Ok(());
+        };
+
+        match sent.opts().msg_type().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "v4 response message type not found",
+            )
+        })? {
             v4::MessageType::Discover => {
                 SENT_TYPE_COUNT.discover.inc();
             }

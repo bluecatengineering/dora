@@ -75,7 +75,7 @@ impl Updater {
     }
     pub async fn reverse(
         &mut self,
-        zone: Option<Name>,
+        zone: Name,
         domain: Name,
         duid: DhcId,
         leased: Ipv4Addr,
@@ -145,7 +145,7 @@ pub fn update_present(
         op::UpdateMessage,
         rr::{rdata::NULL, DNSClass, RData, Record, RecordType},
     };
-    let mut message = update_msg(zone_origin, use_edns); // TODO <- is this correct?
+    let mut message = update_msg(zone_origin, use_edns);
 
     let mut prerequisite = Record::with(name.clone(), RecordType::ANY, 0);
     // use ANY to check only update if this name is present
@@ -170,7 +170,7 @@ pub fn update_present(
 }
 
 pub fn delete(
-    zone_origin: Option<Name>,
+    zone_origin: Name,
     name: Name,
     duid: DhcId,
     leased: Ipv4Addr,
@@ -183,8 +183,6 @@ pub fn delete(
     };
 
     let rev_ip = Name::from_str(&reverse_ip(leased)).unwrap();
-
-    let zone_origin = zone_origin.unwrap_or_else(|| rev_ip.clone());
     let mut message = update_msg(zone_origin, use_edns);
 
     // delete
@@ -238,9 +236,8 @@ fn update_msg(zone_origin: Name, use_edns: bool) -> trust_dns_client::op::Messag
     message
 }
 
-fn reverse_ip<I: Into<IpAddr>>(ip: I) -> String {
+pub fn reverse_ip<I: Into<IpAddr>>(ip: I) -> String {
     let ip = ip.into();
-    // little bit of repetition on account of types being different for octet len
     match ip {
         IpAddr::V4(ip) => {
             let [a, b, c, d] = ip.octets();

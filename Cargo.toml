@@ -29,7 +29,7 @@ tokio = { version = "1.17.0", features = [ "full" ] }
 tracing = "0.1.22"
 tracing-futures = "0.2"
 tracing-subscriber = { features = ["env-filter", "json"], version = "0.3" }
-trust-dns-proto = { features = ["dnssec"], version = "0.22.0" }
+trust-dns-proto = { features = ["dnssec", "serde-config"], version = "0.22.0" }
 thiserror = "1.0"
 prometheus = "0.13.0"
 prometheus-static-metric = "0.5"

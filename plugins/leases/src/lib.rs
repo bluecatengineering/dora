@@ -251,9 +251,13 @@ where
 
                     // do ddns update. Consider this as a plugin?
                     let dhcid = dhcid(self.cfg.v4(), ctx.decoded_msg());
-                    self.ddns
-                        .update(ctx, dhcid, self.cfg.v4().ddns(), ip)
-                        .await?;
+                    if let Err(err) = self
+                        .ddns
+                        .update(ctx, dhcid, self.cfg.v4().ddns(), range, ip)
+                        .await
+                    {
+                        error!(?err, "error during ddns update");
+                    }
                     return Ok(Action::Continue);
                 }
                 // ip not reserved or chaddr doesn't match
