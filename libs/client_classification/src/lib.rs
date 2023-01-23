@@ -1,0 +1,50 @@
+use thiserror::Error;
+
+pub mod ast;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Expr {
+    String(String),
+    Int(u64),
+    Hex(String),
+    Bool(bool),
+    Option(u8),
+    Mac(),
+    // operation
+    Substring(Box<Expr>, usize, usize),
+    // prefix
+    Not(Box<Expr>),
+    // infix
+    And(Box<Expr>, Box<Expr>),
+    Or(Box<Expr>, Box<Expr>),
+    Equal(Box<Expr>, Box<Expr>),
+    NEqual(Box<Expr>, Box<Expr>),
+}
+
+pub type ParseResult<T> = Result<T, ParseErr>;
+
+#[derive(Error, Debug)]
+pub enum ParseErr {
+    #[error("float parse error")]
+    Float(#[from] std::num::ParseFloatError),
+    #[error("int parse error")]
+    Int(#[from] std::num::ParseIntError),
+    #[error("substring parse error with: {0}")]
+    Substring(String),
+    #[error("bool parse error with: {0}")]
+    Bool(String),
+    #[error("undefined with: {0:?}")]
+    Undefined(ast::Rule),
+}
+
+pub type EvalResult<T> = Result<T, EvalErr>;
+
+#[derive(Error, Debug)]
+pub enum EvalErr {
+    #[error("expected bool: got {0}")]
+    ExpectedBool(String),
+    #[error("expected string: got {0}")]
+    ExpectedString(String),
+    #[error("expected int: got {0}")]
+    ExpectedInt(String),
+}

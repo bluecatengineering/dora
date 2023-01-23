@@ -1,0 +1,19 @@
+[package]
+name = "client_classification"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+pest = "2.5.3"
+pest_derive = "2.5.3"
+thiserror = "1.0.30"
+hex = "0.4.3"
+
+[dev-dependencies]
+criterion = "0.3"
+
+[[bench]]
+name = "my_benchmark"
+harness = false

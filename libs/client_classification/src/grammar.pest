@@ -1,0 +1,31 @@
+// integer = @{ ASCII_DIGIT+ }
+integer    =  @{ (ASCII_NONZERO_DIGIT ~ ASCII_DIGIT+ | ASCII_DIGIT) }
+
+string = @{ "'" ~ ( "''" | (!"'" ~ ANY) )* ~ "'" }
+
+hex = @{ "0x" ~ ASCII_HEX_DIGIT* }
+
+boolean = @{ "true" | "false" }
+
+mac = @{ "mac" }
+
+operation = _{ equal | neq | and | or }
+	equal = { "==" }
+	neq = { "!=" }
+	or = { "or" }
+	and = { "and" }
+
+
+option = { "option[" ~ integer ~ "]" }
+substring = { "substring(" ~ expr ~ "," ~ integer ~ "," ~ integer ~ ")" }
+
+// expr       =   { prefix* ~ primary ~ postfix* ~ (infix ~ prefix* ~ primary ~ postfix* )* }
+expr = { prefix* ~ primary ~ (operation ~ prefix* ~ primary )* }
+prefix = _{ not }
+    not = { "not" } 
+// postfix  =  _{ fac }
+//     fac    =   { "!" } 
+primary = _{ hex | integer | string | boolean | mac | option | substring | "(" ~ expr ~ ")" }
+predicate = _{ SOI ~ expr ~ EOI }
+
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
