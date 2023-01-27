@@ -1,3 +1,5 @@
+use std::net::Ipv4Addr;
+
 use thiserror::Error;
 
 pub mod ast;
@@ -5,7 +7,8 @@ pub mod ast;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expr {
     String(String),
-    Int(u64),
+    Ip(Ipv4Addr),
+    Int(u32),
     Hex(String),
     Bool(bool),
     Option(u8),
@@ -14,6 +17,9 @@ pub enum Expr {
     Substring(Box<Expr>, usize, usize),
     // prefix
     Not(Box<Expr>),
+    // postfix
+    ToHex(Box<Expr>),
+    Exists(Box<Expr>),
     // infix
     And(Box<Expr>, Box<Expr>),
     Or(Box<Expr>, Box<Expr>),
@@ -29,6 +35,8 @@ pub enum ParseErr {
     Float(#[from] std::num::ParseFloatError),
     #[error("int parse error")]
     Int(#[from] std::num::ParseIntError),
+    #[error("addr parse error")]
+    Ip(#[from] std::net::AddrParseError),
     #[error("substring parse error with: {0}")]
     Substring(String),
     #[error("bool parse error with: {0}")]
@@ -47,4 +55,8 @@ pub enum EvalErr {
     ExpectedString(String),
     #[error("expected int: got {0}")]
     ExpectedInt(String),
+    #[error("expected ip: got {0}")]
+    ExpectedEmpty(String),
+    #[error("expected ip: got {0}")]
+    ExpectedBytes(String),
 }

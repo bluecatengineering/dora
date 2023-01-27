@@ -12,12 +12,12 @@ fn criterion_benchmark(c: &mut Criterion) {
         |b| {
             b.iter(|| {
                 let mut options = HashMap::new();
-                options.insert(61, "some_client_id".to_string());
+                options.insert(61, b"some_client_id".to_vec());
                 let chaddr = "001122334455";
 
                 let tokens = ast::PredicateParser::parse(
                     ast::Rule::expr,
-                    "substring(mac, 0, 6) == '001122' and option[61] == 'some_client_id'",
+                    "substring(pkt4.mac, 0, 6) == '001122' and option[61].hex == 'some_client_id'",
                 )
                 .unwrap();
 
@@ -31,11 +31,11 @@ fn criterion_benchmark(c: &mut Criterion) {
         },
     );
     c.bench_function(
-        "just eval: substring(mac, 0, 6) == \"001122\" && option[61] == \"some_client_id\"",
+        "just eval: substring(pkt4.mac, 0, 6) == \"001122\" && option[61] == \"some_client_id\"",
         |b| {
             let tokens = ast::PredicateParser::parse(
                 ast::Rule::expr,
-                "substring(mac, 0, 6) == '001122' and option[61] == 'some_client_id'",
+                "substring(pkt4.mac, 0, 6) == '001122' and option[61].hex == 'some_client_id'",
             )
             .unwrap();
 
@@ -43,7 +43,7 @@ fn criterion_benchmark(c: &mut Criterion) {
 
             b.iter(move || {
                 let mut options = HashMap::new();
-                options.insert(61, "some_client_id".to_string());
+                options.insert(61, b"some_client_id".to_vec());
                 let chaddr = "001122334455";
 
                 client_classification::ast::eval_ast(ast.clone(), chaddr, &options).unwrap()
