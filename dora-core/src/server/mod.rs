@@ -236,7 +236,7 @@ impl RunInner<v4::Message> {
             .interfaces
             .iter()
             .find(|int| int.index == ifindex)
-            .with_context(|| format!("can't find interface {}", ifindex))?;
+            .with_context(|| format!("can't find interface {ifindex}"))?;
         trace!(meta = ?self.ctx.meta(), ?interface, "received datagram");
 
         let resp = match time::timeout(timeout, self.service.run_handlers(&mut self.ctx)).await {
@@ -340,7 +340,7 @@ impl RunInner<v6::Message> {
             .interfaces
             .iter()
             .find(|int| int.index == ifindex)
-            .with_context(|| format!("can't find interface {}", ifindex))?;
+            .with_context(|| format!("can't find interface {ifindex}"))?;
         trace!(meta = ?self.ctx.meta(), ?interface, "received datagram");
 
         let resp = match time::timeout(timeout, self.service.run_handlers(&mut self.ctx)).await {

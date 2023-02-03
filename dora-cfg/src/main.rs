@@ -37,12 +37,12 @@ fn main() -> Result<()> {
             Format::Wire => {
                 let wire_cfg = parse_wire::<wire::Config>(&args)?;
                 println!("printing wire format");
-                println!("{:#?}", wire_cfg);
+                println!("{wire_cfg:#?}");
             }
             Format::Internal => {
                 let cfg = config::v4::Config::from_wire(parse_wire(&args)?)?;
                 println!("parsed wire format into dora internal format, pretty printing");
-                println!("{:#?}", cfg);
+                println!("{cfg:#?}");
             }
         }
     }
@@ -62,7 +62,7 @@ fn parse_schema(args: &Args) -> Result<()> {
             .expect("failed to compile schema"); // can't use ? static lifetime on error
                                                  // TODO: jsonschema crate has garbage error types!
         return if let Err(errs) = validator.validate(&input) {
-            errs.for_each(|err| eprintln!("{}", err));
+            errs.for_each(|err| eprintln!("{err}"));
             Err(anyhow::anyhow!("failed to validate schema"))
         } else {
             println!("json schema validated");

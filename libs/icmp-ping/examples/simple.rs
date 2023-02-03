@@ -8,7 +8,7 @@ async fn main() {
         .nth(1)
         .unwrap_or_else(|| "127.0.0.1".to_string());
 
-    let ip = tokio::net::lookup_host(format!("{}:0", host))
+    let ip = tokio::net::lookup_host(format!("{host}:0"))
         .await
         .expect("host lookup error")
         .next()

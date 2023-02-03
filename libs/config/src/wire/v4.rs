@@ -306,9 +306,9 @@ mod tests {
     #[test]
     fn test_sample() {
         let cfg: crate::wire::Config = serde_yaml::from_str(SAMPLE_YAML).unwrap();
-        println!("{:#?}", cfg);
+        println!("{cfg:#?}");
         // back to the yaml
         let s = serde_yaml::to_string(&cfg).unwrap();
-        println!("{}", s);
+        println!("{s}");
     }
 }

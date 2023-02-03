@@ -256,7 +256,7 @@ impl Network {
     /// the value matches
     pub fn get_reserved_opt(&self, opt: &DhcpOption) -> Option<&Reserved> {
         match self.reserved_opts.get(&opt.into()) {
-            Some(&(ref val, ref res)) if val == opt => Some(res),
+            Some((val, res)) if val == opt => Some(res),
             _ => None,
         }
     }
