@@ -195,3 +195,20 @@ v6:
                         value:
                             - 2001:db8::1
                             - 2001:db8::2
+
+# Example Client Classifier
+client_classes:
+    # only v4 supported at the moment
+    v4:
+        - 
+          # class name
+          name: my_class
+          # assertion will be run for each class defined
+          assert: "option[61].hex == 'foobar'"
+          # any options defined here will be provided to the message
+          options: 
+                values: 
+                    6:
+                        type: ip_list
+                        value: [ 8.8.8.8 ]
+          

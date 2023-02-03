@@ -2,9 +2,9 @@ use crate::{EvalErr, EvalResult, Expr, ParseErr, ParseResult};
 
 use std::collections::HashMap;
 
-use pest::{
-    iterators::Pairs,
+pub use pest::{
     pratt_parser::{Assoc, Op, PrattParser},
+    {iterators::Pairs, Parser},
 };
 use pest_derive::Parser;
 
@@ -12,6 +12,12 @@ use pest_derive::Parser;
 #[grammar = "grammar.pest"]
 pub struct PredicateParser;
 
+#[allow(clippy::result_large_err)]
+pub fn parse(expr: &str) -> ParseResult<Expr> {
+    build_ast(PredicateParser::parse(Rule::expr, expr)?)
+}
+
+#[allow(clippy::result_large_err)]
 pub fn build_ast(pair: Pairs<Rule>) -> ParseResult<Expr> {
     let climber = PrattParser::new()
         .op(Op::infix(Rule::or, Assoc::Left))
@@ -124,6 +130,7 @@ pub fn eval_ast(expr: Expr, chaddr: &str, opts: &HashMap<u8, Vec<u8>>) -> Result
     })
 }
 
+#[allow(clippy::result_large_err)]
 fn parse_expr(pairs: Pairs<Rule>, pratt: &PrattParser<Rule>) -> ParseResult<Expr> {
     pratt
         .map_primary(|primary| {

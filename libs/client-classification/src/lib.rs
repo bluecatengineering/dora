@@ -43,6 +43,8 @@ pub enum ParseErr {
     Bool(String),
     #[error("undefined with: {0:?}")]
     Undefined(ast::Rule),
+    #[error("pest error {0:?}")]
+    PestErr(#[from] pest::error::Error<ast::Rule>),
 }
 
 pub type EvalResult<T> = Result<T, EvalErr>;

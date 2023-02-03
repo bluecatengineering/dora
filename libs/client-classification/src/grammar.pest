@@ -9,8 +9,6 @@ hex = @{ "0x" ~ ASCII_HEX_DIGIT* }
 
 boolean = @{ "true" | "false" }
 
-//mac = @{ "mac" }
-
 operation = _{ equal | neq | and | or }
 	equal = { "==" }
 	neq = { "!=" }
@@ -26,7 +24,6 @@ pkt = _{ pkt_mac }
 substring = { "substring(" ~ expr ~ "," ~ integer ~ "," ~ integer ~ ")" }
 
 expr = { prefix* ~ primary ~ postfix* ~ (operation ~ prefix* ~ primary ~ postfix* )* }
-// expr = { prefix* ~ primary ~ (operation ~ prefix* ~ primary )* }
 
 prefix = _{ not }
     not = { "not" } 

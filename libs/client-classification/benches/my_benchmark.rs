@@ -8,7 +8,7 @@ use pest::Parser;
 
 fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function(
-        "substring(mac, 0, 6) == \"001122\" && option[61] == \"some_client_id\"",
+        "substring(mac, 0, 6) == '001122' && option[61].hex == 'some_client_id'",
         |b| {
             b.iter(|| {
                 let mut options = HashMap::new();
@@ -31,7 +31,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         },
     );
     c.bench_function(
-        "just eval: substring(pkt4.mac, 0, 6) == \"001122\" && option[61] == \"some_client_id\"",
+        "just eval: substring(pkt4.mac, 0, 6) == '001122' && option[61].hex == 'some_client_id'",
         |b| {
             let tokens = ast::PredicateParser::parse(
                 ast::Rule::expr,

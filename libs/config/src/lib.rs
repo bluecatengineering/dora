@@ -1,3 +1,4 @@
+pub mod client_classes;
 pub mod v4;
 pub mod v6;
 pub mod wire;

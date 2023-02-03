@@ -449,7 +449,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "client_classification"
+name = "client-classification"
 version = "0.1.0"
 dependencies = [
  "criterion",
@@ -484,6 +484,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "client-classification",
  "dora-core",
  "hex",
  "ipnet",

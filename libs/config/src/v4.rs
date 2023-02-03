@@ -6,6 +6,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
+use client_classification::ast;
 use dora_core::{
     dhcproto::v4::{DhcpOption, DhcpOptions, Message, OptionCode},
     pnet::{
@@ -17,7 +18,7 @@ use dora_core::{
 use ipnet::{Ipv4AddrRange, Ipv4Net};
 use tracing::debug;
 
-use crate::{wire, LeaseTime};
+use crate::{client_classes::ClientClass, wire, LeaseTime};
 
 pub const DEFAULT_LEASE_TIME: Duration = Duration::from_secs(86_400);
 
@@ -31,6 +32,7 @@ pub struct Config {
     /// used to make a selection on which network or subnet to use
     networks: HashMap<Ipv4Net, Network>,
     v6: Option<crate::v6::Config>,
+    client_classes: Option<Vec<ClientClass>>,
 }
 
 impl Config {
@@ -180,11 +182,33 @@ impl Config {
             }
         };
 
+        let client_classes = match cfg.client_classes {
+            Some(classes) => {
+                let mut ret = Vec::with_capacity(classes.v4.capacity());
+                for class in classes.v4.into_iter() {
+                    let assert = ast::parse(&class.assert)
+                        .with_context(|| format!("failed to parse client class {}", class.name))?;
+                    let options = class.options;
+                    ret.push(ClientClass {
+                        name: class.name,
+                        assert,
+                        options: options.get(),
+                    });
+                }
+                Some(ret)
+            }
+            None => {
+                tracing::debug!("no client class config found");
+                None
+            }
+        };
+
         Ok(Self {
             interfaces,
             networks,
             chaddr_only: cfg.chaddr_only,
             v6,
+            client_classes,
         })
     }
     /// Create a new DhcpConfig for the server. Pass in the wire
