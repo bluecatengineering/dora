@@ -55,7 +55,7 @@ impl DhcpConfig {
     pub fn parse<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
         let config = v4::Config::new(
-            &std::fs::read_to_string(path)
+            std::fs::read_to_string(path)
                 .with_context(|| format!("failed to find config at {}", &path.display()))?,
         )?;
         debug!(?config);

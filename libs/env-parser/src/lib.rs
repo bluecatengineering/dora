@@ -62,7 +62,7 @@ where
     <T as str::FromStr>::Err: std::error::Error + Send + Sync + 'static,
     S: ToString + Send,
 {
-    parse_var::<T, S>(name, default).with_context(|| format!("error parsing env var {}", name))
+    parse_var::<T, S>(name, default).with_context(|| format!("error parsing env var {name}"))
 }
 
 /// Returns whether an environment variable with the given key exists  

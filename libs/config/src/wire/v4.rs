@@ -71,6 +71,8 @@ pub struct Net {
     /// Whether we are authoritative for this network (default: true)
     #[serde(default = "super::default_authoritative")]
     pub authoritative: bool,
+    pub server_name: Option<String>,
+    pub file_name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -145,6 +147,7 @@ enum Opt {
     Str(String),
     B64(String),
     Hex(String),
+    SubOption(HashMap<u8, Opt>),
 }
 
 impl<'de> serde::Deserialize<'de> for Opts {
@@ -204,6 +207,16 @@ fn write_opt(enc: &mut Encoder<'_>, code: u8, opt: Opt) -> anyhow::Result<()> {
             let bytes = hex::decode(s)?;
             enc.write_u8(bytes.len() as u8)?;
             enc.write_slice(&bytes)?;
+        }
+        Opt::SubOption(sub_opts) => {
+            // we'll encode the map to buf so we can use DhcpOptions::decode
+            let mut sub_buf = vec![];
+            let mut sub_enc = Encoder::new(&mut sub_buf);
+            for (sub_code, sub_opt) in sub_opts {
+                write_opt(&mut sub_enc, sub_code, sub_opt)?;
+            }
+            enc.write_u8(sub_buf.len() as u8)?;
+            enc.write_slice(&sub_buf)?;
         }
     }
     Ok(())
@@ -293,9 +306,9 @@ mod tests {
     #[test]
     fn test_sample() {
         let cfg: crate::wire::Config = serde_yaml::from_str(SAMPLE_YAML).unwrap();
-        println!("{:#?}", cfg);
+        println!("{cfg:#?}");
         // back to the yaml
         let s = serde_yaml::to_string(&cfg).unwrap();
-        println!("{}", s);
+        println!("{s}");
     }
 }

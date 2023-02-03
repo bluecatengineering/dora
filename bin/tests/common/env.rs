@@ -42,13 +42,13 @@ impl Drop for DhcpServerEnv {
         remove_test_veth_nics(&self.veth_cli);
         remove_test_net_namespace(&self.netns);
         if let Err(err) = std::fs::remove_file(db) {
-            eprintln!("{:?}", err);
+            eprintln!("{err:?}");
         }
         if let Err(err) = std::fs::remove_file(format!("{db}-shm")) {
-            eprintln!("{:?}", err);
+            eprintln!("{err:?}");
         }
         if let Err(err) = std::fs::remove_file(format!("{db}-wal")) {
-            eprintln!("{:?}", err);
+            eprintln!("{err:?}");
         }
     }
 }
@@ -83,7 +83,7 @@ fn start_dhcp_server(config: &str, netns: &str, db: &str) -> Child {
     let workspace_root = env::var("WORKSPACE_ROOT").unwrap_or_else(|_| "..".to_owned());
     let config_path = format!("{workspace_root}/bin/tests/test_configs/{config}");
     let dora_debug = format!(
-        "./{workspace_root}/target/debug/dora -d={db} --config-path={config_path} --threads=2 --dora-log=debug --v4-addr=0.0.0.0:9901",
+        "./{workspace_root}/target/debug/dora -d={db} --config-path={config_path} --threads=2 --dora-log=debug --v4-addr=0.0.0.0:9900",
     );
     let cmd = format!("ip netns exec {netns} {dora_debug}");
 
@@ -94,7 +94,7 @@ fn start_dhcp_server(config: &str, netns: &str, db: &str) -> Child {
         .expect("Failed to start DHCP server");
     std::thread::sleep(std::time::Duration::from_secs(1));
     if let Ok(Some(ret)) = child.try_wait() {
-        panic!("Failed to start DHCP server {:?}", ret);
+        panic!("Failed to start DHCP server {ret:?}");
     }
     child
 }
@@ -108,7 +108,7 @@ fn run_cmd(cmd: &str) -> String {
     let output = Command::new(cmds[0])
         .args(&cmds[1..])
         .output()
-        .unwrap_or_else(|_| panic!("failed to execute command {}", cmd));
+        .unwrap_or_else(|_| panic!("failed to execute command {cmd}"));
     if !output.status.success() {
         panic!("{}", String::from_utf8_lossy(&output.stderr));
     }
@@ -121,7 +121,7 @@ fn run_cmd_ignore_failure(cmd: &str) -> String {
     match Command::new(cmds[0]).args(&cmds[1..]).output() {
         Ok(o) => String::from_utf8(o.stdout).unwrap_or_default(),
         Err(e) => {
-            eprintln!("Failed to execute command {}: {}", cmd, e);
+            eprintln!("Failed to execute command {cmd}: {e}");
             "".to_string()
         }
     }

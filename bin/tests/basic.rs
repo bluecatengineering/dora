@@ -30,7 +30,7 @@ fn test_basic_dhcpv4_unicast() -> Result<()> {
     let settings = ClientSettingsBuilder::default()
         .iface_name("dhcpcli")
         .target("192.168.2.1".parse::<std::net::IpAddr>().unwrap())
-        .port(9901_u16)
+        .port(9900_u16)
         .build()?;
     // create a client that sends dhcpv4 messages
     let mut client = Client::<v4::Message>::new(settings);
@@ -79,7 +79,7 @@ fn static_chaddr_dora() -> Result<()> {
     let settings = ClientSettingsBuilder::default()
         .iface_name("dhcpcli")
         .target("192.168.2.1".parse::<std::net::IpAddr>().unwrap())
-        .port(9901_u16)
+        .port(9900_u16)
         .build()?;
     let chaddr = "aa:bb:cc:dd:ee:ff".parse::<MacAddr>()?.octets();
 
@@ -126,7 +126,7 @@ fn static_opt_dora() -> Result<()> {
     let settings = ClientSettingsBuilder::default()
         .iface_name("dhcpcli")
         .target("192.168.2.1".parse::<std::net::IpAddr>().unwrap())
-        .port(9901_u16)
+        .port(9900_u16)
         .build()?;
 
     let mut client = Client::<v4::Message>::new(settings);
@@ -178,7 +178,7 @@ fn discover_req_addr() -> Result<()> {
     let settings = ClientSettingsBuilder::default()
         .iface_name("dhcpcli")
         .target("192.168.2.1".parse::<std::net::IpAddr>().unwrap())
-        .port(9901_u16)
+        .port(9900_u16)
         .build()?;
 
     // create a client that sends dhcpv4 messages
@@ -226,7 +226,7 @@ fn request_nak() -> Result<()> {
     let settings = ClientSettingsBuilder::default()
         .iface_name("dhcpcli")
         .target("192.168.2.1".parse::<std::net::IpAddr>().unwrap())
-        .port(9901_u16)
+        .port(9900_u16)
         .build()?;
 
     // create a client that sends dhcpv4 messages
@@ -270,7 +270,7 @@ fn requested_lease_time() -> Result<()> {
     let settings = ClientSettingsBuilder::default()
         .iface_name("dhcpcli")
         .target("192.168.2.1".parse::<std::net::IpAddr>().unwrap())
-        .port(9901_u16)
+        .port(9900_u16)
         .build()?;
     // create a client that sends dhcpv4 messages
     let mut client = Client::<v4::Message>::new(settings);
@@ -327,7 +327,7 @@ fn test_requested_opts() -> Result<()> {
     let settings = ClientSettingsBuilder::default()
         .iface_name("dhcpcli")
         .target("192.168.2.1".parse::<std::net::IpAddr>().unwrap())
-        .port(9901_u16)
+        .port(9900_u16)
         .build()?;
     // create a client that sends dhcpv4 messages
     let mut client = Client::<v4::Message>::new(settings);
@@ -363,7 +363,7 @@ fn test_exclusions() -> Result<()> {
     let settings = ClientSettingsBuilder::default()
         .iface_name("dhcpcli")
         .target("192.168.2.1".parse::<std::net::IpAddr>().unwrap())
-        .port(9901_u16)
+        .port(9900_u16)
         .build()?;
     // create a client that sends dhcpv4 messages
     let mut client = Client::<v4::Message>::new(settings);
@@ -403,7 +403,7 @@ fn test_decline() -> Result<()> {
     let settings = ClientSettingsBuilder::default()
         .iface_name("dhcpcli")
         .target("192.168.2.1".parse::<std::net::IpAddr>().unwrap())
-        .port(9901_u16)
+        .port(9900_u16)
         .build()?;
     // create a client that sends dhcpv4 messages
     let mut client = Client::<v4::Message>::new(settings);

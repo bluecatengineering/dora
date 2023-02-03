@@ -143,10 +143,10 @@ We _could_ go much faster by keeping leases in memory and appending to the db li
 [perfdhcp](https://kea.readthedocs.io/en/kea-2.0.1/man/perfdhcp.8.html) can be used to test dora, include `giaddr`, the subnet select option or the relay agent link selection opt, you can use this as a starting point:
 
 ```
-sudo perfdhcp -4 -N 9901 -L 9903 -r 1 -xi -t 1 -o 118,C0A80001 -R 100 127.0.0.1
+sudo perfdhcp -4 -N 9900 -L 9903 -r 1 -xi -t 1 -o 118,C0A80001 -R 100 127.0.0.1
 ```
 
-This will start perfdhcp using dhcpv4, send messages to `127.0.0.1:9901`, listen on port `9903` at a rate of 1/sec, and using 100 different devices. It includes the subnet select opt (118) with `C0A80001` as a hex encoded value of the integer of `192.168.0.1`. `dora` must be listening on `9901` and have a config with ranges to allocate on the `192.168.0.1` network.
+This will start perfdhcp using dhcpv4, send messages to `127.0.0.1:9900`, listen on port `9903` at a rate of 1/sec, and using 100 different devices. It includes the subnet select opt (118) with `C0A80001` as a hex encoded value of the integer of `192.168.0.1`. `dora` must be listening on `9900` and have a config with ranges to allocate on the `192.168.0.1` network.
 
 ### Setting up dora on the PI
 
@@ -156,4 +156,4 @@ See [PI setup](./docs/pi_setup.md)
 
 If you find a bug, or see something that doesn't look right, please open an issue and let us know. We welcome any and all constructive feedback.
 
-We're still actively working on this. Some of the things we'd like to add in the future include: DDNS updates, stateful DHCPv6, HA & Client classification. 
+We're still actively working on this. Some of the things we'd like to add in the future include: DDNS updates, stateful DHCPv6, HA & Client classification.

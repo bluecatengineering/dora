@@ -81,7 +81,7 @@ fn impl_register(input: DeriveInput) -> TokenStream {
                 }
             } else {
                 // only call the _order method if there are dependencies
-                let method = Ident::new(&format!("{}_order", method), Span::call_site());
+                let method = Ident::new(&format!("{method}_order"), Span::call_site());
                 quote! {
                     srv.#method::<Self, _>(#new_this, &[ #(#dependencies),* ]);
                 }

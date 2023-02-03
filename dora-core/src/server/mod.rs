@@ -236,7 +236,7 @@ impl RunInner<v4::Message> {
             .interfaces
             .iter()
             .find(|int| int.index == ifindex)
-            .with_context(|| format!("can't find interface {}", ifindex))?;
+            .with_context(|| format!("can't find interface {ifindex}"))?;
         trace!(meta = ?self.ctx.meta(), ?interface, "received datagram");
 
         let resp = match time::timeout(timeout, self.service.run_handlers(&mut self.ctx)).await {
@@ -340,7 +340,7 @@ impl RunInner<v6::Message> {
             .interfaces
             .iter()
             .find(|int| int.index == ifindex)
-            .with_context(|| format!("can't find interface {}", ifindex))?;
+            .with_context(|| format!("can't find interface {ifindex}"))?;
         trace!(meta = ?self.ctx.meta(), ?interface, "received datagram");
 
         let resp = match time::timeout(timeout, self.service.run_handlers(&mut self.ctx)).await {
@@ -506,7 +506,8 @@ impl Service<v4::Message> {
         let soc = if interfaces.len() == 1 {
             trace!("binding exactly one interface so use SO_BINDTODEVICE");
             // to bind to an interface, we must create the socket using libc
-            let socket = socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None)?;
+            let socket = socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None)
+                .context("failed to bind v4 UDP socket")?;
             // SO_BINDTODEVICE
             socket
                 .bind_device(Some(interfaces.first().unwrap().name.as_bytes()))
@@ -534,8 +535,9 @@ impl Service<v6::Message> {
     async fn create_socket(&self) -> Result<unix_udp_sock::UdpSocket> {
         let addr = self.plugins.config.v6_addr;
         let interfaces = self.plugins.interfaces.clone();
-        debug!(?addr, "binding v6 UDP socket");
-        let socket = socket2::Socket::new(socket2::Domain::IPV6, socket2::Type::DGRAM, None)?;
+        info!(?addr, "binding v6 UDP socket");
+        let socket = socket2::Socket::new(socket2::Domain::IPV6, socket2::Type::DGRAM, None)
+            .context("failed to bind v6 UDP socket")?;
         socket.set_only_v6(true).context("only ipv6")?;
 
         socket
