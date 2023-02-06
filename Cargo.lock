@@ -453,6 +453,7 @@ name = "client-classification"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "dhcproto",
  "hex",
  "pest",
  "pest_derive",

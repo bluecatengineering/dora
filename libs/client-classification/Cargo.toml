@@ -10,6 +10,7 @@ pest = "2.5.3"
 pest_derive = "2.5.3"
 thiserror = "1.0.30"
 hex = "0.4.3"
+dhcproto = { workspace = true }
 
 [dev-dependencies]
 criterion = "0.3"

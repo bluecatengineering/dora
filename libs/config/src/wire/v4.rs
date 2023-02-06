@@ -84,6 +84,7 @@ pub struct IpRange {
     pub config: NetworkConfig,
     #[serde(default)]
     pub except: Vec<Ipv4Addr>,
+    pub class: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -121,6 +122,7 @@ pub struct ReservedIp {
     #[serde(rename = "match")]
     pub condition: Condition,
     pub config: NetworkConfig,
+    pub class: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -307,14 +309,15 @@ fn to_opt(code: &OptionCode, opt: &DhcpOption) -> Option<(u8, Opt)> {
         }
         Unknown(opt) => Some(((*code).into(), Opt::Hex(hex::encode(opt.data())))),
         _ => {
-            // the data includes the code value, let's slice that off
+            // the data includes the code & len, let's slice that off
             match opt.to_vec() {
                 Ok(buf) => Some((
                     (*code).into(),
                     Opt::Hex(if buf.is_empty() {
                         "".into()
                     } else {
-                        hex::encode(&buf[1..])
+                        // [code: u8][len: u8][data...]
+                        hex::encode(&buf[2..])
                     }),
                 )),
                 Err(err) => {

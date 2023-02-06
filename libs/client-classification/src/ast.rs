@@ -2,6 +2,7 @@ use crate::{EvalErr, EvalResult, Expr, ParseErr, ParseResult};
 
 use std::collections::HashMap;
 
+use dhcproto::v4;
 pub use pest::{
     pratt_parser::{Assoc, Op, PrattParser},
     {iterators::Pairs, Parser},
@@ -64,15 +65,19 @@ fn is_empty(val: Val) -> EvalResult<()> {
 }
 
 /// evaluate the AST, using values from this DHCP message
-pub fn eval_ast(expr: Expr, chaddr: &str, opts: &HashMap<u8, Vec<u8>>) -> Result<Val, EvalErr> {
+pub fn eval_ast(
+    expr: Expr,
+    chaddr: &str,
+    opts: &HashMap<v4::OptionCode, v4::UnknownOption>,
+) -> Result<Val, EvalErr> {
     use Expr::*;
     Ok(match expr {
         Bool(b) => Val::Bool(b),
         String(s) => Val::String(s),
         Int(i) => Val::Int(i),
         Hex(h) => Val::String(h),
-        Option(o) => match opts.get(&o) {
-            Some(v) => Val::Bytes(v.clone()),
+        Option(o) => match opts.get(&o.into()) {
+            Some(v) => Val::Bytes(v.data().to_owned()),
             None => Val::Empty,
         },
         Mac() => Val::String(chaddr.to_string()),
@@ -199,6 +204,7 @@ fn parse_expr(pairs: Pairs<Rule>, pratt: &PrattParser<Rule>) -> ParseResult<Expr
 
 #[cfg(test)]
 mod tests {
+    use dhcproto::v4::UnknownOption;
     use pest::Parser;
 
     use super::*;
@@ -227,7 +233,10 @@ mod tests {
     #[test]
     fn test_substring_opts() {
         let mut options = HashMap::new();
-        options.insert(61, b"some_client_id".to_vec());
+        options.insert(
+            61.into(),
+            UnknownOption::new(61.into(), b"some_client_id".to_vec()),
+        );
 
         let tokens = PredicateParser::parse(
             Rule::expr,

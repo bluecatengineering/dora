@@ -210,5 +210,5 @@ client_classes:
                 values: 
                     6:
                         type: ip_list
-                        value: [ 8.8.8.8 ]
+                        value: [ 1.1.1.1 ]
           

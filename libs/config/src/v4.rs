@@ -8,7 +8,10 @@ use std::{
 use anyhow::{Context, Result};
 use client_classification::ast;
 use dora_core::{
-    dhcproto::v4::{DhcpOption, DhcpOptions, Message, OptionCode},
+    dhcproto::{
+        v4::{DhcpOption, DhcpOptions, Message, OptionCode, UnknownOption},
+        Decodable, Decoder, Encodable,
+    },
     pnet::{
         datalink::NetworkInterface,
         ipnetwork::{IpNetwork, Ipv4Network},
@@ -16,9 +19,9 @@ use dora_core::{
     },
 };
 use ipnet::{Ipv4AddrRange, Ipv4Net};
-use tracing::debug;
+use tracing::{debug, error};
 
-use crate::{client_classes::ClientClass, wire, LeaseTime};
+use crate::{client_classes::ClientClasses, wire, LeaseTime};
 
 pub const DEFAULT_LEASE_TIME: Duration = Duration::from_secs(86_400);
 
@@ -32,7 +35,7 @@ pub struct Config {
     /// used to make a selection on which network or subnet to use
     networks: HashMap<Ipv4Net, Network>,
     v6: Option<crate::v6::Config>,
-    client_classes: Option<Vec<ClientClass>>,
+    client_classes: Option<ClientClasses>,
 }
 
 impl Config {
@@ -105,14 +108,9 @@ impl Config {
     }
 
     pub fn from_wire(cfg: wire::Config) -> Result<Self> {
-        // // a "backup interface" will be used when server_id is not specified and no interfaces are specified
-        // let first_interface = cfg
-        //     .interfaces
-        //     .and_then(|list| list.iter().next().map(|s| s.as_str()));
-        // let backup_interface_ip = crate::backup_ivp4_interface(first_interface)?;
         let interfaces = crate::v4_find_interfaces(cfg.interfaces.clone())?;
 
-        debug!(?interfaces, "v4 interfaces that will be used");
+        debug!(?interfaces, "using v4 interfaces");
         // transform wire::Config into a more optimized format
         let networks = cfg
             .networks
@@ -172,43 +170,21 @@ impl Config {
                 (subnet, network)
             })
             .collect();
-        let v6 = match cfg.v6 {
-            Some(v6) => {
-                Some(crate::v6::Config::from_wire(v6).context("unable to parse v6 config")?)
-            }
-            None => {
-                tracing::debug!("no v6 config found");
-                None
-            }
-        };
-
-        let client_classes = match cfg.client_classes {
-            Some(classes) => {
-                let mut ret = Vec::with_capacity(classes.v4.capacity());
-                for class in classes.v4.into_iter() {
-                    let assert = ast::parse(&class.assert)
-                        .with_context(|| format!("failed to parse client class {}", class.name))?;
-                    let options = class.options;
-                    ret.push(ClientClass {
-                        name: class.name,
-                        assert,
-                        options: options.get(),
-                    });
-                }
-                Some(ret)
-            }
-            None => {
-                tracing::debug!("no client class config found");
-                None
-            }
-        };
 
         Ok(Self {
             interfaces,
             networks,
             chaddr_only: cfg.chaddr_only,
-            v6,
-            client_classes,
+            v6: cfg
+                .v6
+                .map(crate::v6::Config::from_wire)
+                .transpose()
+                .context("unable to parse v6 config")?,
+            client_classes: cfg
+                .client_classes
+                .map(ClientClasses::from_wire)
+                .transpose()
+                .context("unable to parse client_classes config")?,
         })
     }
     /// Create a new DhcpConfig for the server. Pass in the wire
@@ -273,6 +249,50 @@ impl Network {
     pub fn ranges(&self) -> &[NetRange] {
         &self.ranges
     }
+    pub fn ranges_with_class<'a>(
+        &'a self,
+        classes: &ClientClasses,
+        client_id: &[u8],
+        client_opts: &DhcpOptions,
+        // TODO: don't allocate?
+    ) -> Result<Vec<&'a NetRange>> {
+        // TODO: find a better way to do this so we don't have to convert to unknown on every eval
+        // possibly, add better methods to dhcproto so we can pull the data section out
+        let unknown_opts = client_opts
+            .iter()
+            .map(|(k, v)| {
+                Ok((*k, {
+                    // using UnknownOption here so that the data section is easy to get
+                    let opt = v.to_vec()?;
+                    let mut d = Decoder::new(&opt);
+                    UnknownOption::decode(&mut d)?
+                }))
+            })
+            .collect::<Result<HashMap<_, _>>>()
+            .context("failed to convert options in client_classes")?;
+        Ok(self
+            .ranges
+            .iter()
+            .flat_map(|range| {
+                // TODO: remove clone
+                if let Some(class) = range.class.as_ref().and_then(|n| classes.find(n)).cloned() {
+                    let res =
+                        client_classification::ast::eval_ast(class.assert, &"", &unknown_opts);
+                    match res {
+                        Ok(ast::Val::Bool(true)) => Some(range),
+                        Ok(ast::Val::Bool(false)) => None,
+                        _ => {
+                            error!(?res, "eval didn't evaluate to true/false");
+                            None
+                        }
+                    }
+                } else {
+                    Some(range)
+                }
+            })
+            .collect())
+    }
+
     pub fn get_reserved_mac(&self, mac: MacAddr) -> Option<&Reserved> {
         self.reserved_macs.get(&mac)
     }
@@ -330,9 +350,19 @@ pub struct NetRange {
     lease: LeaseTime,
     opts: DhcpOptions,
     exclude: HashSet<Ipv4Addr>,
+    class: Option<String>,
 }
 
 impl NetRange {
+    pub fn new(addrs: RangeInclusive<Ipv4Addr>, lease: LeaseTime) -> Self {
+        Self {
+            addrs,
+            lease,
+            opts: DhcpOptions::default(),
+            exclude: HashSet::default(),
+            class: None,
+        }
+    }
     /// get the range of IPs this range offers
     pub fn addrs(&self) -> RangeInclusive<Ipv4Addr> {
         self.addrs.clone()
@@ -372,6 +402,10 @@ impl NetRange {
     /// handed out minus exclusions
     pub fn total_addrs(&self) -> usize {
         self.iter().count()
+    }
+    /// return configured class if present
+    pub fn class(&self) -> Option<&str> {
+        self.class.as_deref()
     }
 }
 
@@ -413,6 +447,7 @@ pub struct Reserved {
     /// a lease time
     lease: LeaseTime,
     opts: DhcpOptions,
+    class: Option<String>,
 }
 
 impl Reserved {
@@ -429,6 +464,10 @@ impl Reserved {
     pub fn lease(&self) -> LeaseTime {
         self.lease
     }
+    /// return configured class if present
+    pub fn class(&self) -> Option<&str> {
+        self.class.as_deref()
+    }
 }
 
 impl From<wire::v4::IpRange> for NetRange {
@@ -440,6 +479,7 @@ impl From<wire::v4::IpRange> for NetRange {
             opts,
             lease,
             exclude: range.except.into_iter().collect(),
+            class: range.class,
         }
     }
 }
@@ -451,6 +491,7 @@ impl From<&wire::v4::ReservedIp> for Reserved {
             lease,
             ip: res.ip,
             opts: res.options.as_ref().clone(),
+            class: res.class.clone(),
         }
     }
 }
@@ -480,16 +521,15 @@ mod tests {
 
     #[test]
     fn test_range_lease_time() {
-        let range = NetRange {
-            addrs: Ipv4Addr::new(192, 168, 0, 1)..=Ipv4Addr::new(192, 168, 0, 100),
-            lease: LeaseTime {
+        let range = NetRange::new(
+            Ipv4Addr::new(192, 168, 0, 1)..=Ipv4Addr::new(192, 168, 0, 100),
+            LeaseTime {
                 default: Duration::from_secs(5),
                 min: Duration::from_secs(3),
                 max: Duration::from_secs(10),
             },
-            exclude: HashSet::new(),
-            opts: DhcpOptions::default(),
-        };
+        );
+
         // selects max
         let (lease, renew, rebind) = range.lease().determine_lease(Some(Duration::from_secs(11)));
         assert_eq!(lease.as_secs(), 10);
@@ -523,6 +563,7 @@ mod tests {
                 [192, 168, 0, 4].into(),
             ]),
             opts: DhcpOptions::default(),
+            class: None,
         };
         // excluded causes us to skip 1-4
         assert!(range.iter().eq(Ipv4AddrRange::new(
@@ -534,16 +575,14 @@ mod tests {
 
     #[test]
     fn test_big_range() {
-        let range = NetRange {
-            addrs: Ipv4Addr::new(192, 168, 0, 0)..=Ipv4Addr::new(192, 168, 3, 255),
-            lease: LeaseTime {
+        let range = NetRange::new(
+            Ipv4Addr::new(192, 168, 0, 0)..=Ipv4Addr::new(192, 168, 3, 255),
+            LeaseTime {
                 default: Duration::from_secs(5),
                 min: Duration::from_secs(3),
                 max: Duration::from_secs(10),
             },
-            exclude: HashSet::new(),
-            opts: DhcpOptions::default(),
-        };
+        );
         assert_eq!(range.iter().count(), 256 * 4);
         assert_eq!(range.total_addrs(), 256 * 4);
     }
@@ -558,6 +597,7 @@ mod tests {
                 max: Duration::from_secs(10),
             },
             opts: DhcpOptions::default(),
+            class: None,
         };
         // another value just to make sure we select the right one
         let mut another = res.clone();
