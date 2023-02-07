@@ -1,8 +1,11 @@
 //! # Client Classes
 
+use std::collections::HashMap;
+
 use anyhow::{Context, Result};
 use client_classification::{ast, Expr};
-use dora_core::dhcproto::v4;
+use dora_core::dhcproto::v4::{self, OptionCode, UnknownOption};
+use tracing::error;
 
 use crate::wire;
 
@@ -34,21 +37,22 @@ impl ClientClasses {
             classes.push(ClientClass {
                 name: class.name,
                 assert,
-                options: class.options.get(), // options
-                                              //     .get()
-                                              //     .into_iter()
-                                              //     .map(|(k, v)| {
-                                              //         Ok((k, {
-                                              //             // using UnknownOption here so that the data section is easy to get
-                                              //             let opt = v.to_vec()?;
-                                              //             let mut d = Decoder::new(&opt);
-                                              //             v4::UnknownOption::decode(&mut d)?
-                                              //         }))
-                                              //     })
-                                              //     .collect::<Result<HashMap<_, _>>>()
-                                              //     .context("failed to convert options in client_classes")?,
+                options: class.options.get(),
             });
         }
         Ok(Self { classes })
+    }
+}
+
+impl ClientClass {
+    pub fn eval(self, chaddr: &str, unknown_opts: &HashMap<OptionCode, UnknownOption>) -> bool {
+        match client_classification::ast::eval_ast(self.assert, chaddr, unknown_opts) {
+            Ok(ast::Val::Bool(true)) => true,
+            Ok(ast::Val::Bool(false)) => false,
+            res => {
+                error!(?res, class_name = ?self.name, "didn't evaluate to true/false");
+                false
+            }
+        }
     }
 }

@@ -6,9 +6,9 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use client_classification::ast;
 use dora_core::{
     dhcproto::{
+        self,
         v4::{DhcpOption, DhcpOptions, Message, OptionCode, UnknownOption},
         Decodable, Decoder, Encodable,
     },
@@ -19,7 +19,7 @@ use dora_core::{
     },
 };
 use ipnet::{Ipv4AddrRange, Ipv4Net};
-use tracing::{debug, error};
+use tracing::debug;
 
 use crate::{client_classes::ClientClasses, wire, LeaseTime};
 
@@ -41,6 +41,9 @@ pub struct Config {
 impl Config {
     pub fn v6(&self) -> Option<&crate::v6::Config> {
         self.v6.as_ref()
+    }
+    pub fn classes(&self) -> Option<&ClientClasses> {
+        self.client_classes.as_ref()
     }
     /// Returns:
     ///     - `server_id` of `Network` belonging to `ip`
@@ -92,16 +95,31 @@ impl Config {
     }
 
     /// get a `Network` with a subnet that contains the given IP
-    pub fn get_network<I: Into<Ipv4Addr>>(&self, ip: I) -> Option<&Network> {
-        let ip = ip.into();
-        self.networks.iter().find_map(|(subnet, network)| {
-            if subnet.contains(&ip) {
+    pub fn get_network<I: Into<Ipv4Addr>>(&self, subnet: I) -> Option<&Network> {
+        let contains = subnet.into();
+        self.networks.iter().find_map(|(network_subnet, network)| {
+            if network_subnet.contains(&contains) {
                 Some(network)
             } else {
                 None
             }
         })
     }
+
+    /// get a `Network` with a subnet that contains the given IP
+    pub fn get_range<I: Into<Ipv4Addr>>(
+        &self,
+        subnet: I,
+        addr: I,
+        client_id: &[u8],
+        req: &dhcproto::v4::Message,
+    ) -> Option<&NetRange> {
+        let subnet = subnet.into();
+        let addr = addr.into();
+        self.get_network(subnet)
+            .and_then(|net| net.range(addr, client_id, req, self.classes()))
+    }
+
     /// get the first `Network`
     pub fn get_first(&self) -> Option<(&Ipv4Net, &Network)> {
         self.networks.iter().next()
@@ -253,38 +271,21 @@ impl Network {
         &'a self,
         classes: &ClientClasses,
         client_id: &[u8],
-        client_opts: &DhcpOptions,
-        // TODO: don't allocate?
+        req: &dhcproto::v4::Message,
     ) -> Result<Vec<&'a NetRange>> {
-        // TODO: find a better way to do this so we don't have to convert to unknown on every eval
-        // possibly, add better methods to dhcproto so we can pull the data section out
-        let unknown_opts = client_opts
-            .iter()
-            .map(|(k, v)| {
-                Ok((*k, {
-                    // using UnknownOption here so that the data section is easy to get
-                    let opt = v.to_vec()?;
-                    let mut d = Decoder::new(&opt);
-                    UnknownOption::decode(&mut d)?
-                }))
-            })
-            .collect::<Result<HashMap<_, _>>>()
-            .context("failed to convert options in client_classes")?;
+        // TODO: don't allocate returning Vec?
+        let (client_id, unknown_opts) = convert_for_eval(client_id, req)?;
+
         Ok(self
             .ranges
             .iter()
             .flat_map(|range| {
                 // TODO: remove clone
                 if let Some(class) = range.class.as_ref().and_then(|n| classes.find(n)).cloned() {
-                    let res =
-                        client_classification::ast::eval_ast(class.assert, &"", &unknown_opts);
-                    match res {
-                        Ok(ast::Val::Bool(true)) => Some(range),
-                        Ok(ast::Val::Bool(false)) => None,
-                        _ => {
-                            error!(?res, "eval didn't evaluate to true/false");
-                            None
-                        }
+                    if class.eval(&client_id, &unknown_opts) {
+                        Some(range)
+                    } else {
+                        None
                     }
                 } else {
                     Some(range)
@@ -318,11 +319,42 @@ impl Network {
         let ip = ip.into();
         self.ranges.iter().any(|r| r.contains(&ip))
     }
+
     /// Returns the range of which this `ip` is a member
-    pub fn get_range<I: Into<Ipv4Addr>>(&self, ip: I) -> Option<&NetRange> {
+    pub fn range<I: Into<Ipv4Addr>>(
+        &self,
+        ip: I,
+        client_id: &[u8],
+        req: &dhcproto::v4::Message,
+        classes: Option<&ClientClasses>,
+    ) -> Option<&NetRange> {
         let ip = ip.into();
         // must not be present in `exclude` & must be present in `addrs`
-        self.ranges.iter().find(|r| r.contains(&ip))
+        match classes {
+            None => self.ranges.iter().find(|r| r.contains(&ip)),
+            // if classes exist, look for a range that contains `ip` and matching class
+            Some(classes) => {
+                // store this once on ctx creation?
+                let (client_id, unknown_opts) = convert_for_eval(client_id, req).ok()?;
+
+                for r in self.ranges.iter() {
+                    if r.contains(&ip) {
+                        match &r.class {
+                            Some(name) => {
+                                // TODO: remove clone
+                                if let Some(class) = classes.find(name).cloned() {
+                                    if class.eval(&client_id, &unknown_opts) {
+                                        return Some(r);
+                                    }
+                                }
+                            }
+                            None => return Some(r),
+                        }
+                    }
+                }
+                None
+            }
+        }
     }
     /// is ping check enabled for this range? should we ping an IP before offering?
     pub fn ping_check(&self) -> bool {
@@ -339,6 +371,29 @@ impl Network {
     pub fn total_addrs(&self) -> usize {
         self.ranges.iter().map(|range| range.total_addrs()).sum()
     }
+}
+
+fn convert_for_eval(
+    client_id: &[u8],
+    req: &Message,
+) -> Result<(String, HashMap<OptionCode, UnknownOption>)> {
+    // TODO: find a better way to do this so we don't have to convert to unknown on every eval
+    // possibly, add better methods to dhcproto so we can pull the data section out
+    Ok((
+        hex::encode(client_id),
+        req.opts()
+            .iter()
+            .map(|(k, v)| {
+                Ok((*k, {
+                    // using UnknownOption here so that the data section is easy to get
+                    let opt = v.to_vec()?;
+                    let mut d = Decoder::new(&opt);
+                    UnknownOption::decode(&mut d)?
+                }))
+            })
+            .collect::<Result<HashMap<_, _>>>()
+            .context("failed to convert options in client_classes")?,
+    ))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -517,6 +572,24 @@ mod tests {
                 192, 168, 0, 1
             ])]))
         );
+    }
+
+    #[test]
+    fn test_class_find() {
+        // has class `my_class` set to assert "pkt4.mac == 'DEADBEEF'"
+        let cfg = Config::new(SAMPLE_YAML).unwrap();
+        // test a range decoded properly
+        let mut msg = v4::Message::default();
+        msg.set_chaddr(&hex::decode("DEADBEEF").unwrap());
+        let net = cfg
+            .get_range(
+                [10, 0, 0, 1],
+                [10, 0, 0, 100],
+                &hex::decode("DEADBEEF").unwrap(),
+                &msg,
+            )
+            .unwrap();
+        assert_eq!(net.class, Some("my_class".to_owned()));
     }
 
     #[test]

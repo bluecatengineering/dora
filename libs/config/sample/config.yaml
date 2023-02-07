@@ -1,7 +1,10 @@
 chaddr_only: false
+# interfaces:
+#     - wlan0
 networks:
     192.168.1.100/30:
         probation_period: 86400
+        server_id: 192.168.1.1
         ranges:
             -
                 start: 192.168.1.100
@@ -20,6 +23,15 @@ networks:
                             type: ip_list
                             value:
                                 - 192.168.1.1
+                        43:
+                            type: sub_option
+                            value:
+                                1:
+                                    type: str
+                                    value: "foobar"
+                                2:
+                                    type: ip
+                                    value: 1.2.3.4
 
     192.168.0.0/24:
         probation_period: 86400
@@ -106,6 +118,7 @@ networks:
             -
                 start: 10.0.0.10
                 end: 10.0.6.254
+                class: my_class
                 config:
                     lease_time:
                         default: 3600
@@ -123,3 +136,41 @@ networks:
                 except:
                     - 10.0.0.123
                     - 10.0.0.124
+v6:
+    interfaces:
+        - enp6s0
+    options:
+        values:
+            23:
+                type: ip_list
+                value:
+                    - 2001:db8::1
+                    - 2001:db8::2
+    networks:
+            2001:db8:1::/64: 
+                interfaces: 
+                    - enp6s0
+                config:
+                    lease_time:
+                        default: 3600
+                    preferred_time:
+                        default: 3600
+                options:
+                    values:
+                        # dns
+                        23:
+                            type: ip_list
+                            value:
+                                - 2001:db8::1
+                                - 2001:db8::2
+client_classes:
+    v4:
+        - 
+          name: my_class
+          assert: "pkt4.mac == 'DEADBEEF'"
+          options: 
+                values: 
+                    6:
+                        type: ip_list
+                        value: [ 1.1.1.1 ]
+          

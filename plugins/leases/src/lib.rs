@@ -25,6 +25,7 @@ use register_derive::Register;
 use static_addr::StaticAddr;
 
 use config::{
+    client_classes::ClientClasses,
     v4::{NetRange, Network},
     DhcpConfig,
 };
@@ -99,6 +100,7 @@ where
         let subnet = ctx.subnet()?;
         // look up that subnet from our config
         let network = self.cfg.v4().get_network(subnet);
+        let classes = self.cfg.v4().classes();
         let resp_has_yiaddr =
             matches!(ctx.decoded_resp_msg(), Some(msg) if !msg.yiaddr().is_unspecified());
 
@@ -111,8 +113,10 @@ where
                 return Ok(Action::Continue);
             }
             // giaddr has matched one of our configured subnets
-            (MessageType::Discover, Some(net)) => self.discover(ctx, &client_id, net).await,
-            (MessageType::Request, Some(net)) => self.request(ctx, &client_id, net).await,
+            (MessageType::Discover, Some(net)) => {
+                self.discover(ctx, &client_id, net, classes).await
+            }
+            (MessageType::Request, Some(net)) => self.request(ctx, &client_id, net, classes).await,
             (MessageType::Release, _) => self.release(ctx, &client_id).await,
             (MessageType::Decline, Some(net)) => self.decline(ctx, &client_id, net).await,
             _ => {
@@ -133,6 +137,7 @@ where
         ctx: &mut MsgContext<Message>,
         client_id: &[u8],
         network: &Network,
+        classes: Option<&ClientClasses>,
     ) -> Result<Action> {
         let req = ctx.decoded_msg();
         // give 60 seconds between discover & request, TODO: configurable?
@@ -143,7 +148,7 @@ where
         {
             let ip = *ip;
             // within our range. `get_range` makes sure IP is not in exclude list
-            if let Some(range) = network.get_range(ip) {
+            if let Some(range) = network.range(ip, client_id, req, classes) {
                 match self
                     .ip_mgr
                     .try_ip(
@@ -202,6 +207,7 @@ where
         ctx: &mut MsgContext<Message>,
         client_id: &[u8],
         network: &Network,
+        classes: Option<&ClientClasses>,
     ) -> Result<Action> {
         // requested ip comes from opts or ciaddr
         let ip = match ctx.requested_ip() {
@@ -219,8 +225,8 @@ where
         };
 
         // within our range
-        let range = network.get_range(ip);
-        debug!(?ip, range = ?range.map(|r| r.addrs()), "is IP in our range?");
+        let range = network.range(ip, client_id, ctx.decoded_msg(), classes);
+        debug!(?ip, range = ?range.map(|r| r.addrs()), "is IP in range?");
         if let Some(range) = range {
             // calculate the lease time
             let (lease, t1, t2) = range.lease().determine_lease(ctx.requested_lease_time());

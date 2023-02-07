@@ -73,14 +73,14 @@ pub fn eval_ast(
     use Expr::*;
     Ok(match expr {
         Bool(b) => Val::Bool(b),
-        String(s) => Val::String(s),
+        String(s) => Val::String(s.to_lowercase()),
         Int(i) => Val::Int(i),
-        Hex(h) => Val::String(h),
+        Hex(h) => Val::String(h.to_lowercase()),
         Option(o) => match opts.get(&o.into()) {
             Some(v) => Val::Bytes(v.data().to_owned()),
             None => Val::Empty,
         },
-        Mac() => Val::String(chaddr.to_string()),
+        Mac() => Val::String(chaddr.to_lowercase()),
         Ip(ip) => Val::Int(u32::from_be_bytes(ip.octets())),
         // prefix
         Not(rhs) => Val::Bool(!is_bool(eval_ast(*rhs, chaddr, opts)?)?),

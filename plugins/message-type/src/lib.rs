@@ -113,12 +113,11 @@ impl Plugin<Message> for MsgType {
                 } else {
                     subnet
                 };
-                if let Some(network) = self.cfg.v4().get_network(addr) {
-                    if let Some(range) = network.get_range(addr) {
-                        ctx.set_decoded_resp_msg(resp);
-                        ctx.populate_opts(range.opts());
-                        return Ok(Action::Respond);
-                    }
+                let client_id = self.cfg.v4().client_id(req); // to_vec required b/c of borrowck error
+                if let Some(range) = self.cfg.v4().get_range(addr, addr, client_id, req) {
+                    ctx.set_decoded_resp_msg(resp);
+                    ctx.populate_opts(range.opts());
+                    return Ok(Action::Respond);
                 }
                 warn!(msg_type = ?MessageType::Inform, "couldn't match appropriate range with INFORM message");
             }
