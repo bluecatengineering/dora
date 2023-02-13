@@ -147,33 +147,6 @@ networks:
                             type: ip_list
                             value:
                                 - 10.0.1.1
-v6:
-    interfaces:
-        - enp6s0
-    options:
-        values:
-            23:
-                type: ip_list
-                value:
-                    - 2001:db8::1
-                    - 2001:db8::2
-    networks:
-            2001:db8:1::/64: 
-                interfaces: 
-                    - enp6s0
-                config:
-                    lease_time:
-                        default: 3600
-                    preferred_time:
-                        default: 3600
-                options:
-                    values:
-                        # dns
-                        23:
-                            type: ip_list
-                            value:
-                                - 2001:db8::1
-                                - 2001:db8::2
 client_classes:
     v4:
         - 

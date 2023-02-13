@@ -107,9 +107,79 @@ impl Config {
     pub fn get_first(&self) -> Option<(&Ipv6Net, &Network)> {
         self.networks.iter().next()
     }
+}
 
-    /// build from wire format
-    pub fn from_wire(cfg: wire::v6::Config) -> Result<Self> {
+/// merge `b` into `a`, favoring `a` where there are duplicates
+fn merge_opts(a: &DhcpOptions, b: DhcpOptions) -> DhcpOptions {
+    let mut opts = a.clone();
+    for opt in b.iter() {
+        if opts.get(opt.into()).is_none() {
+            opts.insert(opt.clone());
+        }
+    }
+    opts
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Network {
+    interfaces: Option<Vec<NetworkInterface>>,
+    subnet: Ipv6Net,
+    valid: LeaseTime,
+    preferred: LeaseTime,
+    options: DhcpOptions,
+    ping_check: bool,
+    /// default ping timeout in ms
+    ping_timeout_ms: Duration,
+    /// probation period in seconds
+    probation_period: Duration,
+    /// Whether we are authoritative for this network (default: true)
+    authoritative: bool,
+}
+
+impl Network {
+    pub fn subnet(&self) -> Ipv6Addr {
+        self.subnet.network()
+    }
+    pub fn authoritative(&self) -> bool {
+        self.authoritative
+    }
+    /// is ping check enabled for this range? should we ping an IP before offering?
+    pub fn ping_check(&self) -> bool {
+        self.ping_check
+    }
+    /// get the ping timeout
+    pub fn ping_timeout(&self) -> Duration {
+        self.ping_timeout_ms
+    }
+    /// Returns the configured probation period for decline's received on this network
+    pub fn probation_period(&self) -> Duration {
+        self.probation_period
+    }
+    /// return options configured for this network
+    pub fn opts(&self) -> &DhcpOptions {
+        &self.options
+    }
+}
+
+// TODO: replace with is_unicast_global from std when released
+pub const fn is_unicast_global(ip: &Ipv6Addr) -> bool {
+    !(ip.is_multicast()
+        || ip.is_loopback()
+        || is_unicast_link_local(ip) // is_unicast_link_local
+        || ((ip.segments()[0] & 0xfe00) == 0xfc00) // is_unique_local
+        || ip.is_unspecified()
+        || ((ip.segments()[0] == 0x2001) && (ip.segments()[1] == 0xdb8))) // is_documentation
+}
+
+// TODO: replace with is_unicast_link_local from std when released
+pub const fn is_unicast_link_local(ip: &Ipv6Addr) -> bool {
+    (ip.segments()[0] & 0xffc0) == 0xfe80
+}
+
+impl TryFrom<wire::v6::Config> for Config {
+    type Error = anyhow::Error;
+
+    fn try_from(cfg: wire::v6::Config) -> Result<Self> {
         let interfaces = crate::v6_find_interfaces(cfg.interfaces)?;
         // DUID-LLT is the default, will need config options to do others
         let int = interfaces
@@ -208,71 +278,4 @@ impl Config {
             server_id,
         })
     }
-}
-
-/// merge `b` into `a`, favoring `a` where there are duplicates
-fn merge_opts(a: &DhcpOptions, b: DhcpOptions) -> DhcpOptions {
-    let mut opts = a.clone();
-    for opt in b.iter() {
-        if opts.get(opt.into()).is_none() {
-            opts.insert(opt.clone());
-        }
-    }
-    opts
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Network {
-    interfaces: Option<Vec<NetworkInterface>>,
-    subnet: Ipv6Net,
-    valid: LeaseTime,
-    preferred: LeaseTime,
-    options: DhcpOptions,
-    ping_check: bool,
-    /// default ping timeout in ms
-    ping_timeout_ms: Duration,
-    /// probation period in seconds
-    probation_period: Duration,
-    /// Whether we are authoritative for this network (default: true)
-    authoritative: bool,
-}
-
-impl Network {
-    pub fn subnet(&self) -> Ipv6Addr {
-        self.subnet.network()
-    }
-    pub fn authoritative(&self) -> bool {
-        self.authoritative
-    }
-    /// is ping check enabled for this range? should we ping an IP before offering?
-    pub fn ping_check(&self) -> bool {
-        self.ping_check
-    }
-    /// get the ping timeout
-    pub fn ping_timeout(&self) -> Duration {
-        self.ping_timeout_ms
-    }
-    /// Returns the configured probation period for decline's received on this network
-    pub fn probation_period(&self) -> Duration {
-        self.probation_period
-    }
-    /// return options configured for this network
-    pub fn opts(&self) -> &DhcpOptions {
-        &self.options
-    }
-}
-
-// TODO: replace with is_unicast_global from std when released
-pub const fn is_unicast_global(ip: &Ipv6Addr) -> bool {
-    !(ip.is_multicast()
-        || ip.is_loopback()
-        || is_unicast_link_local(ip) // is_unicast_link_local
-        || ((ip.segments()[0] & 0xfe00) == 0xfc00) // is_unique_local
-        || ip.is_unspecified()
-        || ((ip.segments()[0] == 0x2001) && (ip.segments()[1] == 0xdb8))) // is_documentation
-}
-
-// TODO: replace with is_unicast_link_local from std when released
-pub const fn is_unicast_link_local(ip: &Ipv6Addr) -> bool {
-    (ip.segments()[0] & 0xffc0) == 0xfe80
 }

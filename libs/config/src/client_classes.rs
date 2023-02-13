@@ -32,8 +32,12 @@ pub struct ClientClass {
     pub(crate) options: v4::DhcpOptions,
 }
 
-impl ClientClasses {
-    pub fn from_wire(cfg: wire::client_classes::ClientClasses) -> Result<Self> {
+impl TryFrom<wire::client_classes::ClientClasses> for ClientClasses {
+    type Error = anyhow::Error;
+
+    fn try_from(
+        cfg: wire::client_classes::ClientClasses,
+    ) -> std::result::Result<Self, Self::Error> {
         let mut classes = Vec::with_capacity(cfg.v4.capacity());
         for class in cfg.v4.into_iter() {
             let assert = ast::parse(&class.assert)
@@ -46,6 +50,9 @@ impl ClientClasses {
         }
         Ok(Self { classes })
     }
+}
+
+impl ClientClasses {
     /// evaluate all client classes, returning a list of classes that match
     pub fn eval(&self, client_id: &[u8], req: &dhcproto::v4::Message) -> Result<Vec<String>> {
         let (client_id, opts) = convert_for_eval(client_id, req)?;

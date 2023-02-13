@@ -40,7 +40,7 @@ fn main() -> Result<()> {
                 println!("{wire_cfg:#?}");
             }
             Format::Internal => {
-                let cfg = config::v4::Config::from_wire(parse_wire(&args)?)?;
+                let cfg = config::v4::Config::try_from(parse_wire::<wire::Config>(&args)?)?;
                 println!("parsed wire format into dora internal format, pretty printing");
                 println!("{cfg:#?}");
             }
