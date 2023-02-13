@@ -1545,6 +1545,7 @@ dependencies = [
  "dora-core",
  "ip-manager",
  "ipnet",
+ "message-type",
  "register_derive",
  "static-addr",
 ]

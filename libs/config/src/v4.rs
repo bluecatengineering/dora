@@ -9,8 +9,7 @@ use anyhow::{Context, Result};
 use dora_core::{
     dhcproto::{
         self,
-        v4::{DhcpOption, DhcpOptions, Message, OptionCode, UnknownOption},
-        Decodable, Decoder, Encodable,
+        v4::{DhcpOption, DhcpOptions, Message, OptionCode},
     },
     pnet::{
         datalink::NetworkInterface,
@@ -41,6 +40,16 @@ pub struct Config {
 impl Config {
     pub fn v6(&self) -> Option<&crate::v6::Config> {
         self.v6.as_ref()
+    }
+    /// eval all client classes, return names of classes that evaluate to true
+    pub fn eval_client_classes(
+        &self,
+        client_id: &[u8],
+        req: &dhcproto::v4::Message,
+    ) -> Option<Result<Vec<String>>> {
+        self.client_classes
+            .as_ref()
+            .map(|classes| classes.eval(client_id, req))
     }
     pub fn classes(&self) -> Option<&ClientClasses> {
         self.client_classes.as_ref()
@@ -106,18 +115,17 @@ impl Config {
         })
     }
 
-    /// get a `Network` with a subnet that contains the given IP
+    /// get a `NetRange` within a subnet that contains the given IP & any matching client classes
     pub fn get_range<I: Into<Ipv4Addr>>(
         &self,
         subnet: I,
-        addr: I,
-        client_id: &[u8],
-        req: &dhcproto::v4::Message,
+        ip: I,
+        classes: Option<&[String]>,
     ) -> Option<&NetRange> {
         let subnet = subnet.into();
-        let addr = addr.into();
+        let ip = ip.into();
         self.get_network(subnet)
-            .and_then(|net| net.range(addr, client_id, req, self.classes()))
+            .and_then(|net| net.range(ip, classes))
     }
 
     /// get the first `Network`
@@ -267,31 +275,15 @@ impl Network {
     pub fn ranges(&self) -> &[NetRange] {
         &self.ranges
     }
-    pub fn ranges_with_class<'a>(
+    pub fn ranges_with_class<'a, 'b: 'a>(
         &'a self,
-        classes: &ClientClasses,
-        client_id: &[u8],
-        req: &dhcproto::v4::Message,
-    ) -> Result<Vec<&'a NetRange>> {
+        classes: Option<&'b [String]>,
+    ) -> impl Iterator<Item = &'a NetRange> + 'a {
         // TODO: don't allocate returning Vec?
-        let (client_id, unknown_opts) = convert_for_eval(client_id, req)?;
 
-        Ok(self
-            .ranges
+        self.ranges
             .iter()
-            .flat_map(|range| {
-                // TODO: remove clone
-                if let Some(class) = range.class.as_ref().and_then(|n| classes.find(n)).cloned() {
-                    if class.eval(&client_id, &unknown_opts) {
-                        Some(range)
-                    } else {
-                        None
-                    }
-                } else {
-                    Some(range)
-                }
-            })
-            .collect())
+            .filter(move |range| range.match_class(classes))
     }
 
     pub fn get_reserved_mac(&self, mac: MacAddr) -> Option<&Reserved> {
@@ -321,40 +313,11 @@ impl Network {
     }
 
     /// Returns the range of which this `ip` is a member
-    pub fn range<I: Into<Ipv4Addr>>(
-        &self,
-        ip: I,
-        client_id: &[u8],
-        req: &dhcproto::v4::Message,
-        classes: Option<&ClientClasses>,
-    ) -> Option<&NetRange> {
+    pub fn range<I: Into<Ipv4Addr>>(&self, ip: I, classes: Option<&[String]>) -> Option<&NetRange> {
         let ip = ip.into();
         // must not be present in `exclude` & must be present in `addrs`
-        match classes {
-            None => self.ranges.iter().find(|r| r.contains(&ip)),
-            // if classes exist, look for a range that contains `ip` and matching class
-            Some(classes) => {
-                // store this once on ctx creation?
-                let (client_id, unknown_opts) = convert_for_eval(client_id, req).ok()?;
-
-                for r in self.ranges.iter() {
-                    if r.contains(&ip) {
-                        match &r.class {
-                            Some(name) => {
-                                // TODO: remove clone
-                                if let Some(class) = classes.find(name).cloned() {
-                                    if class.eval(&client_id, &unknown_opts) {
-                                        return Some(r);
-                                    }
-                                }
-                            }
-                            None => return Some(r),
-                        }
-                    }
-                }
-                None
-            }
-        }
+        // if classes exist, look for a range that contains `ip` and matching class
+        self.ranges.iter().find(|r| r.contains_class(&ip, classes))
     }
     /// is ping check enabled for this range? should we ping an IP before offering?
     pub fn ping_check(&self) -> bool {
@@ -371,29 +334,6 @@ impl Network {
     pub fn total_addrs(&self) -> usize {
         self.ranges.iter().map(|range| range.total_addrs()).sum()
     }
-}
-
-fn convert_for_eval(
-    client_id: &[u8],
-    req: &Message,
-) -> Result<(String, HashMap<OptionCode, UnknownOption>)> {
-    // TODO: find a better way to do this so we don't have to convert to unknown on every eval
-    // possibly, add better methods to dhcproto so we can pull the data section out
-    Ok((
-        hex::encode(client_id),
-        req.opts()
-            .iter()
-            .map(|(k, v)| {
-                Ok((*k, {
-                    // using UnknownOption here so that the data section is easy to get
-                    let opt = v.to_vec()?;
-                    let mut d = Decoder::new(&opt);
-                    UnknownOption::decode(&mut d)?
-                }))
-            })
-            .collect::<Result<HashMap<_, _>>>()
-            .context("failed to convert options in client_classes")?,
-    ))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -441,6 +381,24 @@ impl NetRange {
     /// returns true if the range contains a given IP
     pub fn contains(&self, ip: &Ipv4Addr) -> bool {
         !self.exclude.contains(ip) && self.addrs.contains(ip)
+    }
+
+    /// contains the IP and matches a class
+    pub fn contains_class(&self, ip: &Ipv4Addr, classes: Option<&[String]>) -> bool {
+        self.contains(ip) && self.match_class(classes)
+    }
+    pub fn match_class(&self, classes: Option<&[String]>) -> bool {
+        // if range has no class, this expression is always true
+        // if range has a class, it must match an entry in the list
+        self.class
+            .as_ref()
+            .map(|name| {
+                classes
+                    .as_ref()
+                    .map(|classes| classes.contains(name))
+                    .unwrap_or(false)
+            })
+            .unwrap_or(true)
     }
     /// return an iterator over the range
     pub fn iter(&self) -> NetRangeIter<'_> {
@@ -575,21 +533,63 @@ mod tests {
     }
 
     #[test]
+    fn test_range_class() {
+        let range = NetRange {
+            addrs: Ipv4Addr::new(192, 168, 0, 1)..=Ipv4Addr::new(192, 168, 0, 100),
+            lease: LeaseTime {
+                default: Duration::from_secs(5),
+                min: Duration::from_secs(3),
+                max: Duration::from_secs(10),
+            },
+            opts: DhcpOptions::new(),
+            exclude: HashSet::new(),
+            class: Some("foo".to_owned()),
+        };
+        // class matches
+        assert!(range.match_class(Some(&["foo".to_owned()])));
+        // wrong class means no match
+        assert!(!range.match_class(Some(&["bar".to_owned()])));
+        // must have class to match
+        assert!(!range.match_class(None));
+
+        let range = NetRange {
+            addrs: Ipv4Addr::new(192, 168, 0, 1)..=Ipv4Addr::new(192, 168, 0, 100),
+            lease: LeaseTime {
+                default: Duration::from_secs(5),
+                min: Duration::from_secs(3),
+                max: Duration::from_secs(10),
+            },
+            opts: DhcpOptions::new(),
+            exclude: HashSet::new(),
+            class: None,
+        };
+        // no classes to match -> true
+        assert!(range.match_class(None));
+        // matched classes -> true
+        assert!(range.match_class(Some(&["bar".to_owned()])));
+    }
+
+    #[test]
     fn test_class_find() {
         // has class `my_class` set to assert "pkt4.mac == 'DEADBEEF'"
         let cfg = Config::new(SAMPLE_YAML).unwrap();
         // test a range decoded properly
         let mut msg = v4::Message::default();
         msg.set_chaddr(&hex::decode("DEADBEEF").unwrap());
+        // get matching classes
+        let client_id = cfg.client_id(&msg);
+        // TODO: what should we do if there is an error processing client classes?
+        let matched = cfg.eval_client_classes(client_id, &msg).unwrap().ok();
         let net = cfg
-            .get_range(
-                [10, 0, 0, 1],
-                [10, 0, 0, 100],
-                &hex::decode("DEADBEEF").unwrap(),
-                &msg,
-            )
+            .get_range([10, 0, 0, 1], [10, 0, 0, 100], matched.as_deref())
             .unwrap();
+
         assert_eq!(net.class, Some("my_class".to_owned()));
+
+        // gets 'unclassified' second range
+        let net = cfg.get_range([10, 0, 0, 1], [10, 0, 1, 100], None).unwrap();
+
+        assert_eq!(net.class, None);
     }
 
     #[test]

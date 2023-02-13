@@ -86,6 +86,8 @@ impl Plugin<Message> for MsgType {
         // add server id to response
         resp.opts_mut()
             .insert(DhcpOption::ServerIdentifier(server_id));
+        // evaluate client classes
+        let matched = util::client_classes(self.cfg.v4(), req);
 
         match msg_type.context("no option 53 (message type) found")? {
             MessageType::Discover => {
@@ -111,10 +113,10 @@ impl Plugin<Message> for MsgType {
                 let addr = if !ciaddr.is_unspecified() {
                     ciaddr
                 } else {
+                    // TODO: when `subnet` is used to select a range, it probably doesn't exist.
                     subnet
                 };
-                let client_id = self.cfg.v4().client_id(req); // to_vec required b/c of borrowck error
-                if let Some(range) = self.cfg.v4().get_range(addr, addr, client_id, req) {
+                if let Some(range) = self.cfg.v4().get_range(addr, addr, matched.as_deref()) {
                     ctx.set_decoded_resp_msg(resp);
                     ctx.populate_opts(range.opts());
                     return Ok(Action::Respond);
@@ -138,13 +140,18 @@ impl Plugin<Message> for MsgType {
                 return Ok(Action::NoResponse);
             }
         }
-
+        // evaluate client classes
+        if let Some(classes) = matched {
+            ctx.set_local(MatchedClasses(classes));
+        }
         ctx.set_decoded_resp_msg(resp);
         Ok(Action::Continue)
     }
 }
 
 pub mod util {
+    use config::v4::Config;
+
     use super::*;
 
     pub fn new_msg(
@@ -172,6 +179,20 @@ pub mod util {
             msg.set_fname_str(fname);
         }
         msg
+    }
+
+    pub fn client_classes(cfg: &Config, req: &Message) -> Option<Vec<String>> {
+        // evaluate client classes
+        let client_id = cfg.client_id(req);
+        // TODO: what should we do if there is an error processing client classes?
+        cfg.eval_client_classes(client_id, req)
+            .and_then(|classes| match classes {
+                Ok(classes) => Some(classes),
+                Err(err) => {
+                    error!(?err, "error processing client classes");
+                    None
+                }
+            })
     }
 }
 
@@ -252,3 +273,7 @@ impl Plugin<v6::Message> for MsgType {
         Ok(Action::Continue)
     }
 }
+
+/// a list of matching client classes for this message
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MatchedClasses(pub Vec<String>);

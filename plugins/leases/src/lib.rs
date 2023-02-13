@@ -21,11 +21,11 @@ use dora_core::{
     dhcproto::v4::{DhcpOption, Message, MessageType, OptionCode},
     prelude::*,
 };
+use message_type::MatchedClasses;
 use register_derive::Register;
 use static_addr::StaticAddr;
 
 use config::{
-    client_classes::ClientClasses,
     v4::{NetRange, Network},
     DhcpConfig,
 };
@@ -96,11 +96,10 @@ where
         let req = ctx.decoded_msg();
 
         let client_id = self.cfg.v4().client_id(req).to_vec(); // to_vec required b/c of borrowck error
-                                                               // we could split the decoded_resp_msg from MsgContext to fix this?
         let subnet = ctx.subnet()?;
         // look up that subnet from our config
         let network = self.cfg.v4().get_network(subnet);
-        let classes = self.cfg.v4().classes();
+        let classes = ctx.get_local::<MatchedClasses>().map(|c| c.0.to_owned());
         let resp_has_yiaddr =
             matches!(ctx.decoded_resp_msg(), Some(msg) if !msg.yiaddr().is_unspecified());
 
@@ -137,7 +136,7 @@ where
         ctx: &mut MsgContext<Message>,
         client_id: &[u8],
         network: &Network,
-        classes: Option<&ClientClasses>,
+        classes: Option<Vec<String>>,
     ) -> Result<Action> {
         let req = ctx.decoded_msg();
         // give 60 seconds between discover & request, TODO: configurable?
@@ -148,7 +147,7 @@ where
         {
             let ip = *ip;
             // within our range. `get_range` makes sure IP is not in exclude list
-            if let Some(range) = network.range(ip, client_id, req, classes) {
+            if let Some(range) = network.range(ip, classes.as_deref()) {
                 match self
                     .ip_mgr
                     .try_ip(
@@ -177,7 +176,7 @@ where
             }
         }
         // no requested IP, so find the next available
-        for range in network.ranges() {
+        for range in network.ranges_with_class(classes.as_deref()) {
             match self
                 .ip_mgr
                 .reserve_first(range, network, client_id, expires_at)
@@ -207,7 +206,7 @@ where
         ctx: &mut MsgContext<Message>,
         client_id: &[u8],
         network: &Network,
-        classes: Option<&ClientClasses>,
+        classes: Option<Vec<String>>,
     ) -> Result<Action> {
         // requested ip comes from opts or ciaddr
         let ip = match ctx.requested_ip() {
@@ -225,7 +224,7 @@ where
         };
 
         // within our range
-        let range = network.range(ip, client_id, ctx.decoded_msg(), classes);
+        let range = network.range(ip, classes.as_deref());
         debug!(?ip, range = ?range.map(|r| r.addrs()), "is IP in range?");
         if let Some(range) = range {
             // calculate the lease time
