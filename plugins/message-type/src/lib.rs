@@ -67,7 +67,7 @@ impl Plugin<Message> for MsgType {
             .server_id(meta.ifindex, subnet)
             .context("cannot find server_id")?;
         // look up which network the message belongs to
-        let network = self.cfg.v4().get_network(subnet);
+        let network = self.cfg.v4().network(subnet);
         let sname = network.and_then(|net| net.server_name());
         let fname = network.and_then(|net| net.file_name());
         // message that will be returned
@@ -116,9 +116,11 @@ impl Plugin<Message> for MsgType {
                     // TODO: when `subnet` is used to select a range, it probably doesn't exist.
                     subnet
                 };
-                if let Some(range) = self.cfg.v4().get_range(addr, addr, matched.as_deref()) {
+                if let Some(range) = self.cfg.v4().range(addr, addr, matched.as_deref()) {
                     ctx.set_decoded_resp_msg(resp);
-                    ctx.populate_opts(range.opts());
+                    ctx.populate_opts(
+                        &self.cfg.v4().collect_opts(range.opts(), matched.as_deref()),
+                    );
                     return Ok(Action::Respond);
                 }
                 warn!(msg_type = ?MessageType::Inform, "couldn't match appropriate range with INFORM message");

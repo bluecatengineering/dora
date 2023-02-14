@@ -142,7 +142,7 @@ impl Config {
     ///     - `server_id` of `Network` belonging to `ip`
     ///     - OR interface at index `iface`
     pub fn server_id(&self, iface: u32, ip: Ipv4Addr) -> Option<Ipv4Addr> {
-        self.get_network(ip)
+        self.network(ip)
             .and_then(|net| net.server_id)
             .or_else(|| self.get_interface(iface).map(|i| i.ip()))
     }
@@ -188,7 +188,7 @@ impl Config {
     }
 
     /// get a `Network` with a subnet that contains the given IP
-    pub fn get_network<I: Into<Ipv4Addr>>(&self, subnet: I) -> Option<&Network> {
+    pub fn network<I: Into<Ipv4Addr>>(&self, subnet: I) -> Option<&Network> {
         let contains = subnet.into();
         self.networks.iter().find_map(|(network_subnet, network)| {
             if network_subnet.contains(&contains) {
@@ -199,8 +199,25 @@ impl Config {
         })
     }
 
+    /// given a list of matched classes and a range
+    /// return all options merged for parameter request list
+    pub fn collect_opts(
+        &self,
+        opts: &dhcproto::v4::DhcpOptions,
+        matched_classes: Option<&[String]>,
+    ) -> dhcproto::v4::DhcpOptions {
+        // TODO: there may be a way to reduce the use of `clone` here
+        // maybe by providing the config to MsgContext
+        // in reality, we only need to clone the messages that actually match the param request list
+        self.client_classes
+            .as_ref()
+            // range opts
+            .map(|classes| merge_opts(opts.clone(), classes.collect_opts(matched_classes)))
+            .unwrap_or(opts.clone())
+    }
+
     /// get a `NetRange` within a subnet that contains the given IP & any matching client classes
-    pub fn get_range<I: Into<Ipv4Addr>>(
+    pub fn range<I: Into<Ipv4Addr>>(
         &self,
         subnet: I,
         ip: I,
@@ -208,8 +225,7 @@ impl Config {
     ) -> Option<&NetRange> {
         let subnet = subnet.into();
         let ip = ip.into();
-        self.get_network(subnet)
-            .and_then(|net| net.range(ip, classes))
+        self.network(subnet).and_then(|net| net.range(ip, classes))
     }
 
     /// get the first `Network`
@@ -288,9 +304,14 @@ impl Network {
             .iter()
             .filter(move |range| range.match_class(classes))
     }
-
-    pub fn get_reserved_mac(&self, mac: MacAddr) -> Option<&Reserved> {
-        self.reserved_macs.get(&mac)
+    /// get reservation based on mac & matched client classes
+    pub fn get_reserved_mac(&self, mac: MacAddr, classes: Option<&[String]>) -> Option<&Reserved> {
+        let res = self.reserved_macs.get(&mac)?;
+        if res.match_class(classes) {
+            Some(res)
+        } else {
+            None
+        }
     }
     /// Based on a `DhcpOption`, find if there is a reservation where
     /// the value matches
@@ -301,10 +322,17 @@ impl Network {
         }
     }
     /// Given some `opts`, search to see if there is a match with a reservation
-    pub fn search_reserved_opt(&self, opts: &DhcpOptions) -> Option<&Reserved> {
+    /// client classes must also match
+    pub fn search_reserved_opt(
+        &self,
+        opts: &DhcpOptions,
+        classes: Option<&[String]>,
+    ) -> Option<&Reserved> {
         for (_, opt) in opts.iter() {
             if let Some(res) = self.get_reserved_opt(opt) {
-                return Some(res);
+                if res.match_class(classes) {
+                    return Some(res);
+                }
             }
         }
         None
@@ -484,6 +512,20 @@ impl Reserved {
     pub fn class(&self) -> Option<&str> {
         self.class.as_deref()
     }
+    /// given a list of matched classes, determine if this reservation has a match
+    ///         if reservation has no class, this expression is always true
+    /// if reservation has a class, it must match an entry in the list
+    pub fn match_class(&self, classes: Option<&[String]>) -> bool {
+        self.class
+            .as_ref()
+            .map(|name| {
+                classes
+                    .as_ref()
+                    .map(|classes| classes.contains(name))
+                    .unwrap_or(false)
+            })
+            .unwrap_or(true)
+    }
 }
 
 impl From<wire::v4::IpRange> for NetRange {
@@ -512,6 +554,21 @@ impl From<&wire::v4::ReservedIp> for Reserved {
     }
 }
 
+/// merge `b` into `a`, favoring `a` where there are duplicates
+fn merge_opts(mut a: DhcpOptions, b: Option<DhcpOptions>) -> DhcpOptions {
+    match b {
+        None => a,
+        Some(b) => {
+            for (code, opt) in b.into_iter() {
+                if a.get(code).is_none() {
+                    a.insert(opt);
+                }
+            }
+            a
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use dora_core::dhcproto::v4;
@@ -525,7 +582,7 @@ mod tests {
     fn test_sample() {
         let cfg = Config::new(SAMPLE_YAML).unwrap();
         // test a range decoded properly
-        let net = cfg.get_network([192, 168, 0, 1]).unwrap();
+        let net = cfg.network([192, 168, 0, 1]).unwrap();
         assert_eq!(net.ranges()[0].start(), Ipv4Addr::from([192, 168, 0, 100]));
         assert_eq!(
             net.ranges()[0].opts().get(v4::OptionCode::Router),
@@ -584,13 +641,13 @@ mod tests {
         // TODO: what should we do if there is an error processing client classes?
         let matched = cfg.eval_client_classes(client_id, &msg).unwrap().ok();
         let net = cfg
-            .get_range([10, 0, 0, 1], [10, 0, 0, 100], matched.as_deref())
+            .range([10, 0, 0, 1], [10, 0, 0, 100], matched.as_deref())
             .unwrap();
 
         assert_eq!(net.class, Some("my_class".to_owned()));
 
         // gets 'unclassified' second range
-        let net = cfg.get_range([10, 0, 0, 1], [10, 0, 1, 100], None).unwrap();
+        let net = cfg.range([10, 0, 0, 1], [10, 0, 1, 100], None).unwrap();
 
         assert_eq!(net.class, None);
     }

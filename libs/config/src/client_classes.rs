@@ -64,6 +64,18 @@ impl ClientClasses {
             .map(|class| class.name.to_owned())
             .collect())
     }
+    /// take matched client classes, return merge DhcpOptions that contains all classes options merged
+    /// together with precedence given based on class position in client_classes list (lower index == higher precedence)
+    pub fn collect_opts(&self, matched_classes: Option<&[String]>) -> Option<v4::DhcpOptions> {
+        self.classes
+            .iter()
+            .filter(|class| {
+                matched_classes
+                    .map(|m| m.contains(&class.name))
+                    .unwrap_or(false)
+            })
+            .fold(None, |ret, class| merge_opts(&class.options, ret))
+    }
 }
 
 impl ClientClass {
@@ -100,4 +112,73 @@ fn convert_for_eval(
             .collect::<Result<HashMap<_, _>>>()
             .context("failed to convert options in client_classes")?,
     ))
+}
+
+/// merge `b` into `a`, favoring `b` where there are duplicates
+fn merge_opts(a: &v4::DhcpOptions, b: Option<v4::DhcpOptions>) -> Option<v4::DhcpOptions> {
+    match b {
+        Some(mut b) => {
+            for (code, opt) in a.iter() {
+                if b.get(*code).is_none() {
+                    b.insert(opt.clone());
+                }
+            }
+            Some(b)
+        }
+        None => Some(a.clone()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn merge_opts() {
+        let classes = ClientClasses {
+            classes: vec![
+                ClientClass {
+                    name: "foo".to_owned(),
+                    assert: client_classification::Expr::Bool(true),
+                    options: {
+                        let mut opts = v4::DhcpOptions::new();
+                        opts.insert(v4::DhcpOption::Router(vec![[8, 8, 8, 8].into()]));
+                        opts.insert(v4::DhcpOption::AddressLeaseTime(10));
+                        opts
+                    },
+                },
+                ClientClass {
+                    name: "bar".to_owned(),
+                    assert: client_classification::Expr::Bool(true),
+                    options: {
+                        let mut opts = v4::DhcpOptions::new();
+                        opts.insert(v4::DhcpOption::Router(vec![[1, 1, 1, 1].into()]));
+                        opts.insert(v4::DhcpOption::SubnetMask([1, 1, 1, 1].into()));
+                        opts.insert(v4::DhcpOption::TimeOffset(50));
+                        opts
+                    },
+                },
+                ClientClass {
+                    name: "baz".to_owned(),
+                    assert: client_classification::Expr::Bool(true),
+                    options: {
+                        let mut opts = v4::DhcpOptions::new();
+                        opts.insert(v4::DhcpOption::ServerIdentifier([1, 1, 1, 1].into()));
+                        opts.insert(v4::DhcpOption::ArpCacheTimeout(1));
+                        opts
+                    },
+                },
+            ],
+        };
+        let opts = classes.collect_opts(Some(&["foo".to_owned(), "bar".to_owned()]));
+        // includes opts from "foo" and "bar", favouring "foo" for duplicates because it shows up earlier in the `client_classes` list
+        assert_eq!(opts.unwrap(), {
+            let mut opts = v4::DhcpOptions::new();
+            opts.insert(v4::DhcpOption::Router(vec![[8, 8, 8, 8].into()]));
+            opts.insert(v4::DhcpOption::AddressLeaseTime(10));
+            opts.insert(v4::DhcpOption::SubnetMask([1, 1, 1, 1].into()));
+            opts.insert(v4::DhcpOption::TimeOffset(50));
+            opts
+        });
+    }
 }
