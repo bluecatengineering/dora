@@ -197,6 +197,81 @@ v6:
                             - 2001:db8::2
 
 # Example Client Classifier
+# 
+# This borrows heavily from Kea. We define in the dora config a client_classes section, 
+# where each class has a predicate. At least initially, all client classes will be evaluated when a packet is received. 
+# A range/reservation can then define a client_class field with the name of a class that will restrict 
+# that range/reservation to only allow packets that have evaluated the associated client class predicate to true.
+#
+# Ex.
+# ```
+# client_classes:
+#   v4:
+#     -   name: my_class
+#         assert: <some expression that evaluates to true/false>
+#         options:
+#           <options data>
+# networks:
+#     192.168.1.100/30:                         
+#         ranges:
+#             -                                 
+#                 class: my_class
+#                 ...
+# ```
+# 
+# Dora does not allow the same level of configuration as Kea (right now). 
+# We will not allow classes to be set on subnets, only ranges/reservations. 
+# This follows with dora’s generally ‘flattened’ config structure. 
+# This doesn’t close the door on adding those features in the future, just defines a minimum set of functionality.
+# DHCP message flow:
+# 
+#    - Dora receives a DHCP packet, it evaluates any globally defined client classes. 
+#       Dora attaches matching classes to the currently processing message
+#    - Dora uses subnet selection logic to determine which top level network 
+#       a given message should get its IP from (giaddr/ iaddr and opts like subnet select & relay agent info).
+#    - Dora checks to see if any static IP reservations exist with matching client classes, if so it uses that reservation, 
+#       potentially with option/config data from the client class. Precedence for option data goes to the reservation 
+#       over any client class data.
+#    - Dora iterates ranges in the network and if any client class is defined for the range, it checks 
+#       to see that the packet evaluated a match for that client class-- i.e. the packet’s matching classes 
+#       must contain the range’s class if it exists. Range precedence is set by index in the range list. 
+#       Precedence for option data goes to the range over any client class option data.
+#    - If, during iterating through ranges, there are classless ranges, we attempt to assign an IP 
+#       from the classless range. If the packet has classes associated with it, it may get 
+#       option data from those classes, but it can still have an IP assigned from a classless range.
+#    - Continue normal execution
+# 
+# Note on precedence: If multiple client classes are applied to an incoming message, 
+# the options given to the client will be the union of all matching client classes. 
+# Where there is a duplicate, precedence will be given in the order it was evaluated.
+#
+# Predicate evaluation:
+# see: https://kea.readthedocs.io/en/kea-2.2.0/arm/classify.html#using-expressions-in-classification
+# and if anything you want isn't supported yet file a ticket asking us to work on it!
+#  
+# Currently supports all grammar defined in the `grammar.pest` file in libs/client-classification:
+#
+#   primitives: integer (123), 'string', ip (1.2.3.4), 0xhex, true/false
+#
+#   prefix: not (`not false`)
+#
+#   infix: == != or and (`1 == 1 and 2 != 3 or true`)
+#
+#   options: option[12]
+#    option[xx].hex: gets the byte string data section of option[12] (`option[12].hex == 'hostname'`)
+#    option[xx].exists: returns true/false if the option exists (`option[12].exists`)
+#
+#   pkt header:
+#       pkt4.mac: chaddr in DHCP message header (`pkt4.mac == 0xDEADBEEF`)
+#   
+#   substring(expr, i, j): substring function (`substring('foobar', 0, 3) == 'foo')
+# 
+# example:
+#
+#       substring(option[61].hex, 0, 3) == 'foo'
+# 
+
+
 client_classes:
     # only v4 supported at the moment
     v4:
