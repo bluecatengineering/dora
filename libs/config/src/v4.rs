@@ -126,14 +126,10 @@ impl Config {
         self.v6.as_ref()
     }
     /// eval all client classes, return names of classes that evaluate to true
-    pub fn eval_client_classes(
-        &self,
-        client_id: &[u8],
-        req: &dhcproto::v4::Message,
-    ) -> Option<Result<Vec<String>>> {
+    pub fn eval_client_classes(&self, req: &dhcproto::v4::Message) -> Option<Result<Vec<String>>> {
         self.client_classes
             .as_ref()
-            .map(|classes| classes.eval(client_id, req))
+            .map(|classes| classes.eval(req))
     }
     pub fn classes(&self) -> Option<&ClientClasses> {
         self.client_classes.as_ref()
@@ -631,15 +627,14 @@ mod tests {
 
     #[test]
     fn test_class_find() {
-        // has class `my_class` set to assert "pkt4.mac == 'DEADBEEF'"
+        // has class `my_class` set to assert "pkt4.mac == 0xDEADBEEF"
         let cfg = Config::new(SAMPLE_YAML).unwrap();
         // test a range decoded properly
         let mut msg = v4::Message::default();
         msg.set_chaddr(&hex::decode("DEADBEEF").unwrap());
         // get matching classes
-        let client_id = cfg.client_id(&msg);
         // TODO: what should we do if there is an error processing client classes?
-        let matched = cfg.eval_client_classes(client_id, &msg).unwrap().ok();
+        let matched = cfg.eval_client_classes(&msg).unwrap().ok();
         let net = cfg
             .range([10, 0, 0, 1], [10, 0, 0, 100], matched.as_deref())
             .unwrap();
@@ -650,6 +645,16 @@ mod tests {
         let net = cfg.range([10, 0, 0, 1], [10, 0, 1, 100], None).unwrap();
 
         assert_eq!(net.class, None);
+
+        // a_class matches on 'hostname'
+        msg.opts_mut()
+            .insert(DhcpOption::Hostname("hostname".to_owned()));
+
+        let matched = cfg.eval_client_classes(&msg).unwrap().ok();
+        assert_eq!(
+            matched.unwrap(),
+            &["my_class".to_owned(), "a_class".to_owned()]
+        );
     }
 
     #[test]

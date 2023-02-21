@@ -184,12 +184,13 @@ pub mod util {
     }
 
     pub fn client_classes(cfg: &Config, req: &Message) -> Option<Vec<String>> {
-        // evaluate client classes
-        let client_id = cfg.client_id(req);
         // TODO: what should we do if there is an error processing client classes?
-        cfg.eval_client_classes(client_id, req)
+        cfg.eval_client_classes(req)
             .and_then(|classes| match classes {
-                Ok(classes) => Some(classes),
+                Ok(classes) => {
+                    debug!(matched_classes = ?classes, "matched classes");
+                    Some(classes)
+                }
                 Err(err) => {
                     error!(?err, "error processing client classes");
                     None

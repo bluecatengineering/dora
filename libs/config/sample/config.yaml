@@ -149,12 +149,19 @@ networks:
                                 - 10.0.1.1
 client_classes:
     v4:
-        - 
+        -
           name: my_class
-          assert: "pkt4.mac == 'DEADBEEF'"
-          options: 
-                values: 
+          assert: "pkt4.mac == 0xDEADBEEF"
+          options:
+                values:
                     6:
                         type: ip_list
                         value: [ 1.1.1.1 ]
-          
+        -
+            name: a_class
+            assert: "option[12].hex == 'hostname'"
+            options:
+                values:
+                    6:
+                        type: ip_list
+                        value: [ 1.1.1.1 ]

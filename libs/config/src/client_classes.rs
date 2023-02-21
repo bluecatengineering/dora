@@ -9,7 +9,7 @@ use dora_core::dhcproto::{
     v4::{self, OptionCode, UnknownOption},
     Decodable, Decoder, Encodable,
 };
-use tracing::error;
+use tracing::{error, trace};
 
 use crate::wire;
 
@@ -54,13 +54,13 @@ impl TryFrom<wire::client_classes::ClientClasses> for ClientClasses {
 
 impl ClientClasses {
     /// evaluate all client classes, returning a list of classes that match
-    pub fn eval(&self, client_id: &[u8], req: &dhcproto::v4::Message) -> Result<Vec<String>> {
-        let (client_id, opts) = convert_for_eval(client_id, req)?;
+    pub fn eval(&self, req: &dhcproto::v4::Message) -> Result<Vec<String>> {
+        let (chaddr, opts) = convert_for_eval(req)?;
         Ok(self
             .classes
             .iter()
             // TODO: remove clone?
-            .filter(|&class| class.clone().eval(&client_id, &opts))
+            .filter(|&class| class.clone().eval(&chaddr, &opts))
             .map(|class| class.name.to_owned())
             .collect())
     }
@@ -80,6 +80,7 @@ impl ClientClasses {
 
 impl ClientClass {
     pub fn eval(self, chaddr: &str, opts: &HashMap<OptionCode, UnknownOption>) -> bool {
+        trace!(expr = ?self.assert, ?chaddr, "evaluating expression");
         match client_classification::ast::eval_ast(self.assert, chaddr, opts) {
             Ok(ast::Val::Bool(true)) => true,
             Ok(ast::Val::Bool(false)) => false,
@@ -92,13 +93,12 @@ impl ClientClass {
 }
 
 fn convert_for_eval(
-    client_id: &[u8],
     req: &dhcproto::v4::Message,
 ) -> Result<(String, HashMap<OptionCode, UnknownOption>)> {
     // TODO: find a better way to do this so we don't have to convert to unknown on every eval
     // possibly, add better methods to dhcproto so we can pull the data section out
     Ok((
-        hex::encode(client_id),
+        hex::encode(req.chaddr()),
         req.opts()
             .iter()
             .map(|(k, v)| {
