@@ -3,8 +3,9 @@ use std::{collections::HashMap, time::Duration};
 use ipnet::Ipv4Net;
 use serde::{Deserialize, Serialize};
 
-use crate::LeaseTime;
+use crate::{wire::client_classes::ClientClasses, LeaseTime};
 
+pub mod client_classes;
 pub mod v4;
 pub mod v6;
 
@@ -17,6 +18,7 @@ pub struct Config {
     #[serde(default)]
     pub networks: HashMap<Ipv4Net, v4::Net>,
     pub v6: Option<v6::Config>,
+    pub client_classes: Option<ClientClasses>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]

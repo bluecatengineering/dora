@@ -63,11 +63,7 @@ where
             Some(res) => {
                 let (buf, meta) = res?;
                 let msg = SerialMsg::new(buf.freeze(), meta.addr);
-                Poll::Ready(Some(Ok(MsgContext::with_state(
-                    msg,
-                    meta,
-                    Arc::clone(pin.state),
-                )?)))
+                Poll::Ready(Some(Ok(MsgContext::new(msg, meta, Arc::clone(pin.state))?)))
             }
             None => Poll::Ready(None),
         }

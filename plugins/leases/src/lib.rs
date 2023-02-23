@@ -21,6 +21,7 @@ use dora_core::{
     dhcproto::v4::{DhcpOption, Message, MessageType, OptionCode},
     prelude::*,
 };
+use message_type::MatchedClasses;
 use register_derive::Register;
 use static_addr::StaticAddr;
 
@@ -58,6 +59,7 @@ where
         Self { cfg, ip_mgr }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn set_response(
         &self,
         network: &Network,
@@ -65,6 +67,7 @@ where
         range: &NetRange,
         client_id: &[u8],
         expires_at: SystemTime,
+        classes: Option<&[String]>,
         ctx: &mut MsgContext<Message>,
     ) -> Result<()> {
         let (lease, t1, t2) = range.lease().determine_lease(ctx.requested_lease_time());
@@ -79,7 +82,12 @@ where
         ctx.decoded_resp_msg_mut()
             .context("response message must be set before leases is run")?
             .set_yiaddr(ip);
-        ctx.populate_opts_lease(range.opts(), lease, t1, t2);
+        ctx.populate_opts_lease(
+            &self.cfg.v4().collect_opts(range.opts(), classes),
+            lease,
+            t1,
+            t2,
+        );
         ctx.set_local(ExpiresAt(expires_at));
         Ok(())
     }
@@ -95,10 +103,10 @@ where
         let req = ctx.decoded_msg();
 
         let client_id = self.cfg.v4().client_id(req).to_vec(); // to_vec required b/c of borrowck error
-                                                               // we could split the decoded_resp_msg from MsgContext to fix this?
         let subnet = ctx.subnet()?;
         // look up that subnet from our config
-        let network = self.cfg.v4().get_network(subnet);
+        let network = self.cfg.v4().network(subnet);
+        let classes = ctx.get_local::<MatchedClasses>().map(|c| c.0.to_owned());
         let resp_has_yiaddr =
             matches!(ctx.decoded_resp_msg(), Some(msg) if !msg.yiaddr().is_unspecified());
 
@@ -111,8 +119,10 @@ where
                 return Ok(Action::Continue);
             }
             // giaddr has matched one of our configured subnets
-            (MessageType::Discover, Some(net)) => self.discover(ctx, &client_id, net).await,
-            (MessageType::Request, Some(net)) => self.request(ctx, &client_id, net).await,
+            (MessageType::Discover, Some(net)) => {
+                self.discover(ctx, &client_id, net, classes).await
+            }
+            (MessageType::Request, Some(net)) => self.request(ctx, &client_id, net, classes).await,
             (MessageType::Release, _) => self.release(ctx, &client_id).await,
             (MessageType::Decline, Some(net)) => self.decline(ctx, &client_id, net).await,
             _ => {
@@ -133,17 +143,19 @@ where
         ctx: &mut MsgContext<Message>,
         client_id: &[u8],
         network: &Network,
+        classes: Option<Vec<String>>,
     ) -> Result<Action> {
         let req = ctx.decoded_msg();
         // give 60 seconds between discover & request, TODO: configurable?
         let expires_at = SystemTime::now() + Duration::from_secs(60);
+        let classes = classes.as_deref();
         // requested ip included in message, try to reserve
         if let Some(DhcpOption::RequestedIpAddress(ip)) =
             req.opts().get(OptionCode::RequestedIpAddress)
         {
             let ip = *ip;
-            // within our range. `get_range` makes sure IP is not in exclude list
-            if let Some(range) = network.get_range(ip) {
+            // within our range. `range` makes sure IP is not in exclude list
+            if let Some(range) = network.range(ip, classes) {
                 match self
                     .ip_mgr
                     .try_ip(
@@ -156,7 +168,7 @@ where
                     .await
                 {
                     Ok(_) => {
-                        self.set_response(network, ip, range, client_id, expires_at, ctx)
+                        self.set_response(network, ip, range, client_id, expires_at, classes, ctx)
                             .await?;
                         return Ok(Action::Continue);
                     }
@@ -172,7 +184,7 @@ where
             }
         }
         // no requested IP, so find the next available
-        for range in network.ranges() {
+        for range in network.ranges_with_class(classes) {
             match self
                 .ip_mgr
                 .reserve_first(range, network, client_id, expires_at)
@@ -180,7 +192,7 @@ where
             {
                 Ok(IpAddr::V4(ip)) => {
                     debug!(?ip, ?client_id, "got IP for client-- sending offer");
-                    self.set_response(network, ip, range, client_id, expires_at, ctx)
+                    self.set_response(network, ip, range, client_id, expires_at, classes, ctx)
                         .await?;
                     return Ok(Action::Continue);
                 }
@@ -202,6 +214,7 @@ where
         ctx: &mut MsgContext<Message>,
         client_id: &[u8],
         network: &Network,
+        classes: Option<Vec<String>>,
     ) -> Result<Action> {
         // requested ip comes from opts or ciaddr
         let ip = match ctx.requested_ip() {
@@ -218,9 +231,10 @@ where
             }
         };
 
+        let classes = classes.as_deref();
         // within our range
-        let range = network.get_range(ip);
-        debug!(?ip, range = ?range.map(|r| r.addrs()), "is IP in our range?");
+        let range = network.range(ip, classes);
+        debug!(?ip, range = ?range.map(|r| r.addrs()), "is IP in range?");
         if let Some(range) = range {
             // calculate the lease time
             let (lease, t1, t2) = range.lease().determine_lease(ctx.requested_lease_time());
@@ -240,7 +254,12 @@ where
                         expires_at = %DateTime::<Utc>::from(expires_at).to_rfc3339_opts(SecondsFormat::Secs, true),
                         "leased requested ip"
                     );
-                    ctx.populate_opts_lease(range.opts(), lease, t1, t2);
+                    ctx.populate_opts_lease(
+                        &self.cfg.v4().collect_opts(range.opts(), classes),
+                        lease,
+                        t1,
+                        t2,
+                    );
                     ctx.set_local(ExpiresAt(expires_at));
                     return Ok(Action::Continue);
                 }

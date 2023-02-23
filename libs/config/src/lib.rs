@@ -1,3 +1,4 @@
+pub mod client_classes;
 pub mod v4;
 pub mod v6;
 pub mod wire;
@@ -153,7 +154,7 @@ impl LeaseTime {
         match requested {
             // time must be larger than `min` and smaller than `max`
             Some(req) => {
-                let t = req.max(min).min(max);
+                let t = req.clamp(min, max);
                 (t, renew(t), rebind(t))
             }
             None => (default, renew(default), rebind(default)),

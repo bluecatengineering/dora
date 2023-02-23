@@ -16,7 +16,7 @@ use dora_core::{
 use register_derive::Register;
 
 use config::{v4::Reserved, DhcpConfig};
-use message_type::MsgType;
+use message_type::{MatchedClasses, MsgType};
 
 #[derive(Debug, Register)]
 #[register(msg(Message))]
@@ -40,17 +40,20 @@ impl Plugin<Message> for StaticAddr {
 
         let subnet = ctx.subnet()?;
 
-        if let Some(net) = self.cfg.v4().get_network(subnet) {
+        // matched classes clone necessary because of ctx borrowck
+        let classes = ctx.get_local::<MatchedClasses>().map(|m| m.0.to_owned());
+        let classes = classes.as_deref();
+        if let Some(net) = self.cfg.v4().network(subnet) {
             // determine if we have a reservation based on mac
             if chaddr.len() == 6 {
                 let mac = MacAddr::new(
                     chaddr[0], chaddr[1], chaddr[2], chaddr[3], chaddr[4], chaddr[5],
                 );
-                if let Some(res) = net.get_reserved_mac(mac) {
+                if let Some(res) = net.get_reserved_mac(mac, classes) {
                     // mac is present in our config
                     match req.opts().msg_type().context("no message type found")? {
-                        MessageType::Discover => self.discover(ctx, &chaddr, res)?,
-                        MessageType::Request => self.request(ctx, &chaddr, res)?,
+                        MessageType::Discover => self.discover(ctx, &chaddr, classes, res)?,
+                        MessageType::Request => self.request(ctx, &chaddr, classes, res)?,
                         // we have a reservation, but we didn't et a DISCOVER or REQUEST
                         // drop the message
                         _ => return Ok(Action::NoResponse),
@@ -60,11 +63,11 @@ impl Plugin<Message> for StaticAddr {
             }
 
             // determine if we have a reservation based on opt
-            if let Some(res) = net.search_reserved_opt(req.opts()) {
+            if let Some(res) = net.search_reserved_opt(req.opts(), classes) {
                 // matching opt is present in our config
                 match req.opts().msg_type().context("no message type found")? {
-                    MessageType::Discover => self.discover(ctx, &chaddr, res)?,
-                    MessageType::Request => self.request(ctx, &chaddr, res)?,
+                    MessageType::Discover => self.discover(ctx, &chaddr, classes, res)?,
+                    MessageType::Request => self.request(ctx, &chaddr, classes, res)?,
                     // we have a reservation, but we didn't et a DISCOVER or REQUEST
                     // drop the message
                     _ => return Ok(Action::NoResponse),
@@ -82,6 +85,7 @@ impl StaticAddr {
         &self,
         ctx: &mut MsgContext<Message>,
         chaddr: &[u8],
+        classes: Option<&[String]>,
         res: &Reserved,
     ) -> Result<Action> {
         let static_ip = res.ip();
@@ -90,7 +94,12 @@ impl StaticAddr {
         ctx.decoded_resp_msg_mut()
             .context("response message must be set before leases is run")?
             .set_yiaddr(static_ip);
-        ctx.populate_opts_lease(res.opts(), lease, t1, t2);
+        ctx.populate_opts_lease(
+            &self.cfg.v4().collect_opts(res.opts(), classes),
+            lease,
+            t1,
+            t2,
+        );
         Ok(Action::Continue)
     }
 
@@ -99,6 +108,7 @@ impl StaticAddr {
         &self,
         ctx: &mut MsgContext<Message>,
         chaddr: &[u8],
+        classes: Option<&[String]>,
         res: &Reserved,
     ) -> Result<Action> {
         let static_ip = res.ip();
@@ -127,7 +137,12 @@ impl StaticAddr {
         ctx.decoded_resp_msg_mut()
             .context("response message must be set before static plugin is run")?
             .set_yiaddr(ip);
-        ctx.populate_opts_lease(res.opts(), lease, t1, t2);
+        ctx.populate_opts_lease(
+            &self.cfg.v4().collect_opts(res.opts(), classes),
+            lease,
+            t1,
+            t2,
+        );
         trace!(?ip, "populating response with static ip");
 
         Ok(Action::Continue)

@@ -67,7 +67,7 @@ impl Plugin<Message> for MsgType {
             .server_id(meta.ifindex, subnet)
             .context("cannot find server_id")?;
         // look up which network the message belongs to
-        let network = self.cfg.v4().get_network(subnet);
+        let network = self.cfg.v4().network(subnet);
         let sname = network.and_then(|net| net.server_name());
         let fname = network.and_then(|net| net.file_name());
         // message that will be returned
@@ -86,6 +86,8 @@ impl Plugin<Message> for MsgType {
         // add server id to response
         resp.opts_mut()
             .insert(DhcpOption::ServerIdentifier(server_id));
+        // evaluate client classes
+        let matched = util::client_classes(self.cfg.v4(), req);
 
         match msg_type.context("no option 53 (message type) found")? {
             MessageType::Discover => {
@@ -111,14 +113,15 @@ impl Plugin<Message> for MsgType {
                 let addr = if !ciaddr.is_unspecified() {
                     ciaddr
                 } else {
+                    // TODO: when `subnet` is used to select a range, it probably doesn't exist.
                     subnet
                 };
-                if let Some(network) = self.cfg.v4().get_network(addr) {
-                    if let Some(range) = network.get_range(addr) {
-                        ctx.set_decoded_resp_msg(resp);
-                        ctx.populate_opts(range.opts());
-                        return Ok(Action::Respond);
-                    }
+                if let Some(range) = self.cfg.v4().range(addr, addr, matched.as_deref()) {
+                    ctx.set_decoded_resp_msg(resp);
+                    ctx.populate_opts(
+                        &self.cfg.v4().collect_opts(range.opts(), matched.as_deref()),
+                    );
+                    return Ok(Action::Respond);
                 }
                 warn!(msg_type = ?MessageType::Inform, "couldn't match appropriate range with INFORM message");
             }
@@ -139,13 +142,18 @@ impl Plugin<Message> for MsgType {
                 return Ok(Action::NoResponse);
             }
         }
-
+        // evaluate client classes
+        if let Some(classes) = matched {
+            ctx.set_local(MatchedClasses(classes));
+        }
         ctx.set_decoded_resp_msg(resp);
         Ok(Action::Continue)
     }
 }
 
 pub mod util {
+    use config::v4::Config;
+
     use super::*;
 
     pub fn new_msg(
@@ -173,6 +181,21 @@ pub mod util {
             msg.set_fname_str(fname);
         }
         msg
+    }
+
+    pub fn client_classes(cfg: &Config, req: &Message) -> Option<Vec<String>> {
+        // TODO: what should we do if there is an error processing client classes?
+        cfg.eval_client_classes(req)
+            .and_then(|classes| match classes {
+                Ok(classes) => {
+                    debug!(matched_classes = ?classes, "matched classes");
+                    Some(classes)
+                }
+                Err(err) => {
+                    error!(?err, "error processing client classes");
+                    None
+                }
+            })
     }
 }
 
@@ -253,3 +276,7 @@ impl Plugin<v6::Message> for MsgType {
         Ok(Action::Continue)
     }
 }
+
+/// a list of matching client classes for this message
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MatchedClasses(pub Vec<String>);

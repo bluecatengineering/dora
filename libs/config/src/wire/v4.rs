@@ -84,6 +84,7 @@ pub struct IpRange {
     pub config: NetworkConfig,
     #[serde(default)]
     pub except: Vec<Ipv4Addr>,
+    pub class: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -121,6 +122,7 @@ pub struct ReservedIp {
     #[serde(rename = "match")]
     pub condition: Condition,
     pub config: NetworkConfig,
+    pub class: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -142,8 +144,11 @@ pub struct Opts(pub DhcpOptions);
 enum Opt {
     Ip(Ipv4Addr),
     IpList(Vec<Ipv4Addr>),
-    U32(u32),
+    U8(u8),
     U16(u16),
+    U32(u32),
+    I32(i32),
+    Bool(bool),
     Str(String),
     B64(String),
     Hex(String),
@@ -194,6 +199,18 @@ fn write_opt(enc: &mut Encoder<'_>, code: u8, opt: Opt) -> anyhow::Result<()> {
             enc.write_u8(4)?;
             enc.write_u32(n)?;
         }
+        Opt::I32(n) => {
+            enc.write_u8(4)?;
+            enc.write_i32(n)?;
+        }
+        Opt::U8(n) => {
+            enc.write_u8(1)?;
+            enc.write_u8(n)?;
+        }
+        Opt::Bool(b) => {
+            enc.write_u8(1)?;
+            enc.write_u8(b.into())?;
+        }
         Opt::U16(n) => {
             enc.write_u8(2)?;
             enc.write_u16(n)?;
@@ -233,13 +250,13 @@ impl Serialize for Opts {
         let map = self
             .0
             .iter()
-            .filter_map(|(code, opt)| decode_opt(code, opt))
+            .filter_map(|(code, opt)| to_opt(code, opt))
             .collect::<HashMap<u8, Opt>>();
         ser.collect_map(&map)
     }
 }
 
-fn decode_opt(code: &OptionCode, opt: &DhcpOption) -> Option<(u8, Opt)> {
+fn to_opt(code: &OptionCode, opt: &DhcpOption) -> Option<(u8, Opt)> {
     use dora_core::dhcproto::v4::DhcpOption::*;
     match opt {
         Pad | End => None,
@@ -267,6 +284,19 @@ fn decode_opt(code: &OptionCode, opt: &DhcpOption) -> Option<(u8, Opt)> {
         | NetBiosDatagramDistributionServer(ips) => {
             Some(((*code).into(), Opt::IpList(ips.clone())))
         }
+        TimeOffset(num) => Some(((*code).into(), Opt::I32(*num))),
+        DefaultTcpTtl(num) | DefaultIpTtl(num) | OptionOverload(num) => {
+            Some(((*code).into(), Opt::U8(*num)))
+        }
+        NetBiosNodeType(ntype) => Some(((*code).into(), Opt::U8((*ntype).into()))),
+        IpForwarding(b)
+        | NonLocalSrcRouting(b)
+        | AllSubnetsLocal(b)
+        | PerformMaskDiscovery(b)
+        | MaskSupplier(b)
+        | PerformRouterDiscovery(b)
+        | EthernetEncapsulation(b)
+        | TcpKeepaliveGarbage(b) => Some(((*code).into(), Opt::Bool(*b))),
         ArpCacheTimeout(num)
         | TcpKeepaliveInterval(num)
         | AddressLeaseTime(num)
@@ -279,14 +309,15 @@ fn decode_opt(code: &OptionCode, opt: &DhcpOption) -> Option<(u8, Opt)> {
         }
         Unknown(opt) => Some(((*code).into(), Opt::Hex(hex::encode(opt.data())))),
         _ => {
-            // the data includes the code value, let's slice that off
+            // the data includes the code & len, let's slice that off
             match opt.to_vec() {
                 Ok(buf) => Some((
                     (*code).into(),
                     Opt::Hex(if buf.is_empty() {
                         "".into()
                     } else {
-                        hex::encode(&buf[1..])
+                        // [code: u8][len: u8][data...]
+                        hex::encode(&buf[2..])
                     }),
                 )),
                 Err(err) => {

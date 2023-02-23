@@ -7,7 +7,10 @@ use std::{
 
 use anyhow::{Context, Result};
 use dora_core::{
-    dhcproto::v4::{DhcpOption, DhcpOptions, Message, OptionCode},
+    dhcproto::{
+        self,
+        v4::{DhcpOption, DhcpOptions, Message, OptionCode},
+    },
     pnet::{
         datalink::NetworkInterface,
         ipnetwork::{IpNetwork, Ipv4Network},
@@ -17,7 +20,7 @@ use dora_core::{
 use ipnet::{Ipv4AddrRange, Ipv4Net};
 use tracing::debug;
 
-use crate::{wire, LeaseTime};
+use crate::{client_classes::ClientClasses, wire, LeaseTime};
 
 pub const DEFAULT_LEASE_TIME: Duration = Duration::from_secs(86_400);
 
@@ -31,86 +34,15 @@ pub struct Config {
     /// used to make a selection on which network or subnet to use
     networks: HashMap<Ipv4Net, Network>,
     v6: Option<crate::v6::Config>,
+    client_classes: Option<ClientClasses>,
 }
 
-impl Config {
-    pub fn v6(&self) -> Option<&crate::v6::Config> {
-        self.v6.as_ref()
-    }
-    /// Returns:
-    ///     - `server_id` of `Network` belonging to `ip`
-    ///     - OR interface at index `iface`
-    pub fn server_id(&self, iface: u32, ip: Ipv4Addr) -> Option<Ipv4Addr> {
-        self.get_network(ip)
-            .and_then(|net| net.server_id)
-            .or_else(|| self.get_interface(iface).map(|i| i.ip()))
-    }
-
-    /// return the optional explicitly bound interfaces if there are any
-    pub fn interfaces(&self) -> &[NetworkInterface] {
-        self.interfaces.as_slice()
-    }
-    /// Returns:
-    ///     - if the config has an interface, return that
-    ///     - OR find iface_index and return that
-    ///     - OR use default interface
-    pub fn get_interface(&self, iface_index: u32) -> Option<Ipv4Network> {
-        self.find_interface(iface_index).and_then(|int| {
-            int.ips.iter().find_map(|ip| match ip {
-                IpNetwork::V4(ip) => Some(*ip),
-                _ => None,
-            })
-        })
-    }
-    // find the interface at the index `iface_index`
-    fn find_interface(&self, iface_index: u32) -> Option<&NetworkInterface> {
-        self.interfaces.iter().find(|e| e.index == iface_index)
-    }
-
-    /// Whether the server is configured to use `chaddr` only or look at Client ID
-    pub fn chaddr_only(&self) -> bool {
-        self.chaddr_only
-    }
-
-    /// If opt 61 (client id) exists return that, otherwise return `chaddr` from the message
-    /// header.
-    pub fn client_id<'a>(&self, msg: &'a Message) -> &'a [u8] {
-        if self.chaddr_only {
-            msg.chaddr()
-        } else if let Some(DhcpOption::ClientIdentifier(id)) =
-            msg.opts().get(OptionCode::ClientIdentifier)
-        {
-            id
-        } else {
-            msg.chaddr()
-        }
-    }
-
-    /// get a `Network` with a subnet that contains the given IP
-    pub fn get_network<I: Into<Ipv4Addr>>(&self, ip: I) -> Option<&Network> {
-        let ip = ip.into();
-        self.networks.iter().find_map(|(subnet, network)| {
-            if subnet.contains(&ip) {
-                Some(network)
-            } else {
-                None
-            }
-        })
-    }
-    /// get the first `Network`
-    pub fn get_first(&self) -> Option<(&Ipv4Net, &Network)> {
-        self.networks.iter().next()
-    }
-
-    pub fn from_wire(cfg: wire::Config) -> Result<Self> {
-        // // a "backup interface" will be used when server_id is not specified and no interfaces are specified
-        // let first_interface = cfg
-        //     .interfaces
-        //     .and_then(|list| list.iter().next().map(|s| s.as_str()));
-        // let backup_interface_ip = crate::backup_ivp4_interface(first_interface)?;
+impl TryFrom<wire::Config> for Config {
+    type Error = anyhow::Error;
+    fn try_from(cfg: wire::Config) -> Result<Self> {
         let interfaces = crate::v4_find_interfaces(cfg.interfaces.clone())?;
 
-        debug!(?interfaces, "v4 interfaces that will be used");
+        debug!(?interfaces, "using v4 interfaces");
         // transform wire::Config into a more optimized format
         let networks = cfg
             .networks
@@ -170,32 +102,141 @@ impl Config {
                 (subnet, network)
             })
             .collect();
-        let v6 = match cfg.v6 {
-            Some(v6) => {
-                Some(crate::v6::Config::from_wire(v6).context("unable to parse v6 config")?)
-            }
-            None => {
-                tracing::debug!("no v6 config found");
-                None
-            }
-        };
 
         Ok(Self {
             interfaces,
             networks,
             chaddr_only: cfg.chaddr_only,
-            v6,
+            v6: cfg
+                .v6
+                .map(crate::v6::Config::try_from)
+                .transpose()
+                .context("unable to parse v6 config")?,
+            client_classes: cfg
+                .client_classes
+                .map(ClientClasses::try_from)
+                .transpose()
+                .context("unable to parse client_classes config")?,
         })
+    }
+}
+
+impl Config {
+    pub fn v6(&self) -> Option<&crate::v6::Config> {
+        self.v6.as_ref()
+    }
+    /// eval all client classes, return names of classes that evaluate to true
+    pub fn eval_client_classes(&self, req: &dhcproto::v4::Message) -> Option<Result<Vec<String>>> {
+        self.client_classes
+            .as_ref()
+            .map(|classes| classes.eval(req))
+    }
+    pub fn classes(&self) -> Option<&ClientClasses> {
+        self.client_classes.as_ref()
+    }
+    /// Returns:
+    ///     - `server_id` of `Network` belonging to `ip`
+    ///     - OR interface at index `iface`
+    pub fn server_id(&self, iface: u32, ip: Ipv4Addr) -> Option<Ipv4Addr> {
+        self.network(ip)
+            .and_then(|net| net.server_id)
+            .or_else(|| self.get_interface(iface).map(|i| i.ip()))
+    }
+
+    /// return the optional explicitly bound interfaces if there are any
+    pub fn interfaces(&self) -> &[NetworkInterface] {
+        self.interfaces.as_slice()
+    }
+    /// Returns:
+    ///     - if the config has an interface, return that
+    ///     - OR find iface_index and return that
+    ///     - OR use default interface
+    pub fn get_interface(&self, iface_index: u32) -> Option<Ipv4Network> {
+        self.find_interface(iface_index).and_then(|int| {
+            int.ips.iter().find_map(|ip| match ip {
+                IpNetwork::V4(ip) => Some(*ip),
+                _ => None,
+            })
+        })
+    }
+    // find the interface at the index `iface_index`
+    fn find_interface(&self, iface_index: u32) -> Option<&NetworkInterface> {
+        self.interfaces.iter().find(|e| e.index == iface_index)
+    }
+
+    /// Whether the server is configured to use `chaddr` only or look at Client ID
+    pub fn chaddr_only(&self) -> bool {
+        self.chaddr_only
+    }
+
+    /// If opt 61 (client id) exists return that, otherwise return `chaddr` from the message
+    /// header.
+    pub fn client_id<'a>(&self, msg: &'a Message) -> &'a [u8] {
+        if self.chaddr_only {
+            msg.chaddr()
+        } else if let Some(DhcpOption::ClientIdentifier(id)) =
+            msg.opts().get(OptionCode::ClientIdentifier)
+        {
+            id
+        } else {
+            msg.chaddr()
+        }
+    }
+
+    /// get a `Network` with a subnet that contains the given IP
+    pub fn network<I: Into<Ipv4Addr>>(&self, subnet: I) -> Option<&Network> {
+        let contains = subnet.into();
+        self.networks.iter().find_map(|(network_subnet, network)| {
+            if network_subnet.contains(&contains) {
+                Some(network)
+            } else {
+                None
+            }
+        })
+    }
+
+    /// given a list of matched classes and a range
+    /// return all options merged for parameter request list
+    pub fn collect_opts(
+        &self,
+        opts: &dhcproto::v4::DhcpOptions,
+        matched_classes: Option<&[String]>,
+    ) -> dhcproto::v4::DhcpOptions {
+        // TODO: there may be a way to reduce the use of `clone` here
+        // maybe by providing the config to MsgContext
+        // in reality, we only need to clone the messages that actually match the param request list
+        self.client_classes
+            .as_ref()
+            // range opts
+            .map(|classes| merge_opts(opts.clone(), classes.collect_opts(matched_classes)))
+            .unwrap_or(opts.clone())
+    }
+
+    /// get a `NetRange` within a subnet that contains the given IP & any matching client classes
+    pub fn range<I: Into<Ipv4Addr>>(
+        &self,
+        subnet: I,
+        ip: I,
+        classes: Option<&[String]>,
+    ) -> Option<&NetRange> {
+        let subnet = subnet.into();
+        let ip = ip.into();
+        self.network(subnet).and_then(|net| net.range(ip, classes))
+    }
+
+    /// get the first `Network`
+    pub fn get_first(&self) -> Option<(&Ipv4Net, &Network)> {
+        self.networks.iter().next()
     }
     /// Create a new DhcpConfig for the server. Pass in the wire
     /// config format from yaml
     pub fn yaml<S: AsRef<str>>(input: S) -> Result<Self> {
-        Self::from_wire(serde_yaml::from_str(input.as_ref())?)
+        Self::try_from(serde_yaml::from_str::<wire::Config>(input.as_ref())?)
     }
     /// Create a new DhcpConfig for the server. Pass in the wire
     /// config format from json
     pub fn json<S: AsRef<str>>(input: S) -> Result<Self> {
-        Self::from_wire(serde_json::from_str(input.as_ref())?)
+        Self::try_from(serde_json::from_str::<wire::Config>(input.as_ref())?)
     }
     /// Create a new DhcpConfig for the server. Attempts to decode path
     /// as json, then yaml, and if both fail will return Err
@@ -249,8 +290,24 @@ impl Network {
     pub fn ranges(&self) -> &[NetRange] {
         &self.ranges
     }
-    pub fn get_reserved_mac(&self, mac: MacAddr) -> Option<&Reserved> {
-        self.reserved_macs.get(&mac)
+    pub fn ranges_with_class<'a, 'b: 'a>(
+        &'a self,
+        classes: Option<&'b [String]>,
+    ) -> impl Iterator<Item = &'a NetRange> + 'a {
+        // TODO: don't allocate returning Vec?
+
+        self.ranges
+            .iter()
+            .filter(move |range| range.match_class(classes))
+    }
+    /// get reservation based on mac & matched client classes
+    pub fn get_reserved_mac(&self, mac: MacAddr, classes: Option<&[String]>) -> Option<&Reserved> {
+        let res = self.reserved_macs.get(&mac)?;
+        if res.match_class(classes) {
+            Some(res)
+        } else {
+            None
+        }
     }
     /// Based on a `DhcpOption`, find if there is a reservation where
     /// the value matches
@@ -261,10 +318,17 @@ impl Network {
         }
     }
     /// Given some `opts`, search to see if there is a match with a reservation
-    pub fn search_reserved_opt(&self, opts: &DhcpOptions) -> Option<&Reserved> {
+    /// client classes must also match
+    pub fn search_reserved_opt(
+        &self,
+        opts: &DhcpOptions,
+        classes: Option<&[String]>,
+    ) -> Option<&Reserved> {
         for (_, opt) in opts.iter() {
             if let Some(res) = self.get_reserved_opt(opt) {
-                return Some(res);
+                if res.match_class(classes) {
+                    return Some(res);
+                }
             }
         }
         None
@@ -274,11 +338,13 @@ impl Network {
         let ip = ip.into();
         self.ranges.iter().any(|r| r.contains(&ip))
     }
+
     /// Returns the range of which this `ip` is a member
-    pub fn get_range<I: Into<Ipv4Addr>>(&self, ip: I) -> Option<&NetRange> {
+    pub fn range<I: Into<Ipv4Addr>>(&self, ip: I, classes: Option<&[String]>) -> Option<&NetRange> {
         let ip = ip.into();
         // must not be present in `exclude` & must be present in `addrs`
-        self.ranges.iter().find(|r| r.contains(&ip))
+        // if classes exist, look for a range that contains `ip` and matching class
+        self.ranges.iter().find(|r| r.contains_class(&ip, classes))
     }
     /// is ping check enabled for this range? should we ping an IP before offering?
     pub fn ping_check(&self) -> bool {
@@ -306,9 +372,19 @@ pub struct NetRange {
     lease: LeaseTime,
     opts: DhcpOptions,
     exclude: HashSet<Ipv4Addr>,
+    class: Option<String>,
 }
 
 impl NetRange {
+    pub fn new(addrs: RangeInclusive<Ipv4Addr>, lease: LeaseTime) -> Self {
+        Self {
+            addrs,
+            lease,
+            opts: DhcpOptions::default(),
+            exclude: HashSet::default(),
+            class: None,
+        }
+    }
     /// get the range of IPs this range offers
     pub fn addrs(&self) -> RangeInclusive<Ipv4Addr> {
         self.addrs.clone()
@@ -333,6 +409,24 @@ impl NetRange {
     pub fn contains(&self, ip: &Ipv4Addr) -> bool {
         !self.exclude.contains(ip) && self.addrs.contains(ip)
     }
+
+    /// contains the IP and matches a class
+    pub fn contains_class(&self, ip: &Ipv4Addr, classes: Option<&[String]>) -> bool {
+        self.contains(ip) && self.match_class(classes)
+    }
+    pub fn match_class(&self, classes: Option<&[String]>) -> bool {
+        // if range has no class, this expression is always true
+        // if range has a class, it must match an entry in the list
+        self.class
+            .as_ref()
+            .map(|name| {
+                classes
+                    .as_ref()
+                    .map(|classes| classes.contains(name))
+                    .unwrap_or(false)
+            })
+            .unwrap_or(true)
+    }
     /// return an iterator over the range
     pub fn iter(&self) -> NetRangeIter<'_> {
         NetRangeIter {
@@ -348,6 +442,10 @@ impl NetRange {
     /// handed out minus exclusions
     pub fn total_addrs(&self) -> usize {
         self.iter().count()
+    }
+    /// return configured class if present
+    pub fn class(&self) -> Option<&str> {
+        self.class.as_deref()
     }
 }
 
@@ -389,6 +487,7 @@ pub struct Reserved {
     /// a lease time
     lease: LeaseTime,
     opts: DhcpOptions,
+    class: Option<String>,
 }
 
 impl Reserved {
@@ -405,6 +504,24 @@ impl Reserved {
     pub fn lease(&self) -> LeaseTime {
         self.lease
     }
+    /// return configured class if present
+    pub fn class(&self) -> Option<&str> {
+        self.class.as_deref()
+    }
+    /// given a list of matched classes, determine if this reservation has a match
+    ///         if reservation has no class, this expression is always true
+    /// if reservation has a class, it must match an entry in the list
+    pub fn match_class(&self, classes: Option<&[String]>) -> bool {
+        self.class
+            .as_ref()
+            .map(|name| {
+                classes
+                    .as_ref()
+                    .map(|classes| classes.contains(name))
+                    .unwrap_or(false)
+            })
+            .unwrap_or(true)
+    }
 }
 
 impl From<wire::v4::IpRange> for NetRange {
@@ -416,6 +533,7 @@ impl From<wire::v4::IpRange> for NetRange {
             opts,
             lease,
             exclude: range.except.into_iter().collect(),
+            class: range.class,
         }
     }
 }
@@ -427,6 +545,22 @@ impl From<&wire::v4::ReservedIp> for Reserved {
             lease,
             ip: res.ip,
             opts: res.options.as_ref().clone(),
+            class: res.class.clone(),
+        }
+    }
+}
+
+/// merge `b` into `a`, favoring `a` where there are duplicates
+fn merge_opts(mut a: DhcpOptions, b: Option<DhcpOptions>) -> DhcpOptions {
+    match b {
+        None => a,
+        Some(b) => {
+            for (code, opt) in b.into_iter() {
+                if a.get(code).is_none() {
+                    a.insert(opt);
+                }
+            }
+            a
         }
     }
 }
@@ -444,7 +578,7 @@ mod tests {
     fn test_sample() {
         let cfg = Config::new(SAMPLE_YAML).unwrap();
         // test a range decoded properly
-        let net = cfg.get_network([192, 168, 0, 1]).unwrap();
+        let net = cfg.network([192, 168, 0, 1]).unwrap();
         assert_eq!(net.ranges()[0].start(), Ipv4Addr::from([192, 168, 0, 100]));
         assert_eq!(
             net.ranges()[0].opts().get(v4::OptionCode::Router),
@@ -455,7 +589,7 @@ mod tests {
     }
 
     #[test]
-    fn test_range_lease_time() {
+    fn test_range_class() {
         let range = NetRange {
             addrs: Ipv4Addr::new(192, 168, 0, 1)..=Ipv4Addr::new(192, 168, 0, 100),
             lease: LeaseTime {
@@ -463,9 +597,77 @@ mod tests {
                 min: Duration::from_secs(3),
                 max: Duration::from_secs(10),
             },
+            opts: DhcpOptions::new(),
             exclude: HashSet::new(),
-            opts: DhcpOptions::default(),
+            class: Some("foo".to_owned()),
         };
+        // class matches
+        assert!(range.match_class(Some(&["foo".to_owned()])));
+        // wrong class means no match
+        assert!(!range.match_class(Some(&["bar".to_owned()])));
+        // must have class to match
+        assert!(!range.match_class(None));
+
+        let range = NetRange {
+            addrs: Ipv4Addr::new(192, 168, 0, 1)..=Ipv4Addr::new(192, 168, 0, 100),
+            lease: LeaseTime {
+                default: Duration::from_secs(5),
+                min: Duration::from_secs(3),
+                max: Duration::from_secs(10),
+            },
+            opts: DhcpOptions::new(),
+            exclude: HashSet::new(),
+            class: None,
+        };
+        // no classes to match -> true
+        assert!(range.match_class(None));
+        // matched classes -> true
+        assert!(range.match_class(Some(&["bar".to_owned()])));
+    }
+
+    #[test]
+    fn test_class_find() {
+        // has class `my_class` set to assert "pkt4.mac == 0xDEADBEEF"
+        let cfg = Config::new(SAMPLE_YAML).unwrap();
+        // test a range decoded properly
+        let mut msg = v4::Message::default();
+        msg.set_chaddr(&hex::decode("DEADBEEF").unwrap());
+        // get matching classes
+        // TODO: what should we do if there is an error processing client classes?
+        let matched = cfg.eval_client_classes(&msg).unwrap().ok();
+        let net = cfg
+            .range([10, 0, 0, 1], [10, 0, 0, 100], matched.as_deref())
+            .unwrap();
+
+        assert_eq!(net.class, Some("my_class".to_owned()));
+
+        // gets 'unclassified' second range
+        let net = cfg.range([10, 0, 0, 1], [10, 0, 1, 100], None).unwrap();
+
+        assert_eq!(net.class, None);
+
+        // a_class matches on 'hostname'
+        msg.opts_mut()
+            .insert(DhcpOption::Hostname("hostname".to_owned()));
+
+        let matched = cfg.eval_client_classes(&msg).unwrap().ok();
+        assert_eq!(
+            matched.unwrap(),
+            &["my_class".to_owned(), "a_class".to_owned()]
+        );
+    }
+
+    #[test]
+    fn test_range_lease_time() {
+        let range = NetRange::new(
+            Ipv4Addr::new(192, 168, 0, 1)..=Ipv4Addr::new(192, 168, 0, 100),
+            LeaseTime {
+                default: Duration::from_secs(5),
+                min: Duration::from_secs(3),
+                max: Duration::from_secs(10),
+            },
+        );
+
         // selects max
         let (lease, renew, rebind) = range.lease().determine_lease(Some(Duration::from_secs(11)));
         assert_eq!(lease.as_secs(), 10);
@@ -499,6 +701,7 @@ mod tests {
                 [192, 168, 0, 4].into(),
             ]),
             opts: DhcpOptions::default(),
+            class: None,
         };
         // excluded causes us to skip 1-4
         assert!(range.iter().eq(Ipv4AddrRange::new(
@@ -510,16 +713,14 @@ mod tests {
 
     #[test]
     fn test_big_range() {
-        let range = NetRange {
-            addrs: Ipv4Addr::new(192, 168, 0, 0)..=Ipv4Addr::new(192, 168, 3, 255),
-            lease: LeaseTime {
+        let range = NetRange::new(
+            Ipv4Addr::new(192, 168, 0, 0)..=Ipv4Addr::new(192, 168, 3, 255),
+            LeaseTime {
                 default: Duration::from_secs(5),
                 min: Duration::from_secs(3),
                 max: Duration::from_secs(10),
             },
-            exclude: HashSet::new(),
-            opts: DhcpOptions::default(),
-        };
+        );
         assert_eq!(range.iter().count(), 256 * 4);
         assert_eq!(range.total_addrs(), 256 * 4);
     }
@@ -534,6 +735,7 @@ mod tests {
                 max: Duration::from_secs(10),
             },
             opts: DhcpOptions::default(),
+            class: None,
         };
         // another value just to make sure we select the right one
         let mut another = res.clone();

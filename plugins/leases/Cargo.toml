@@ -12,6 +12,7 @@ config = { path = "../../libs/config" }
 
 register_derive = { path = "../../libs/register_derive" }
 static-addr = { path = "../static-addr" }
+message-type = { path = "../message-type" }
 ip-manager = { path = "../../libs/ip-manager" }
 
 ipnet = { workspace = true }

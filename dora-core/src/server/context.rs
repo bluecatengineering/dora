@@ -195,7 +195,7 @@ impl<T> MsgContext<T> {
 
 impl<T: Encodable + Decodable> MsgContext<T> {
     /// Create a `MsgContext` with state
-    pub fn with_state(msg: SerialMsg, meta: RecvMeta, state: Arc<State>) -> io::Result<Self> {
+    pub fn new(msg: SerialMsg, meta: RecvMeta, state: Arc<State>) -> io::Result<Self> {
         let decoded_msg = {
             let mut decoder = Decoder::new(msg.bytes());
             T::decode(&mut decoder).map_err(|op| io::Error::new(io::ErrorKind::InvalidData, op))?
@@ -813,7 +813,7 @@ mod tests {
             addr,
             ..RecvMeta::default()
         };
-        let ctx = MsgContext::<v4::Message>::with_state(
+        let ctx = MsgContext::<v4::Message>::new(
             SerialMsg::new(Bytes::from(msg.to_vec()?), addr),
             meta,
             state,
@@ -831,7 +831,7 @@ mod tests {
             addr,
             ..RecvMeta::default()
         };
-        let ctx = MsgContext::<v4::Message>::with_state(
+        let ctx = MsgContext::<v4::Message>::new(
             SerialMsg::new(Bytes::from(msg.to_vec()?), addr),
             meta,
             state,
@@ -853,7 +853,7 @@ mod tests {
             addr,
             ..RecvMeta::default()
         };
-        let ctx = MsgContext::<v4::Message>::with_state(
+        let ctx = MsgContext::<v4::Message>::new(
             SerialMsg::new(Bytes::from(msg.to_vec()?), addr),
             meta,
             state,
@@ -869,7 +869,7 @@ mod tests {
             addr,
             ..RecvMeta::default()
         };
-        let ctx = MsgContext::<v4::Message>::with_state(
+        let ctx = MsgContext::<v4::Message>::new(
             SerialMsg::new(Bytes::from(msg.to_vec()?), addr),
             meta,
             state,
@@ -896,7 +896,7 @@ mod tests {
             addr,
             ..RecvMeta::default()
         };
-        let mut ctx = MsgContext::<v4::Message>::with_state(
+        let mut ctx = MsgContext::<v4::Message>::new(
             SerialMsg::new(Bytes::from(msg.to_vec()?), addr),
             meta,
             state,
@@ -938,7 +938,7 @@ mod tests {
             addr,
             ..RecvMeta::default()
         };
-        let mut ctx = MsgContext::<v4::Message>::with_state(
+        let mut ctx = MsgContext::<v4::Message>::new(
             SerialMsg::new(Bytes::from(msg.to_vec()?), addr),
             meta,
             state,
