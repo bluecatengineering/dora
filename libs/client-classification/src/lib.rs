@@ -12,6 +12,7 @@ pub enum Expr {
     Hex(String),
     Bool(bool),
     Option(u8),
+    Relay(u8),
     Mac(),
     // operation
     Substring(Box<Expr>, usize, usize),
@@ -20,6 +21,7 @@ pub enum Expr {
     // postfix
     ToHex(Box<Expr>),
     Exists(Box<Expr>),
+    // SubOpt(Box<Expr>, u8),
     // infix
     And(Box<Expr>, Box<Expr>),
     Or(Box<Expr>, Box<Expr>),
@@ -61,4 +63,6 @@ pub enum EvalErr {
     ExpectedEmpty(String),
     #[error("expected ip: got {0}")]
     ExpectedBytes(String),
+    #[error("failed to get sub-opt")]
+    SubOptionParseFail(#[from] dhcproto::error::DecodeError),
 }

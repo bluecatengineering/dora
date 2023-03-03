@@ -17,6 +17,7 @@ operation = _{ equal | neq | and | or }
 
 
 option = { "option[" ~ integer ~ "]" }
+relay = { "relay4[" ~ integer ~ "]" }
 
 pkt = _{ pkt_mac }
     pkt_mac = @{ "pkt4.mac" }
@@ -31,8 +32,9 @@ prefix = _{ not }
 postfix  =  _{ to_hex | exists }
     to_hex    =   { ".hex" } 
     exists    =   { ".exists" } 
+    // sub_opt    =   { "." ~ option } 
 
-primary = _{ hex | ip | integer | string | boolean | option | pkt | substring | "(" ~ expr ~ ")" }
+primary = _{ hex | ip | integer | string | boolean | option | relay | pkt | substring | "(" ~ expr ~ ")" }
 predicate = _{ SOI ~ expr ~ EOI }
 
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }

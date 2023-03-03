@@ -2,7 +2,7 @@ use crate::{EvalErr, EvalResult, Expr, ParseErr, ParseResult};
 
 use std::collections::HashMap;
 
-use dhcproto::v4;
+use dhcproto::{v4, Decoder};
 pub use pest::{
     pratt_parser::{Assoc, Op, PrattParser},
     {iterators::Pairs, Parser},
@@ -64,6 +64,20 @@ fn is_empty(val: Val) -> EvalResult<()> {
     }
 }
 
+fn parse_sub_opts(buf: &[u8], sub_code: u8) -> Result<Option<Vec<u8>>, EvalErr> {
+    let mut d = Decoder::new(buf);
+    while let Ok(code) = d.read_u8() {
+        let len = d.read_u8()?;
+        if len != 0 {
+            let slice = d.read_slice(len as usize)?;
+            if sub_code == code {
+                return Ok(Some(slice.to_owned()));
+            }
+        }
+    }
+    Ok(None)
+}
+
 /// evaluate the AST, using values from this DHCP message
 pub fn eval_ast(
     expr: Expr,
@@ -76,6 +90,13 @@ pub fn eval_ast(
         String(s) => Val::String(s.to_lowercase()),
         Int(i) => Val::Int(i),
         Hex(h) => Val::String(h.to_lowercase()),
+        Relay(o) => match opts
+            .get(&v4::OptionCode::RelayAgentInformation)
+            .and_then(|info| parse_sub_opts(info.data(), o).transpose())
+        {
+            Some(v) => Val::Bytes(v?),
+            None => Val::Empty,
+        },
         Option(o) => match opts.get(&o.into()) {
             Some(v) => Val::Bytes(v.data().to_owned()),
             None => Val::Empty,
@@ -157,6 +178,7 @@ fn parse_expr(pairs: Pairs<Rule>, pratt: &PrattParser<Rule>) -> ParseResult<Expr
                         .to_string(),
                 ),
                 Rule::option => Expr::Option(primary.into_inner().as_str().parse()?),
+                Rule::relay => Expr::Relay(primary.into_inner().as_str().parse()?),
                 // trim off '0x'. hex decode?
                 Rule::hex => Expr::Hex(primary.as_str()[2..].to_string()),
                 Rule::substring => {
@@ -187,6 +209,7 @@ fn parse_expr(pairs: Pairs<Rule>, pratt: &PrattParser<Rule>) -> ParseResult<Expr
             Ok(match op.as_rule() {
                 Rule::to_hex => Expr::ToHex(Box::new(lhs?)),
                 Rule::exists => Expr::Exists(Box::new(lhs?)),
+                // Rule::sub_opt => Expr::SubOpt(Box::new(lhs?)),
                 rule => return Err(ParseErr::Undefined(rule)),
             })
         })
@@ -246,5 +269,49 @@ mod tests {
 
         let val = eval_ast(build_ast(tokens).unwrap(), "001122334455", &options).unwrap();
         assert_eq!(val, Val::Bool(true));
+    }
+
+    #[test]
+    fn test_relay_opts() {
+        let mut options = HashMap::new();
+        let mut data: Vec<u8> = vec![12];
+
+        let sub_opt = "foo".as_bytes();
+        data.push(sub_opt.len() as u8);
+        data.extend(sub_opt);
+        data.extend(&[
+            23, 3, 1, 2, 3, // two
+            45, 0, // three
+            123, 10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+        ]);
+
+        options.insert(
+            v4::OptionCode::RelayAgentInformation,
+            UnknownOption::new(v4::OptionCode::RelayAgentInformation, data),
+        );
+        let expr = super::parse("relay4[12].exists").unwrap();
+        let val = eval_ast(expr, "001122334455", &options).unwrap();
+        assert_eq!(val, Val::Bool(true));
+
+        let expr = super::parse("relay4[12].hex == 'foo'").unwrap();
+        let val = eval_ast(expr, "001122334455", &options).unwrap();
+        assert_eq!(val, Val::Bool(true));
+    }
+
+    #[test]
+    fn test_sub_opts() {
+        let buf = vec![
+            12, 2, 1, 2, // one
+            23, 3, 1, 2, 3, // two
+            45, 0, // three
+            123, 10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+        ];
+        assert_eq!(&parse_sub_opts(&buf, 12).unwrap().unwrap(), &[1, 2]);
+        assert_eq!(&parse_sub_opts(&buf, 23).unwrap().unwrap(), &[1, 2, 3]);
+        assert_eq!(&parse_sub_opts(&buf, 45).unwrap(), &None);
+        assert_eq!(
+            &parse_sub_opts(&buf, 123).unwrap().unwrap(),
+            &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        );
     }
 }

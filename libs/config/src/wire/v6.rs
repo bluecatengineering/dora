@@ -1,3 +1,4 @@
+use base64::Engine;
 use dora_core::dhcproto::{
     v6::{DhcpOption, DhcpOptions, OptionCode},
     Decodable, Decoder, Encodable, Encoder,
@@ -160,7 +161,7 @@ fn write_opt(enc: &mut Encoder<'_>, code: u16, opt: Opt) -> anyhow::Result<()> {
             enc.write_slice(s.as_bytes())?;
         }
         Opt::B64(s) => {
-            let bytes = base64::decode(s)?;
+            let bytes = base64::engine::general_purpose::STANDARD_NO_PAD.decode(s)?;
             enc.write_u16(bytes.len() as u16)?;
             enc.write_slice(&bytes)?;
         }

@@ -13,7 +13,7 @@ hex = "0.4.3"
 dhcproto = { workspace = true }
 
 [dev-dependencies]
-criterion = "0.3"
+criterion = "0.4.0"
 
 [[bench]]
 name = "my_benchmark"
