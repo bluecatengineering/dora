@@ -18,7 +18,7 @@ anyhow = "1.0"
 async-trait = "0.1"
 bytes = "1.1"
 clap = { version = "4.1.8", features = ["derive", "env"] }
-dhcproto = { git = "https://github.com/bluecatengineering/dhcproto" }
+dhcproto = "0.9.0"
 futures = { version = "0.3", default-features = false, features = ["std"] }
 ipnet = { features = ["serde"], version = "2.4.0" }
 pnet = { features = ["serde", "std"], version = "0.33.0" }
