@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use clap::{ArgEnum, Parser};
+use clap::{Parser, ValueEnum};
 
 use config::wire;
 use serde::de::DeserializeOwned;
@@ -14,14 +14,14 @@ pub struct Args {
     #[clap(short = 'p', long, value_parser)]
     pub path: PathBuf,
     /// print the parsed wire format or the dora internal config format
-    #[clap(short = 'f', long, arg_enum, value_parser)]
+    #[clap(short = 'f', long, value_parser)]
     pub format: Option<Format>,
     /// path to JSON schema. Config must be in JSON format and use `.json` extension
     #[clap(short = 's', long, value_parser)]
     pub schema: Option<PathBuf>,
 }
 
-#[derive(Parser, Debug, Clone, PartialEq, Eq, ArgEnum)]
+#[derive(Parser, Debug, Clone, PartialEq, Eq, ValueEnum)]
 pub enum Format {
     Wire,
     Internal,

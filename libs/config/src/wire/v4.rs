@@ -39,6 +39,7 @@
 use std::{collections::HashMap, net::Ipv4Addr, ops::RangeInclusive};
 
 use anyhow::Result;
+use base64::Engine;
 use dora_core::{
     dhcproto::{
         v4::{DhcpOption, DhcpOptions, OptionCode},
@@ -216,7 +217,7 @@ fn write_opt(enc: &mut Encoder<'_>, code: u8, opt: Opt) -> anyhow::Result<()> {
             enc.write_u16(n)?;
         }
         Opt::B64(s) => {
-            let bytes = base64::decode(s)?;
+            let bytes = base64::engine::general_purpose::STANDARD_NO_PAD.decode(s)?;
             enc.write_u8(bytes.len() as u8)?;
             enc.write_slice(&bytes)?;
         }

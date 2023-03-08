@@ -32,9 +32,9 @@ prometheus = { workspace = true }
 prometheus-static-metric = { workspace = true }
 rand = { workspace = true }
 clap = { workspace = true }
-socket2 = { version = "0.4.4", features = ["all"] }
+socket2 = { workspace = true }
 libc = "0.2.126"
-unix-udp-sock = "0.4.0"
+unix-udp-sock = "0.6.0"
 pnet = { workspace = true }
 
 [dev-dependencies]

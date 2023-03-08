@@ -2,6 +2,8 @@ use std::net::Ipv4Addr;
 
 use thiserror::Error;
 
+use crate::ast::Val;
+
 pub mod ast;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -12,6 +14,7 @@ pub enum Expr {
     Hex(String),
     Bool(bool),
     Option(u8),
+    Relay(u8),
     Mac(),
     // operation
     Substring(Box<Expr>, usize, usize),
@@ -20,6 +23,7 @@ pub enum Expr {
     // postfix
     ToHex(Box<Expr>),
     Exists(Box<Expr>),
+    SubOpt(Box<Expr>, u8),
     // infix
     And(Box<Expr>, Box<Expr>),
     Or(Box<Expr>, Box<Expr>),
@@ -27,9 +31,15 @@ pub enum Expr {
     NEqual(Box<Expr>, Box<Expr>),
 }
 
+impl std::fmt::Display for Expr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 pub type ParseResult<T> = Result<T, ParseErr>;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq)]
 pub enum ParseErr {
     #[error("float parse error")]
     Float(#[from] std::num::ParseFloatError),
@@ -39,6 +49,8 @@ pub enum ParseErr {
     Ip(#[from] std::net::AddrParseError),
     #[error("substring parse error with: {0}")]
     Substring(String),
+    #[error("expected option but found: {0}")]
+    Option(Expr),
     #[error("bool parse error with: {0}")]
     Bool(String),
     #[error("undefined with: {0:?}")]
@@ -52,13 +64,15 @@ pub type EvalResult<T> = Result<T, EvalErr>;
 #[derive(Error, Debug)]
 pub enum EvalErr {
     #[error("expected bool: got {0}")]
-    ExpectedBool(String),
+    ExpectedBool(Val),
     #[error("expected string: got {0}")]
-    ExpectedString(String),
+    ExpectedString(Val),
     #[error("expected int: got {0}")]
-    ExpectedInt(String),
+    ExpectedInt(Val),
     #[error("expected ip: got {0}")]
-    ExpectedEmpty(String),
+    ExpectedEmpty(Val),
     #[error("expected ip: got {0}")]
-    ExpectedBytes(String),
+    ExpectedBytes(Val),
+    #[error("failed to get sub-opt")]
+    SubOptionParseFail(#[from] dhcproto::error::DecodeError),
 }

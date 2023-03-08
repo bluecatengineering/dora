@@ -12,7 +12,7 @@ dora-core = { path = "../dora-core" }
 
 # libs
 anyhow = { workspace = true }
-axum = "0.6.1"
+axum = "0.6.10"
 tokio = { workspace = true }
 tracing-futures = { workspace = true }
 tracing = { workspace = true }

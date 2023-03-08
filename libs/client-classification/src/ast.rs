@@ -2,7 +2,7 @@ use crate::{EvalErr, EvalResult, Expr, ParseErr, ParseResult};
 
 use std::collections::HashMap;
 
-use dhcproto::v4;
+use dhcproto::{v4, Decoder};
 pub use pest::{
     pratt_parser::{Assoc, Op, PrattParser},
     {iterators::Pairs, Parser},
@@ -25,7 +25,7 @@ pub fn build_ast(pair: Pairs<Rule>) -> ParseResult<Expr> {
         .op(Op::infix(Rule::and, Assoc::Left))
         .op(Op::infix(Rule::equal, Assoc::Right) | Op::infix(Rule::neq, Assoc::Right))
         .op(Op::prefix(Rule::not))
-        .op(Op::postfix(Rule::to_hex) | Op::postfix(Rule::exists));
+        .op(Op::postfix(Rule::to_hex) | Op::postfix(Rule::exists) | Op::postfix(Rule::sub_opt));
 
     parse_expr(pair, &climber)
 }
@@ -39,29 +39,49 @@ pub enum Val {
     Int(u32),
 }
 
+impl std::fmt::Display for Val {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 fn is_bool(val: Val) -> EvalResult<bool> {
     match val {
         Val::Bool(b) => Ok(b),
-        err => Err(EvalErr::ExpectedBool(format!("{err:?}"))),
+        err => Err(EvalErr::ExpectedBool(err)),
     }
 }
 fn is_str(val: Val) -> EvalResult<String> {
     match val {
         Val::String(s) => Ok(s),
-        err => Err(EvalErr::ExpectedString(format!("{err:?}"))),
+        err => Err(EvalErr::ExpectedString(err)),
     }
 }
 fn is_int(val: Val) -> EvalResult<u32> {
     match val {
         Val::Int(i) => Ok(i),
-        err => Err(EvalErr::ExpectedInt(format!("{err:?}"))),
+        err => Err(EvalErr::ExpectedInt(err)),
     }
 }
 fn is_empty(val: Val) -> EvalResult<()> {
     match val {
         Val::Empty => Ok(()),
-        err => Err(EvalErr::ExpectedEmpty(format!("{err:?}"))),
+        err => Err(EvalErr::ExpectedEmpty(err)),
     }
+}
+
+fn parse_sub_opts(buf: &[u8], sub_code: u8) -> Result<Option<Vec<u8>>, EvalErr> {
+    let mut d = Decoder::new(buf);
+    while let Ok(code) = d.read_u8() {
+        let len = d.read_u8()?;
+        if len != 0 {
+            let slice = d.read_slice(len as usize)?;
+            if sub_code == code {
+                return Ok(Some(slice.to_owned()));
+            }
+        }
+    }
+    Ok(None)
 }
 
 /// evaluate the AST, using values from this DHCP message
@@ -76,6 +96,13 @@ pub fn eval_ast(
         String(s) => Val::String(s.to_lowercase()),
         Int(i) => Val::Int(i),
         Hex(h) => Val::String(h.to_lowercase()),
+        Relay(o) => match opts
+            .get(&v4::OptionCode::RelayAgentInformation)
+            .and_then(|info| parse_sub_opts(info.data(), o).transpose())
+        {
+            Some(v) => Val::Bytes(v?),
+            None => Val::Empty,
+        },
         Option(o) => match opts.get(&o.into()) {
             Some(v) => Val::Bytes(v.data().to_owned()),
             None => Val::Empty,
@@ -90,8 +117,19 @@ pub fn eval_ast(
             Val::String(s) => Val::Bytes(s.as_bytes().to_vec()),
             Val::Bytes(b) => Val::Bytes(b),
             Val::Int(i) => Val::Bytes(i.to_be_bytes().to_vec()),
-            err => return Err(EvalErr::ExpectedBytes(format!("{err:?}"))),
+            err => return Err(EvalErr::ExpectedBytes(err)),
         },
+        SubOpt(lhs, o) => {
+            let bytes = match eval_ast(*lhs, chaddr, opts)? {
+                Val::String(s) => s.as_bytes().to_vec(),
+                Val::Bytes(b) => b,
+                err => return Err(EvalErr::ExpectedBytes(err)),
+            };
+            match parse_sub_opts(&bytes, o)? {
+                Some(v) => Val::Bytes(v),
+                None => Val::Empty,
+            }
+        }
         // infix
         And(lhs, rhs) => Val::Bool(
             is_bool(eval_ast(*lhs, chaddr, opts)?)? && is_bool(eval_ast(*rhs, chaddr, opts)?)?,
@@ -103,7 +141,7 @@ pub fn eval_ast(
             Val::String(a) => match eval_ast(*rhs, chaddr, opts)? {
                 Val::String(b) => a == b,
                 Val::Bytes(b) => a.as_bytes() == b,
-                err => return Err(EvalErr::ExpectedString(format!("{err:?}"))),
+                err => return Err(EvalErr::ExpectedString(err)),
             },
             Val::Bool(a) => a == is_bool(eval_ast(*rhs, chaddr, opts)?)?,
             Val::Int(a) => a == is_int(eval_ast(*rhs, chaddr, opts)?)?,
@@ -111,14 +149,14 @@ pub fn eval_ast(
             Val::Bytes(a) => match eval_ast(*rhs, chaddr, opts)? {
                 Val::String(b) => a == b.as_bytes(),
                 Val::Bytes(b) => a == b,
-                err => return Err(EvalErr::ExpectedBytes(format!("{err:?}"))),
+                err => return Err(EvalErr::ExpectedBytes(err)),
             },
         }),
         NEqual(lhs, rhs) => Val::Bool(match eval_ast(*lhs, chaddr, opts)? {
             Val::String(a) => match eval_ast(*rhs, chaddr, opts)? {
                 Val::String(b) => a != b,
                 Val::Bytes(b) => a.as_bytes() != b,
-                err => return Err(EvalErr::ExpectedString(format!("{err:?}"))),
+                err => return Err(EvalErr::ExpectedString(err)),
             },
             Val::Bool(a) => a != is_bool(eval_ast(*rhs, chaddr, opts)?)?,
             Val::Int(a) => a != is_int(eval_ast(*rhs, chaddr, opts)?)?,
@@ -126,7 +164,7 @@ pub fn eval_ast(
             Val::Bytes(a) => match eval_ast(*rhs, chaddr, opts)? {
                 Val::String(b) => a != b.as_bytes(),
                 Val::Bytes(b) => a != b,
-                err => return Err(EvalErr::ExpectedBytes(format!("{err:?}"))),
+                err => return Err(EvalErr::ExpectedBytes(err)),
             },
         }),
         Substring(lhs, i, j) => {
@@ -146,7 +184,6 @@ fn parse_expr(pairs: Pairs<Rule>, pratt: &PrattParser<Rule>) -> ParseResult<Expr
                     "false" => false,
                     err => return Err(ParseErr::Bool(err.to_string())),
                 }),
-                // Rule::mac => Expr::Mac(),
                 Rule::pkt_mac => Expr::Mac(),
                 Rule::ip => Expr::Ip(primary.as_str().parse()?),
                 Rule::string => Expr::String(
@@ -157,6 +194,7 @@ fn parse_expr(pairs: Pairs<Rule>, pratt: &PrattParser<Rule>) -> ParseResult<Expr
                         .to_string(),
                 ),
                 Rule::option => Expr::Option(primary.into_inner().as_str().parse()?),
+                Rule::relay => Expr::Relay(primary.into_inner().as_str().parse()?),
                 // trim off '0x'. hex decode?
                 Rule::hex => Expr::Hex(primary.as_str()[2..].to_string()),
                 Rule::substring => {
@@ -187,6 +225,14 @@ fn parse_expr(pairs: Pairs<Rule>, pratt: &PrattParser<Rule>) -> ParseResult<Expr
             Ok(match op.as_rule() {
                 Rule::to_hex => Expr::ToHex(Box::new(lhs?)),
                 Rule::exists => Expr::Exists(Box::new(lhs?)),
+                Rule::sub_opt => {
+                    // parse inner op (".option[_]"), should return Expr::Option(_)
+                    let sub_opt = match parse_expr(op.into_inner(), pratt)? {
+                        Expr::Option(n) => n,
+                        other => return Err(ParseErr::Option(other)),
+                    };
+                    Expr::SubOpt(Box::new(lhs?), sub_opt)
+                }
                 rule => return Err(ParseErr::Undefined(rule)),
             })
         })
@@ -246,5 +292,97 @@ mod tests {
 
         let val = eval_ast(build_ast(tokens).unwrap(), "001122334455", &options).unwrap();
         assert_eq!(val, Val::Bool(true));
+    }
+
+    #[test]
+    fn test_relay_opts() {
+        let mut options = HashMap::new();
+        let mut data: Vec<u8> = vec![12];
+
+        let sub_opt = "foo".as_bytes();
+        data.push(sub_opt.len() as u8);
+        data.extend(sub_opt);
+        data.extend(&[
+            23, 3, 1, 2, 3, // two
+            45, 0, // three
+            123, 10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+        ]);
+
+        options.insert(
+            v4::OptionCode::RelayAgentInformation,
+            UnknownOption::new(v4::OptionCode::RelayAgentInformation, data),
+        );
+        let expr = super::parse("relay4[12].exists").unwrap();
+        let val = eval_ast(expr, "001122334455", &options).unwrap();
+        assert_eq!(val, Val::Bool(true));
+
+        let expr = super::parse("relay4[12].hex == 'foo'").unwrap();
+        let val = eval_ast(expr, "001122334455", &options).unwrap();
+        assert_eq!(val, Val::Bool(true));
+    }
+
+    #[test]
+    fn test_sub_opts_postfix() {
+        let mut options = HashMap::new();
+        let mut data: Vec<u8> = vec![12];
+
+        let sub_opt = "foo".as_bytes();
+        data.push(sub_opt.len() as u8);
+        data.extend(sub_opt);
+        data.extend(&[
+            23, 3, 1, 2, 3, // two
+            45, 0, // three
+            123, 10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+        ]);
+
+        options.insert(
+            v4::OptionCode::RelayAgentInformation,
+            UnknownOption::new(v4::OptionCode::RelayAgentInformation, data),
+        );
+        // test that we can address sub options through the sub-opt postfix
+        let expr = super::parse("option[82].option[12] == 'foo'").unwrap();
+        let val = eval_ast(expr, "001122334455", &options).unwrap();
+        assert_eq!(val, Val::Bool(true));
+
+        let expr = super::parse("option[82].option[23].hex").unwrap();
+        let val = eval_ast(expr, "001122334455", &options).unwrap();
+        assert_eq!(val, Val::Bytes(vec![1, 2, 3]));
+
+        let expr = super::parse("option[82].option[23].exists").unwrap();
+        let val = eval_ast(expr, "001122334455", &options).unwrap();
+        assert_eq!(val, Val::Bool(true));
+
+        let expr = super::parse("option[82].option[25].exists").unwrap();
+        let val = eval_ast(expr, "001122334455", &options).unwrap();
+        assert_eq!(val, Val::Bool(false));
+
+        // the parent opt 81 does not exist, no sub-opts to address
+        let expr = super::parse("option[81].option[25].exists").unwrap();
+        let val = eval_ast(expr, "001122334455", &options);
+        // should error
+        assert!(val.is_err());
+        if let Err(err) = val {
+            match err {
+                EvalErr::ExpectedBytes(b) => assert_eq!(b, Val::Empty),
+                _ => panic!("must be expectedbytes"),
+            }
+        };
+    }
+
+    #[test]
+    fn test_sub_opts() {
+        let buf = vec![
+            12, 2, 1, 2, // one
+            23, 3, 1, 2, 3, // two
+            45, 0, // three
+            123, 10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+        ];
+        assert_eq!(&parse_sub_opts(&buf, 12).unwrap().unwrap(), &[1, 2]);
+        assert_eq!(&parse_sub_opts(&buf, 23).unwrap().unwrap(), &[1, 2, 3]);
+        assert_eq!(&parse_sub_opts(&buf, 45).unwrap(), &None);
+        assert_eq!(
+            &parse_sub_opts(&buf, 123).unwrap().unwrap(),
+            &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        );
     }
 }
