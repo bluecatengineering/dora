@@ -31,7 +31,7 @@ networks:
         # ping_timeout_ms: 500
         #
         # Decline & Duplicate Address Detection:
-        # `probation_period` is defined per-network. If any DHCP messages are received from
+        # `probation_period` (seconds) is defined per-network. If any DHCP messages are received from
         # this network with a message type of DECLINE, or if a ping check is successful
         # (meaning the address is in use), dora will not attempt to lease the IP inside of
         # the probation period.
@@ -40,7 +40,7 @@ networks:
         # (optional) 
         # `server_id` _must_ be an IP that dora is reachable on. 
         # OR IF IT IS NOT specified, dora will use the IP of the interface we recv'd the message on. 
-        # OR If bound to loopback, we will just use the first non-loopback interface IP
+        # OR we will just use the first non-loopback interface IP
         server_id: 192.168.5.1
         # this will replace the `sname` field in the DHCP header
         # server_name: "example.org"
@@ -129,12 +129,12 @@ networks:
                 # options may be specified for a match. There is no AND/OR logic for matching on options.
                 match:
                     chaddr: f8:1a:67:1f:c9:7d
-                # OR use an option
-                # options:
-                #   values:
-                #       x: 
-                #           type: ip
-                #           value: x.x.x.x
+                    # OR match using an option
+                    # options:
+                    #   values:
+                    #       x: 
+                    #           type: ip
+                    #           value: x.x.x.x
     #
     # You can have as many networks as you want
     #
