@@ -5,9 +5,9 @@
 use anyhow::{Context, Result};
 use dhcproto::{v4, v6, Decodable, Encodable};
 use pnet::datalink::NetworkInterface;
-use tokio::sync::{broadcast, mpsc};
-use tokio::time;
+use tokio::{sync::mpsc, time};
 use tokio_stream::StreamExt;
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, instrument, trace, warn};
 use unix_udp_sock::{Source, Transmit, UdpSocket};
 
@@ -24,7 +24,6 @@ use std::{
 pub mod context;
 pub mod ioctl;
 pub mod msg;
-pub mod shutdown;
 pub mod state;
 pub mod topo_sort;
 pub mod typemap;
@@ -33,10 +32,7 @@ pub(crate) mod udp;
 use crate::{
     config::cli::{Config, ALL_DHCP_RELAY_AGENTS_AND_SERVERS},
     handler::*,
-    server::{
-        context::MsgContext, msg::SerialMsg, shutdown::Shutdown, topo_sort::DependencyTree,
-        udp::UdpStream,
-    },
+    server::{context::MsgContext, msg::SerialMsg, topo_sort::DependencyTree, udp::UdpStream},
 };
 
 /// Handy type alias for different `handle` traits
@@ -121,8 +117,8 @@ where
     /// consume `Server<T>` and return `Service<T>` which has the
     /// dependencies topologically sorted and in a list, shutdown handlers, etc
     fn into_service(self) -> Result<Service<T>> {
-        let (notify_shutdown, _) = broadcast::channel(1);
         let (shutdown_complete_tx, shutdown_complete_rx) = mpsc::channel(1);
+        let cancel = CancellationToken::new();
         Ok(Service {
             plugins: Arc::new(ServiceInner {
                 plugins: self.plugins.topological_sort()?,
@@ -131,7 +127,7 @@ where
                 interfaces: self.interfaces,
             }),
             state: Arc::new(self.state),
-            notify_shutdown,
+            cancel,
             shutdown_complete_tx,
             shutdown_complete_rx,
         })
@@ -177,9 +173,9 @@ where
 /// to the UDP socket, decodes dhcp message, spawns tasks, and waits
 /// for a shutdown signal
 pub(crate) struct Service<T> {
-    pub(crate) notify_shutdown: broadcast::Sender<()>,
     pub(crate) shutdown_complete_tx: mpsc::Sender<()>,
     pub(crate) shutdown_complete_rx: mpsc::Receiver<()>,
+    pub(crate) cancel: CancellationToken,
     pub(crate) plugins: Arc<ServiceInner<T>>,
     /// reference to server state
     pub(crate) state: Arc<State>,
@@ -206,7 +202,7 @@ struct RunTask<T> {
     /// split inner so we can destructure separately
     inner: RunInner<T>,
     /// shutdown notifier
-    shutdown: Shutdown,
+    cancel: CancellationToken,
     /// used to determine when all tasks have exited
     _shutdown_complete: mpsc::Sender<()>,
 }
@@ -292,11 +288,11 @@ impl RunTask<v4::Message> {
     async fn run(self) -> Result<()> {
         let RunTask {
             inner,
-            mut shutdown,
+            cancel,
             _shutdown_complete,
         } = self;
         tokio::select! {
-            _ = shutdown.recv() => {
+            _ = cancel.cancelled() => {
                 trace!("task received shutdown notifier");
                 Ok(())
             }
@@ -311,11 +307,11 @@ impl RunTask<v6::Message> {
     async fn run(self) -> Result<()> {
         let RunTask {
             inner,
-            mut shutdown,
+            cancel,
             _shutdown_complete,
         } = self;
         tokio::select! {
-            _ = shutdown.recv() => {
+            _ = cancel.cancelled() => {
                 trace!("task received shutdown notifier");
                 Ok(())
             }
@@ -429,13 +425,12 @@ macro_rules! impl_server {
                 let Service {
                     mut shutdown_complete_rx,
                     shutdown_complete_tx,
-                    notify_shutdown,
+                    cancel,
                     ..
                 } = service;
-
-                // When `notify_shutdown` is dropped, all tasks which have `subscribe`d will
-                // receive the shutdown signal and can exit
-                drop(notify_shutdown);
+                // When `cancel` is called, all tasks which have `CancellationToken`d will
+                // receive the cancel signal and can exit
+                cancel.cancel();
                 // Drop final `Sender` so the `Receiver` below can complete
                 drop(shutdown_complete_tx);
                 // Wait for all active tasks to finish processing. As the `Sender`
@@ -467,7 +462,7 @@ macro_rules! impl_server {
                 while let Some(ctx) = ctx_stream.next().await {
                     if let Ok(ctx) = ctx {
                         self.state.inc_live_msgs().await;
-                        let shutdown = Shutdown::new(self.notify_shutdown.subscribe());
+                        let cancel = self.cancel.clone();
                         let _shutdown_complete = self.shutdown_complete_tx.clone();
                         let task = RunTask {
                             inner: RunInner {
@@ -476,7 +471,7 @@ macro_rules! impl_server {
                                 service: self.plugins.clone(),
                                 udpstate: udp_state.clone(),
                             },
-                            shutdown,
+                            cancel,
                             _shutdown_complete,
                         };
                         // TODO: when `JoinSet` is removed from unstable-- add handles
