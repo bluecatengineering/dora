@@ -19,8 +19,26 @@ operation = _{ equal | neq | and | or }
 option = { "option[" ~ integer ~ "]" }
 relay = { "relay4[" ~ integer ~ "]" }
 
-pkt = _{ pkt_mac }
+pkt = _{ 
+    pkt_mac
+    | pkt_hlen
+    | pkt_htype
+    | pkt_ciaddr
+    | pkt_giaddr
+    | pkt_yiaddr
+    | pkt_siaddr
+    | pkt_msgtype
+    | pkt_transid
+}
     pkt_mac = @{ "pkt4.mac" }
+    pkt_hlen = @{ "pkt4.hlen" }
+    pkt_htype = @{ "pkt4.htype" }
+    pkt_ciaddr = @{ "pkt4.ciaddr" }
+    pkt_giaddr = @{ "pkt4.giaddr" }
+    pkt_yiaddr = @{ "pkt4.yiaddr" }
+    pkt_siaddr = @{ "pkt4.siaddr" }
+    pkt_msgtype = @{ "pkt4.msgtype" }
+    pkt_transid = @{ "pkt4.transid" }
 
 substring = { "substring(" ~ expr ~ "," ~ integer ~ "," ~ integer ~ ")" }
 
