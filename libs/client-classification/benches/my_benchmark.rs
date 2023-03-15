@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use client_classification::ast;
 use criterion::{criterion_group, criterion_main, Criterion};
-use dhcproto::v4::UnknownOption;
+use dhcproto::v4::{self, UnknownOption};
 use pest::Parser;
 
 // use client_classification::{one, two};
@@ -30,6 +30,7 @@ fn criterion_benchmark(c: &mut Criterion) {
                     client_classification::ast::build_ast(tokens).unwrap(),
                     chaddr,
                     &options,
+                    &v4::Message::default(),
                 )
                 .unwrap()
             })
@@ -54,7 +55,13 @@ fn criterion_benchmark(c: &mut Criterion) {
                     UnknownOption::new(61.into(), b"some_client_id".to_vec()),
                 );
 
-                client_classification::ast::eval_ast(ast.clone(), chaddr, &options).unwrap()
+                client_classification::ast::eval_ast(
+                    ast.clone(),
+                    chaddr,
+                    &options,
+                    &v4::Message::default(),
+                )
+                .unwrap()
             })
         },
     );

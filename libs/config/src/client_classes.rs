@@ -60,7 +60,7 @@ impl ClientClasses {
             .classes
             .iter()
             // TODO: remove clone?
-            .filter(|&class| class.clone().eval(&chaddr, &opts))
+            .filter(|&class| class.clone().eval(&chaddr, &opts, req))
             .map(|class| class.name.to_owned())
             .collect())
     }
@@ -79,9 +79,14 @@ impl ClientClasses {
 }
 
 impl ClientClass {
-    pub fn eval(self, chaddr: &str, opts: &HashMap<OptionCode, UnknownOption>) -> bool {
+    pub fn eval(
+        self,
+        chaddr: &str,
+        opts: &HashMap<OptionCode, UnknownOption>,
+        msg: &v4::Message,
+    ) -> bool {
         trace!(expr = ?self.assert, ?chaddr, "evaluating expression");
-        match client_classification::ast::eval_ast(self.assert, chaddr, opts) {
+        match client_classification::ast::eval_ast(self.assert, chaddr, opts, msg) {
             Ok(ast::Val::Bool(true)) => true,
             Ok(ast::Val::Bool(false)) => false,
             res => {
@@ -95,8 +100,8 @@ impl ClientClass {
 fn convert_for_eval(
     req: &dhcproto::v4::Message,
 ) -> Result<(String, HashMap<OptionCode, UnknownOption>)> {
-    // TODO: find a better way to do this so we don't have to convert to unknown on every eval
-    // possibly, add better methods to dhcproto so we can pull the data section out
+    // TODO: find a better way to do this so we don't have to convert to Unknown on every eval
+    // possibly, add better methods to dhcproto so we can pull the data section out?
     Ok((
         hex::encode(req.chaddr()),
         req.opts()

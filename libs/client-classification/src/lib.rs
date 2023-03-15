@@ -16,6 +16,14 @@ pub enum Expr {
     Option(u8),
     Relay(u8),
     Mac(),
+    Hlen(),
+    HType(),
+    CiAddr(),
+    GiAddr(),
+    YiAddr(),
+    SiAddr(),
+    MsgType(),
+    TransId(),
     // operation
     Substring(Box<Expr>, usize, usize),
     // prefix
