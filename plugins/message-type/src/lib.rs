@@ -140,7 +140,7 @@ impl Plugin<Message> for MsgType {
                     return Ok(Action::NoResponse);
                 }
             }
-            None if req.opcode() == Opcode::BootRequest => {
+            None if req.opcode() == Opcode::BootRequest && self.cfg.v4().bootp_enabled() => {
                 // No message type but BOOTREQUEST, this is a BOOTP message
                 ctx.set_decoded_resp_msg(resp);
                 return Ok(Action::Continue);

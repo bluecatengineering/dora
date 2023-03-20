@@ -117,6 +117,7 @@ It will pretty-print the internal dora config representation as well as parse th
 
 #### v4
 
+-   [v4 RFC1497](https://datatracker.ietf.org/doc/html/rfc1497)
 -   [v4 RFC2131](https://datatracker.ietf.org/doc/html/rfc2131)
 -   [v4 RFC2132](https://datatracker.ietf.org/doc/html/rfc2132)
 -   [v4 RFC3011](https://datatracker.ietf.org/doc/html/rfc3011)
