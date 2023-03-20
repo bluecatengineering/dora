@@ -110,6 +110,42 @@ fn static_chaddr_dora() -> Result<()> {
     Ok(())
 }
 
+/// send a BOOTP message
+#[test]
+#[traced_test]
+fn static_bootp() -> Result<()> {
+    let _srv = DhcpServerEnv::start(
+        "basic.yaml",
+        "basic.db",
+        "dora_test",
+        "dhcpcli",
+        "dhcpsrv",
+        "192.168.2.1",
+    );
+    // use veth_cli created in start()
+    let settings = ClientSettingsBuilder::default()
+        .iface_name("dhcpcli")
+        .target("192.168.2.1".parse::<std::net::IpAddr>().unwrap())
+        .port(9900_u16)
+        .build()?;
+    let chaddr = "bb:bb:cc:dd:ee:ff".parse::<MacAddr>()?.octets();
+
+    // create a client that sends dhcpv4 messages
+    let mut client = Client::<v4::Message>::new(settings);
+    // create BOOTP msg & send
+    let msg_args = BootPBuilder::default()
+        .giaddr([192, 168, 2, 1])
+        .chaddr(chaddr)
+        .build()?;
+    let resp = client.run(MsgType::BootP(msg_args))?;
+
+    assert_eq!(resp.opts().msg_type(), None);
+    // this is the addr the mac is configured to have
+    assert_eq!(resp.yiaddr(), "192.168.2.165".parse::<Ipv4Addr>()?);
+
+    Ok(())
+}
+
 /// standard negotiation but with matching on an option value for reserved IP
 #[test]
 #[traced_test]

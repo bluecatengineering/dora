@@ -29,6 +29,10 @@
 //! the server to only look at the `chaddr` field. Setting `chaddr_only` to true
 //! will do that.
 //!
+//! ## BOOTP enable
+//!
+//! Enable BOOTP for dora, only support for RFC1497.
+//!
 //! ## Authoritative
 //!
 //! When the DHCP server is configured as authoritative, the server will respond with

@@ -18,7 +18,7 @@ use std::{
 use dora_core::{
     anyhow::anyhow,
     chrono::{DateTime, SecondsFormat, Utc},
-    dhcproto::v4::{DhcpOption, Message, MessageType, OptionCode},
+    dhcproto::v4::{DhcpOption, Message, MessageType, Opcode, OptionCode},
     prelude::*,
 };
 use message_type::MatchedClasses;

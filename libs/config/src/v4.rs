@@ -31,6 +31,7 @@ pub struct Config {
     /// are up & ipv4
     interfaces: Vec<NetworkInterface>,
     chaddr_only: bool,
+    bootp_enable: bool,
     /// used to make a selection on which network or subnet to use
     networks: HashMap<Ipv4Net, Network>,
     v6: Option<crate::v6::Config>,
@@ -107,6 +108,7 @@ impl TryFrom<wire::Config> for Config {
             interfaces,
             networks,
             chaddr_only: cfg.chaddr_only,
+            bootp_enable: cfg.bootp_enable,
             v6: cfg
                 .v6
                 .map(crate::v6::Config::try_from)
@@ -159,7 +161,8 @@ impl Config {
             })
         })
     }
-    // find the interface at the index `iface_index`
+
+    /// find the interface at the index `iface_index`
     fn find_interface(&self, iface_index: u32) -> Option<&NetworkInterface> {
         self.interfaces.iter().find(|e| e.index == iface_index)
     }
@@ -167,6 +170,11 @@ impl Config {
     /// Whether the server is configured to use `chaddr` only or look at Client ID
     pub fn chaddr_only(&self) -> bool {
         self.chaddr_only
+    }
+
+    /// Whether the server is configured to use bootp
+    pub fn bootp_enabled(&self) -> bool {
+        self.bootp_enable
     }
 
     /// If opt 61 (client id) exists return that, otherwise return `chaddr` from the message

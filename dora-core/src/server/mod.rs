@@ -222,7 +222,7 @@ impl RunInner<v4::Message> {
     #[instrument(name = "v4", level = "debug", skip_all)]
     async fn run(mut self) -> Result<()> {
         if let Err(err) = self.ctx.recv_metrics() {
-            error!(?err, "error counting recv metrics");
+            warn!(?err, "error counting recv metrics--continuing");
         }
         let timeout = self.service.config.timeout();
         let ifindex = self.ctx.meta().ifindex;
@@ -255,7 +255,8 @@ impl RunInner<v4::Message> {
                         let transmit = Transmit::new(dst_addr, msg.msg()).src_ip(packet_src);
 
                         debug!(
-                            msg_type = ?msg_type.context("messages must have a type")?,
+                            opcode = ?resp.opcode(),
+                            msg_type = ?msg_type,
                             ?dst_addr,
                             ?iname,
                             source = ?packet_src,
@@ -275,7 +276,7 @@ impl RunInner<v4::Message> {
             Err(error) => Err(anyhow::anyhow!(error)),
         };
         if let Err(err) = self.ctx.sent_metrics() {
-            error!(?err, "error counting sent metrics");
+            warn!(?err, "error counting sent metrics");
         }
 
         // run post-response handler, if any
@@ -327,7 +328,7 @@ impl RunInner<v6::Message> {
     #[instrument(name = "v6", level = "debug", skip_all)]
     async fn run(mut self) -> Result<()> {
         if let Err(err) = self.ctx.recv_metrics() {
-            error!(?err, "error counting recv metrics");
+            warn!(?err, "error counting recv metrics--continuing");
         }
         let timeout = self.service.config.timeout();
         let ifindex = self.ctx.meta().ifindex;
@@ -368,7 +369,7 @@ impl RunInner<v6::Message> {
             Err(error) => Err(anyhow::anyhow!(error)),
         };
         if let Err(err) = self.ctx.sent_metrics() {
-            error!(?err, "error counting sent metrics");
+            warn!(?err, "error counting sent metrics");
         }
         // run post-response handler, if any
         self.service.run_post_response_handler(self.ctx).await;
@@ -475,11 +476,8 @@ macro_rules! impl_server {
                             _shutdown_complete,
                         };
                         // TODO: when `JoinSet` is removed from unstable-- add handles
-                        // here. Eventually, we should be able to use `CancellationToken`
-                        // & `JoinSet` and have simpler shutdown code by avoiding
-                        // broadcast/mpsc channels and explicit drops.
+                        // here.
                         // Using JoinSet will likely mean that we no longer need `_shutdown_complete`
-                        // and using CancellationToken could replace `shutdown`
                         tokio::spawn(task.run());
                     }
                 }

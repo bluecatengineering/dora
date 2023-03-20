@@ -374,31 +374,29 @@ impl MsgContext<v4::Message> {
 
     /// records metrics for recvd DHCP message
     pub fn recv_metrics(&self) -> io::Result<()> {
-        match self.decoded_msg().opts().msg_type().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidData, "v4 message type not found")
-        })? {
-            v4::MessageType::Discover => {
+        match self.decoded_msg().opts().msg_type() {
+            Some(v4::MessageType::Discover) => {
                 RECV_TYPE_COUNT.discover.inc();
             }
-            v4::MessageType::Request => {
+            Some(v4::MessageType::Request) => {
                 RECV_TYPE_COUNT.request.inc();
             }
-            v4::MessageType::Decline => {
+            Some(v4::MessageType::Decline) => {
                 RECV_TYPE_COUNT.decline.inc();
             }
-            v4::MessageType::Release => {
+            Some(v4::MessageType::Release) => {
                 RECV_TYPE_COUNT.release.inc();
             }
-            v4::MessageType::Offer => {
+            Some(v4::MessageType::Offer) => {
                 RECV_TYPE_COUNT.offer.inc();
             }
-            v4::MessageType::Ack => {
+            Some(v4::MessageType::Ack) => {
                 RECV_TYPE_COUNT.ack.inc();
             }
-            v4::MessageType::Nak => {
+            Some(v4::MessageType::Nak) => {
                 RECV_TYPE_COUNT.nak.inc();
             }
-            v4::MessageType::Inform => {
+            Some(v4::MessageType::Inform) => {
                 RECV_TYPE_COUNT.inform.inc();
             }
             _ => {
@@ -415,34 +413,29 @@ impl MsgContext<v4::Message> {
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "v4 response not found"))?
             .opts()
             .msg_type()
-            .ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "v4 response message type not found",
-                )
-            })? {
-            v4::MessageType::Discover => {
+        {
+            Some(v4::MessageType::Discover) => {
                 SENT_TYPE_COUNT.discover.inc();
             }
-            v4::MessageType::Request => {
+            Some(v4::MessageType::Request) => {
                 SENT_TYPE_COUNT.request.inc();
             }
-            v4::MessageType::Decline => {
+            Some(v4::MessageType::Decline) => {
                 SENT_TYPE_COUNT.decline.inc();
             }
-            v4::MessageType::Release => {
+            Some(v4::MessageType::Release) => {
                 SENT_TYPE_COUNT.release.inc();
             }
-            v4::MessageType::Offer => {
+            Some(v4::MessageType::Offer) => {
                 SENT_TYPE_COUNT.offer.inc();
             }
-            v4::MessageType::Ack => {
+            Some(v4::MessageType::Ack) => {
                 SENT_TYPE_COUNT.ack.inc();
             }
-            v4::MessageType::Nak => {
+            Some(v4::MessageType::Nak) => {
                 SENT_TYPE_COUNT.nak.inc();
             }
-            v4::MessageType::Inform => {
+            Some(v4::MessageType::Inform) => {
                 SENT_TYPE_COUNT.inform.inc();
             }
             _ => {
@@ -641,6 +634,28 @@ impl MsgContext<v4::Message> {
                     resp.opts_mut().insert(v.clone());
                 }
             }
+        }
+        Some(())
+    }
+
+    /// clears DHCP specific options from the response leaving only BOOTP options as defined in RFC 1533
+    pub fn filter_dhcp_opts(&mut self) -> Option<()> {
+        const DHCP_OPTS: &[v4::OptionCode] = &[
+            v4::OptionCode::RequestedIpAddress,
+            v4::OptionCode::AddressLeaseTime,
+            v4::OptionCode::OptionOverload,
+            v4::OptionCode::MessageType,
+            v4::OptionCode::ServerIdentifier,
+            v4::OptionCode::ParameterRequestList,
+            v4::OptionCode::Message,
+            v4::OptionCode::MaxMessageSize,
+            v4::OptionCode::Renewal,
+            v4::OptionCode::Rebinding,
+            v4::OptionCode::ClientIdentifier,
+        ];
+        let resp = self.decoded_resp_msg_mut()?;
+        for opt in DHCP_OPTS {
+            resp.opts_mut().remove(*opt);
         }
         Some(())
     }

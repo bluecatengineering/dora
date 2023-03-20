@@ -41,6 +41,7 @@ pub enum MsgType {
     Discover(Discover),
     Request(Request),
     Decline(Decline),
+    BootP(BootP),
 }
 
 /// Send a DISCOVER msg
@@ -220,6 +221,42 @@ impl Decline {
         }
         if let Some(ip) = self.sident {
             msg.opts_mut().insert(v4::DhcpOption::ServerIdentifier(ip));
+        }
+        msg
+    }
+}
+
+/// Send a BOOTP msg
+#[derive(Builder, PartialEq, Eq, Debug, Clone)]
+#[builder(setter(into), field(private))]
+pub struct BootP {
+    /// supply a mac address for DHCPv4 [default: first avail mac]
+    #[builder(default = "utils::get_mac()")]
+    chaddr: MacAddress,
+    /// giaddr is the Relay Agent IP [default: None]
+    #[builder(setter(strip_option), default)]
+    giaddr: Option<Ipv4Addr>,
+    /// Add additional opts in message [default: None]
+    #[builder(setter(strip_option), default)]
+    opts: Vec<v4::DhcpOption>,
+}
+
+impl BootP {
+    pub fn build(&self, broadcast: bool) -> v4::Message {
+        let mut msg = v4::Message::new(
+            Ipv4Addr::UNSPECIFIED,
+            Ipv4Addr::UNSPECIFIED,
+            Ipv4Addr::UNSPECIFIED,
+            self.giaddr.unwrap_or(Ipv4Addr::UNSPECIFIED),
+            &self.chaddr.bytes(),
+        );
+
+        if broadcast {
+            msg.set_flags(v4::Flags::default().set_broadcast());
+        }
+
+        for opt in &self.opts {
+            msg.opts_mut().insert(opt.clone());
         }
         msg
     }
