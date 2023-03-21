@@ -29,7 +29,7 @@ use config::{
     v4::{NetRange, Network},
     DhcpConfig,
 };
-use ip_manager::{IpError, IpManager, Storage};
+use ip_manager::{IpError, IpManager, IpState, Storage};
 
 #[derive(Register)]
 #[register(msg(Message))]
@@ -109,6 +109,12 @@ where
         let classes = ctx.get_local::<MatchedClasses>().map(|c| c.0.to_owned());
         let resp_has_yiaddr =
             matches!(ctx.decoded_resp_msg(), Some(msg) if !msg.yiaddr().is_unspecified());
+        let rapid_commit = ctx
+            .decoded_msg()
+            .opts()
+            .get(OptionCode::RapidCommit)
+            .is_some()
+            && self.cfg.v4().rapid_commit();
 
         match (
             req.opts().msg_type().context("No message type found")?,
@@ -120,7 +126,8 @@ where
             }
             // giaddr has matched one of our configured subnets
             (MessageType::Discover, Some(net)) => {
-                self.discover(ctx, &client_id, net, classes).await
+                self.discover(ctx, &client_id, net, classes, rapid_commit)
+                    .await
             }
             (MessageType::Request, Some(net)) => self.request(ctx, &client_id, net, classes).await,
             (MessageType::Release, _) => self.release(ctx, &client_id).await,
@@ -144,11 +151,17 @@ where
         client_id: &[u8],
         network: &Network,
         classes: Option<Vec<String>>,
+        rapid_commit: bool,
     ) -> Result<Action> {
         let req = ctx.decoded_msg();
         // give 60 seconds between discover & request, TODO: configurable?
         let expires_at = SystemTime::now() + Duration::from_secs(60);
         let classes = classes.as_deref();
+        let state = if rapid_commit {
+            Some(IpState::Lease)
+        } else {
+            None
+        };
         // requested ip included in message, try to reserve
         if let Some(DhcpOption::RequestedIpAddress(ip)) =
             req.opts().get(OptionCode::RequestedIpAddress)
@@ -164,6 +177,7 @@ where
                         client_id,
                         expires_at,
                         network,
+                        state,
                     )
                     .await
                 {
@@ -187,7 +201,7 @@ where
         for range in network.ranges_with_class(classes) {
             match self
                 .ip_mgr
-                .reserve_first(range, network, client_id, expires_at)
+                .reserve_first(range, network, client_id, expires_at, state)
                 .await
             {
                 Ok(IpAddr::V4(ip)) => {

@@ -1,15 +1,20 @@
-# Normally, client id is determined by (opt 61) client identifier option, 
+# (default false) Normally, client id is determined by (opt 61) client identifier option, 
 # or the DHCP header field `chaddr`. Sometimes, we want to configure
 # the server to only look at the `chaddr` field. Setting `chaddr_only` to true
 # will do that.
 #
 # chaddr_only: false
 #
-# Enable BOOTP support. Dora supports only RFC1497. BOOTP clients
+# (default false) Enable BOOTP support. Dora supports only RFC1497. BOOTP clients
 # will be assigned an IP based on their chaddr, they don't have client-ids.
 # The `lease_time` property of a reservation will be ignored
 #
 # bootp_enable: false
+#
+# (default false) Enable rapid commit RFC4093. If enabled, and a message is received with the
+# rapid commit option, then dora will attempt a 1-step lease instead of 2.
+#
+# rapid_commit: false
 #
 # Dora binds to inaddr_any, if an interface is specified dora will filter 
 # all traffic not from this interface.
