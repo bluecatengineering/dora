@@ -32,6 +32,7 @@ pub struct Config {
     interfaces: Vec<NetworkInterface>,
     chaddr_only: bool,
     bootp_enable: bool,
+    rapid_commit: bool,
     /// used to make a selection on which network or subnet to use
     networks: HashMap<Ipv4Net, Network>,
     v6: Option<crate::v6::Config>,
@@ -109,6 +110,7 @@ impl TryFrom<wire::Config> for Config {
             networks,
             chaddr_only: cfg.chaddr_only,
             bootp_enable: cfg.bootp_enable,
+            rapid_commit: cfg.rapid_commit,
             v6: cfg
                 .v6
                 .map(crate::v6::Config::try_from)
@@ -175,6 +177,11 @@ impl Config {
     /// Whether the server is configured to use bootp
     pub fn bootp_enabled(&self) -> bool {
         self.bootp_enable
+    }
+
+    /// Whether the server is configured to use bootp
+    pub fn rapid_commit(&self) -> bool {
+        self.rapid_commit
     }
 
     /// If opt 61 (client id) exists return that, otherwise return `chaddr` from the message

@@ -48,18 +48,17 @@ pub struct ClientInfo {
 pub enum IpState {
     Lease,
     Probate,
-    Clear,
+    Reserve,
 }
 
 /// our sqlite impl doesn't properly support enums, so this
-/// converts our 3 state system into 2 bools. The goal is
-/// of course, eliminating boolean blindness
+/// converts our 3 state system into 2 bools.
 impl From<IpState> for (bool, bool) {
     fn from(state: IpState) -> Self {
         match state {
             IpState::Lease => (true, false),
             IpState::Probate => (false, true),
-            IpState::Clear => (false, false),
+            IpState::Reserve => (false, false),
         }
     }
 }
@@ -72,7 +71,7 @@ pub trait Storage: Send + Sync + 'static {
     async fn update_expired(
         &self,
         ip: IpAddr,
-        state: IpState,
+        state: Option<IpState>,
         id: &[u8],
         expires_at: SystemTime,
     ) -> Result<bool, Self::Error>;
@@ -96,6 +95,7 @@ pub trait Storage: Send + Sync + 'static {
         network: IpAddr,
         id: &[u8],
         expires_at: SystemTime,
+        state: Option<IpState>,
     ) -> Result<Option<IpAddr>, Self::Error>;
 
     async fn insert_max_in_range(
@@ -106,6 +106,7 @@ pub trait Storage: Send + Sync + 'static {
         network: IpAddr,
         id: &[u8],
         expires_at: SystemTime,
+        state: Option<IpState>,
     ) -> Result<Option<IpAddr>, Self::Error>;
     /// updates if not expired & id & ip match
     async fn update_unexpired(
@@ -250,6 +251,7 @@ where
         network: &Network,
         id: &[u8],
         expires_at: SystemTime,
+        state: Option<IpState>,
     ) -> Result<IpAddr, IpError<T::Error>> {
         let subnet = network.subnet().into();
         // unfortunately the sqlite connection is sometimes unreliable under high contention, meaning
@@ -260,7 +262,7 @@ where
             // find the min expired IP or where id matches
             let ip = match self
                 .store
-                .next_expired(ip_range.clone(), subnet, id, expires_at)
+                .next_expired(ip_range.clone(), subnet, id, expires_at, state)
                 .await
             {
                 Ok(Some(ip)) => ip,
@@ -273,6 +275,7 @@ where
                         subnet,
                         id,
                         expires_at,
+                        state,
                     )
                     .await
                 {
@@ -353,14 +356,11 @@ where
         id: &[u8],
         expires_at: SystemTime,
         network: &Network,
+        state: Option<IpState>,
     ) -> Result<(), IpError<T::Error>> {
         // TODO: there may be a way to remove this .get also
         if self.store.get(ip).await?.is_some() {
-            return if self
-                .store
-                .update_expired(ip, IpState::Clear, id, expires_at)
-                .await?
-            {
+            return if self.store.update_expired(ip, state, id, expires_at).await? {
                 debug!(
                     ?ip,
                     ?id,
@@ -373,7 +373,7 @@ where
             };
         };
         // if the entry doesn't exist yet & ping fails, insert it
-        self.store.insert(ip, subnet, id, expires_at, None).await?;
+        self.store.insert(ip, subnet, id, expires_at, state).await?;
         // not marking for probation because request IP can be sent at any time
         self.ping_check(ip, network).await?;
 
