@@ -5,6 +5,12 @@
 #
 # chaddr_only: false
 #
+# Enable BOOTP support. Dora supports only RFC1497. BOOTP clients
+# will be assigned an IP based on their chaddr, they don't have client-ids.
+# The `lease_time` property of a reservation will be ignored
+#
+# bootp_enable: false
+#
 # Dora binds to inaddr_any, if an interface is specified dora will filter 
 # all traffic not from this interface.
 # If no interface is specified, we will listen on inaddr_any (0.0.0.0) and send
@@ -42,13 +48,15 @@ networks:
         # OR IF IT IS NOT specified, dora will use the IP of the interface we recv'd the message on. 
         # OR we will just use the first non-loopback interface IP
         server_id: 192.168.5.1
-        # this will replace the `sname` field in the DHCP header
+        # (optional) this will replace the `sname` field in the DHCP header
         # server_name: "example.org"
         #
-        # this will replace the `fname` field in the DHCP header
+        # (optional) this will replace the `fname` field in the DHCP header
         # file_name: "bootfile.efi" 
         ranges:
             -
+                # (optional) specifies the class name that must have been matched on
+                class: "my_class"
                 # start of your range
                 start: 192.168.5.2
                 # end of your range

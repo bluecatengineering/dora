@@ -55,7 +55,8 @@ impl Plugin<Message> for MsgType {
 
         let subnet = ctx.subnet()?;
         debug!(
-            msg_type = ?msg_type.context("messages must have a type")?,
+            opcode = ?req.opcode(),
+            msg_type = ?msg_type,
             src_addr = %ctx.src_addr(),
             ?subnet,
             req = %ctx.decoded_msg(),
@@ -88,34 +89,36 @@ impl Plugin<Message> for MsgType {
             .insert(DhcpOption::ServerIdentifier(server_id));
         // evaluate client classes
         let matched = util::client_classes(self.cfg.v4(), req);
-
-        match msg_type.context("no option 53 (message type) found")? {
-            MessageType::Discover => {
+        let addr = {
+            let ciaddr = ctx.decoded_msg().ciaddr();
+            if !ciaddr.is_unspecified() {
+                ciaddr
+            } else {
+                // TODO: when `subnet` is used to select a range, it probably doesn't exist.
+                subnet
+            }
+        };
+        match msg_type {
+            Some(MessageType::Discover) => {
                 resp.opts_mut()
                     .insert(DhcpOption::MessageType(MessageType::Offer));
             }
-            MessageType::Request => {
+            Some(MessageType::Request) => {
                 if !req.giaddr().is_unspecified() {
                     resp.set_flags(req.flags().set_broadcast());
                 }
                 resp.opts_mut()
                     .insert(DhcpOption::MessageType(MessageType::Ack));
             }
-            MessageType::Release => {
+            Some(MessageType::Release) => {
                 resp.opts_mut()
                     .insert(DhcpOption::MessageType(MessageType::Ack));
             }
             // got INFORM & we are authoritative, give a response
-            MessageType::Inform if matches!(network, Some(net) if net.authoritative()) => {
+            Some(MessageType::Inform) if matches!(network, Some(net) if net.authoritative()) => {
                 resp.opts_mut()
                     .insert(DhcpOption::MessageType(MessageType::Ack));
-                let ciaddr = ctx.decoded_msg().ciaddr();
-                let addr = if !ciaddr.is_unspecified() {
-                    ciaddr
-                } else {
-                    // TODO: when `subnet` is used to select a range, it probably doesn't exist.
-                    subnet
-                };
+
                 if let Some(range) = self.cfg.v4().range(addr, addr, matched.as_deref()) {
                     ctx.set_decoded_resp_msg(resp);
                     ctx.populate_opts(
@@ -125,7 +128,7 @@ impl Plugin<Message> for MsgType {
                 }
                 warn!(msg_type = ?MessageType::Inform, "couldn't match appropriate range with INFORM message");
             }
-            MessageType::Decline => {
+            Some(MessageType::Decline) => {
                 if let Some(DhcpOption::RequestedIpAddress(ip)) =
                     req.opts().get(OptionCode::RequestedIpAddress)
                 {
@@ -136,6 +139,11 @@ impl Plugin<Message> for MsgType {
                     error!("got DECLINE with no option 50 (requested IP)");
                     return Ok(Action::NoResponse);
                 }
+            }
+            None if req.opcode() == Opcode::BootRequest && self.cfg.v4().bootp_enabled() => {
+                // No message type but BOOTREQUEST, this is a BOOTP message
+                ctx.set_decoded_resp_msg(resp);
+                return Ok(Action::Continue);
             }
             _ => {
                 debug!("unsupported message type");

@@ -15,6 +15,8 @@ pub struct Config {
     pub interfaces: Option<Vec<String>>,
     #[serde(default = "default_chaddr_only")]
     pub chaddr_only: bool,
+    #[serde(default = "default_bootp_enable")]
+    pub bootp_enable: bool,
     #[serde(default)]
     pub networks: HashMap<Ipv4Net, v4::Net>,
     pub v6: Option<v6::Config>,
@@ -44,7 +46,7 @@ pub const fn default_chaddr_only() -> bool {
     false
 }
 
-pub const fn default_enable_ra() -> bool {
+pub const fn default_bootp_enable() -> bool {
     false
 }
 

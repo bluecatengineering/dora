@@ -11,7 +11,7 @@ use std::{
 use anyhow::{Context, Result};
 use chan::{Receiver, Sender};
 use crossbeam_channel as chan;
-use dora_core::tracing::{debug, error, warn};
+use dora_core::tracing::{debug, error, trace, warn};
 
 use dora_core::dhcproto::{
     decoder::{Decodable, Decoder},
@@ -37,35 +37,39 @@ impl<I> Client<I> {
         }
     }
 
-    fn send(&self, msg_type: MsgType, retry_rx: Receiver<()>, send: Arc<UdpSocket>) {
-        let args = self.args.clone();
-        let send_count = args.send_retries;
-        thread::spawn(move || {
-            let mut count = 0;
-            while retry_rx.recv().is_ok() {
-                if let Err(err) = try_send(&args, &msg_type, &send) {
-                    error!(?err, "error sending");
+    fn spawn_send(&self, msg_type: MsgType, retry_rx: Receiver<()>, send: Arc<UdpSocket>) {
+        thread::spawn({
+            let args = self.args.clone();
+            let send_count = args.send_retries;
+            move || {
+                let mut count = 0;
+                while retry_rx.recv().is_ok() {
+                    if let Err(err) = try_send(&args, &msg_type, &send) {
+                        error!(?err, "error sending");
+                    }
+                    count += 1;
                 }
-                count += 1;
+                if count >= send_count {
+                    warn!("max retries-- exiting");
+                }
+                Ok::<_, anyhow::Error>(())
             }
-            if count >= send_count {
-                warn!("max retries-- exiting");
-            }
-            Ok::<_, anyhow::Error>(())
         });
     }
 
-    fn recv<M: Decodable + Encodable + Send + Sync + 'static>(
+    fn spawn_recv<M: Decodable + Encodable + Send + Sync + 'static>(
         &self,
         tx: Sender<M>,
         recv: Arc<UdpSocket>,
     ) {
-        let args = self.args.clone();
-        thread::spawn(move || {
-            if let Err(err) = try_recv::<M>(&args, &tx, &recv) {
-                error!(?err, "could not receive");
+        thread::spawn({
+            let args = self.args.clone();
+            move || {
+                if let Err(err) = try_recv::<M>(&args, &tx, &recv) {
+                    error!(?err, "could not receive");
+                }
+                Ok::<_, anyhow::Error>(())
             }
-            Ok::<_, anyhow::Error>(())
         });
     }
 
@@ -95,8 +99,8 @@ impl<I> Client<I> {
         let (tx, rx) = chan::bounded::<M>(1);
         // this is for controlling when we send so we're able to retry
         let (retry_tx, retry_rx) = chan::bounded(1);
-        self.recv(tx, recv);
-        self.send(msg_type, retry_rx, send);
+        self.spawn_recv(tx, recv);
+        self.spawn_send(msg_type, retry_rx, send);
 
         let timeout = chan::tick(Duration::from_millis(self.args.timeout));
 
@@ -136,7 +140,7 @@ impl<I> Client<I> {
 impl Client<v4::Message> {
     pub fn run(&mut self, msg_type: MsgType) -> Result<v4::Message> {
         let msg = self.send_recv::<v4::Message>(msg_type)?;
-        debug!(msg_type = ?msg.opts().msg_type().unwrap(), %msg, "decoded");
+        debug!(msg_type = ?msg.opts().msg_type(), %msg, "decoded");
         Ok(msg)
     }
 }
@@ -183,11 +187,13 @@ fn try_send(args: &ClientSettings, msg_type: &MsgType, send: &Arc<UdpSocket>) ->
         MsgType::Discover(args) => args.build(broadcast),
         MsgType::Request(args) => args.build(),
         MsgType::Decline(args) => args.build(),
+        MsgType::BootP(args) => args.build(broadcast),
     };
 
-    debug!(msg_type = ?msg.opts().msg_type().unwrap(), ?target, ?msg, "sending msg");
+    debug!(msg_type = ?msg.opts().msg_type(), ?target, ?msg, "sending msg");
 
-    send.send_to(&msg.to_vec()?[..], target)?;
+    let res = send.send_to(&msg.to_vec()?[..], target)?;
+    trace!(?res, "sent");
     Ok(())
 }
 
