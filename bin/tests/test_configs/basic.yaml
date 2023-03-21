@@ -1,5 +1,6 @@
 chaddr_only: false
 bootp_enable: true
+rapid_commit: true
 interfaces: 
     - dhcpsrv
 networks:
