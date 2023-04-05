@@ -17,12 +17,14 @@ use crate::wire;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientClasses {
     /// list of classes, order is topologically sorted based on use of `member` dependencies in the expression
-    pub(crate) classes: Vec<ClientClass>,
+    pub(crate) classes: HashMap<String, ClientClass>,
+    pub(crate) original_order: Vec<String>,
+    pub(crate) topo_order: Vec<String>,
 }
 
 impl ClientClasses {
     pub fn find(&self, name: &str) -> Option<&ClientClass> {
-        self.classes.iter().find(|class| class.name == name)
+        self.classes.get(name)
     }
 }
 
@@ -37,25 +39,31 @@ pub struct ClientClass {
 impl TryFrom<wire::client_classes::ClientClasses> for ClientClasses {
     type Error = anyhow::Error;
 
-    fn try_from(
-        cfg: wire::client_classes::ClientClasses,
-    ) -> std::result::Result<Self, Self::Error> {
+    fn try_from(cfg: wire::client_classes::ClientClasses) -> Result<Self, Self::Error> {
+        // save original order for option precedence
+        let original_order = cfg.v4.iter().map(|c| c.name.clone()).collect();
         let mut dep_tree = DependencyTree::new();
+        let mut classes = HashMap::new();
         for class in cfg.v4.into_iter() {
             let assert = ast::parse(&class.assert)
                 .with_context(|| format!("failed to parse client class {}", class.name))?;
             let deps = client_classification::get_class_dependencies(&assert);
             let name = class.name.clone();
-            let class = ClientClass {
-                name: class.name,
-                assert,
-                options: class.options.get(),
-            };
-            dep_tree.add(name, class, deps);
+            dep_tree.add(name.clone(), name, deps);
+            classes.insert(
+                class.name.clone(),
+                ClientClass {
+                    name: class.name,
+                    assert,
+                    options: class.options.get(),
+                },
+            );
         }
 
         Ok(Self {
-            classes: dep_tree.topological_sort()?,
+            classes,
+            original_order,
+            topo_order: dep_tree.topological_sort()?,
         })
     }
 }
@@ -70,7 +78,9 @@ impl ClientClasses {
             msg: req,
             opts,
         };
-        for class in &self.classes {
+        for name in &self.topo_order {
+            // this should never fail
+            let class = self.classes.get(name).context("class not found")?;
             // eval class, passing args
             if class.eval(&args) {
                 // add class name to dependencies set, for future evals
@@ -83,16 +93,15 @@ impl ClientClasses {
         Ok(args.deps.into_iter().collect())
     }
     /// take matched client classes, return merge DhcpOptions that contains all classes options merged
-    /// together with precedence given based on class position in client_classes list (lower index == higher precedence)
+    /// together with precedence given based on original position in client_classes list (lower index == higher precedence)
     pub fn collect_opts(&self, matched_classes: Option<&[String]>) -> Option<v4::DhcpOptions> {
-        self.classes
+        self.original_order
             .iter()
-            .filter(|class| {
-                matched_classes
-                    .map(|m| m.contains(&class.name))
-                    .unwrap_or(false)
+            .filter(|name| matched_classes.map(|m| m.contains(name)).unwrap_or(false))
+            .fold(None, |ret, name| {
+                let class = self.find(name)?;
+                merge_opts(&class.options, ret)
             })
-            .fold(None, |ret, class| merge_opts(&class.options, ret))
     }
 }
 
@@ -154,39 +163,58 @@ mod tests {
     #[test]
     fn merge_opts() {
         let classes = ClientClasses {
-            classes: vec![
-                ClientClass {
-                    name: "foo".to_owned(),
-                    assert: client_classification::Expr::Bool(true),
-                    options: {
-                        let mut opts = v4::DhcpOptions::new();
-                        opts.insert(v4::DhcpOption::Router(vec![[8, 8, 8, 8].into()]));
-                        opts.insert(v4::DhcpOption::AddressLeaseTime(10));
-                        opts
+            original_order: ["foo", "bar", "baz"]
+                .iter()
+                .map(|&n| n.to_owned())
+                .collect(),
+            topo_order: ["bar", "baz", "foo"]
+                .iter()
+                .map(|&n| n.to_owned())
+                .collect(),
+            classes: [
+                (
+                    "foo".to_owned(),
+                    ClientClass {
+                        name: "foo".to_owned(),
+                        assert: client_classification::Expr::Bool(true),
+                        options: {
+                            let mut opts = v4::DhcpOptions::new();
+                            opts.insert(v4::DhcpOption::Router(vec![[8, 8, 8, 8].into()]));
+                            opts.insert(v4::DhcpOption::AddressLeaseTime(10));
+                            opts
+                        },
                     },
-                },
-                ClientClass {
-                    name: "bar".to_owned(),
-                    assert: client_classification::Expr::Bool(true),
-                    options: {
-                        let mut opts = v4::DhcpOptions::new();
-                        opts.insert(v4::DhcpOption::Router(vec![[1, 1, 1, 1].into()]));
-                        opts.insert(v4::DhcpOption::SubnetMask([1, 1, 1, 1].into()));
-                        opts.insert(v4::DhcpOption::TimeOffset(50));
-                        opts
+                ),
+                (
+                    "bar".to_owned(),
+                    ClientClass {
+                        name: "bar".to_owned(),
+                        assert: client_classification::Expr::Bool(true),
+                        options: {
+                            let mut opts = v4::DhcpOptions::new();
+                            opts.insert(v4::DhcpOption::Router(vec![[1, 1, 1, 1].into()]));
+                            opts.insert(v4::DhcpOption::SubnetMask([1, 1, 1, 1].into()));
+                            opts.insert(v4::DhcpOption::TimeOffset(50));
+                            opts
+                        },
                     },
-                },
-                ClientClass {
-                    name: "baz".to_owned(),
-                    assert: client_classification::Expr::Bool(true),
-                    options: {
-                        let mut opts = v4::DhcpOptions::new();
-                        opts.insert(v4::DhcpOption::ServerIdentifier([1, 1, 1, 1].into()));
-                        opts.insert(v4::DhcpOption::ArpCacheTimeout(1));
-                        opts
+                ),
+                (
+                    "baz".to_owned(),
+                    ClientClass {
+                        name: "baz".to_owned(),
+                        assert: client_classification::Expr::Bool(true),
+                        options: {
+                            let mut opts = v4::DhcpOptions::new();
+                            opts.insert(v4::DhcpOption::ServerIdentifier([1, 1, 1, 1].into()));
+                            opts.insert(v4::DhcpOption::ArpCacheTimeout(1));
+                            opts
+                        },
                     },
-                },
-            ],
+                ),
+            ]
+            .into_iter()
+            .collect(),
         };
         let opts = classes.collect_opts(Some(&["foo".to_owned(), "bar".to_owned()]));
         // includes opts from "foo" and "bar", favouring "foo" for duplicates because it shows up earlier in the `client_classes` list

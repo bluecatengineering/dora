@@ -208,7 +208,8 @@ v6:
 # 
 # We define in the dora config a client_classes section, where each class has a predicate whose syntax 
 # is identical to Kea's expression syntax. At least initially, all client classes will be evaluated when a packet is received. 
-# The classes will be evaluated in topological order, according to their dependencies.
+# The classes will be evaluated in topological order, according to their dependencies. Option precedence will still be
+# given by the order in the config.
 # A range/reservation can then define a client_class field with the name of a class that will restrict 
 # that range/reservation to only allow packets that have evaluated the associated client class predicate to true.
 #
