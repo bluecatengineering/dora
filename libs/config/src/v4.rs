@@ -580,6 +580,7 @@ mod tests {
     use super::*;
 
     pub static SAMPLE_YAML: &str = include_str!("../sample/config.yaml");
+    pub static CIRC_YAML: &str = include_str!("../sample/circular_deps.yaml");
 
     // test we can decode from wire
     #[test]
@@ -593,6 +594,15 @@ mod tests {
             Some(&v4::DhcpOption::Router(vec![Ipv4Addr::from([
                 192, 168, 0, 1
             ])]))
+        );
+    }
+
+    #[test]
+    fn test_circular() {
+        let cfg = Config::new(CIRC_YAML);
+        assert_eq!(
+            format!("{}", cfg.err().unwrap().source().unwrap()),
+            "cycle detected in dependency map"
         );
     }
 
@@ -643,6 +653,7 @@ mod tests {
         // get matching classes
         // TODO: what should we do if there is an error processing client classes?
         let matched = cfg.eval_client_classes(&msg).unwrap().ok();
+        assert_eq!(matched.as_deref().unwrap(), &["my_class".to_owned()]);
         let net = cfg
             .range([10, 0, 0, 1], [10, 0, 0, 100], matched.as_deref())
             .unwrap();
@@ -659,9 +670,16 @@ mod tests {
             .insert(DhcpOption::Hostname("hostname".to_owned()));
 
         let matched = cfg.eval_client_classes(&msg).unwrap().ok();
+        // if a_class matches, other classes using `member` will eval to true also
         assert_eq!(
-            matched.unwrap(),
-            &["my_class".to_owned(), "a_class".to_owned()]
+            matched
+                .unwrap()
+                .into_iter()
+                .collect::<std::collections::HashSet<_>>(),
+            ["my_class", "a_class", "d_class", "b_class", "c_class"]
+                .into_iter()
+                .map(|s| s.to_owned())
+                .collect::<std::collections::HashSet<_>>()
         );
     }
 

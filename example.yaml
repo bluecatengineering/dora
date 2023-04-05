@@ -206,8 +206,9 @@ v6:
 
 # Example Client Classifier
 # 
-# This borrows heavily from Kea. We define in the dora config a client_classes section, 
-# where each class has a predicate. At least initially, all client classes will be evaluated when a packet is received. 
+# We define in the dora config a client_classes section, where each class has a predicate whose syntax 
+# is identical to Kea's expression syntax. At least initially, all client classes will be evaluated when a packet is received. 
+# The classes will be evaluated in topological order, according to their dependencies.
 # A range/reservation can then define a client_class field with the name of a class that will restrict 
 # that range/reservation to only allow packets that have evaluated the associated client class predicate to true.
 #
@@ -273,6 +274,9 @@ v6:
 #       pkt4.mac: chaddr in DHCP message header (`pkt4.mac == 0xDEADBEEF`)
 #   
 #   substring(expr, i, j): substring function (`substring('foobar', 0, 3) == 'foo')
+#
+#   member('classname'): reference another class using the `member()` function. Dependency
+#                   cycles will fail to parse the config. 
 # 
 # example:
 #

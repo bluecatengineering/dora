@@ -71,7 +71,11 @@ impl ClientClasses {
             opts,
         };
         for class in &self.classes {
+            // eval class, passing args
             if class.eval(&args) {
+                // add class name to dependencies set, for future evals
+                // classes are always eval'd in topological order, so
+                // future evals know what prior evals were
                 args.deps.insert(class.name.to_owned());
             }
         }

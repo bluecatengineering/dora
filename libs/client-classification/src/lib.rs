@@ -410,22 +410,21 @@ mod tests {
 
     #[test]
     fn test_class_dependencies() {
-        // let options = HashMap::new();
-        // let mut msg = v4::Message::new_with_id(
-        //     123,
-        //     Ipv4Addr::new(1, 2, 3, 4),
-        //     Ipv4Addr::new(2, 2, 2, 2),
-        //     Ipv4Addr::new(3, 3, 3, 3),
-        //     Ipv4Addr::new(4, 4, 4, 4),
-        //     "123456".as_bytes(),
-        // );
+        let opts = HashMap::new();
+        let msg = v4::Message::new_with_id(
+            123,
+            Ipv4Addr::new(1, 2, 3, 4),
+            Ipv4Addr::new(2, 2, 2, 2),
+            Ipv4Addr::new(3, 3, 3, 3),
+            Ipv4Addr::new(4, 4, 4, 4),
+            "123456".as_bytes(),
+        );
 
         let expr = ast::parse(
             "member('foobar') and member('bazz') and (member('bingo') or (member('bongo')))",
         )
         .unwrap();
-        // let val = eval_ast(&expr, "001122334455", &options, &msg).unwrap();
-        // assert_eq!(val, Val::Bool(true));
+
         let deps = crate::get_class_dependencies(&expr);
         assert_eq!(
             deps.into_iter().collect::<std::collections::HashSet<_>>(),
@@ -438,5 +437,43 @@ mod tests {
             .into_iter()
             .collect::<std::collections::HashSet<_>>()
         );
+
+        let args = Args {
+            chaddr: "001122334455".to_owned(),
+            opts: opts.clone(),
+            msg: &msg,
+            deps: ["foobar", "bazz", "bingo", "bongo"]
+                .into_iter()
+                .map(|s| s.to_owned())
+                .collect(),
+        };
+        let val = eval(&expr, &args).unwrap();
+        assert_eq!(val, Val::Bool(true));
+
+        // remove one member from `or`, should eval to true still
+        let args = Args {
+            chaddr: "001122334455".to_owned(),
+            opts: opts.clone(),
+            msg: &msg,
+            deps: ["foobar", "bazz", "bingo"]
+                .into_iter()
+                .map(|s| s.to_owned())
+                .collect(),
+        };
+        let val = eval(&expr, &args).unwrap();
+        assert_eq!(val, Val::Bool(true));
+
+        // remove one of members so eval == false
+        let args = Args {
+            chaddr: "001122334455".to_owned(),
+            opts,
+            msg: &msg,
+            deps: ["foobar", "bingo"]
+                .into_iter()
+                .map(|s| s.to_owned())
+                .collect(),
+        };
+        let val = eval(&expr, &args).unwrap();
+        assert_eq!(val, Val::Bool(false));
     }
 }
