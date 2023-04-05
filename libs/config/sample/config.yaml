@@ -150,6 +150,22 @@ networks:
 client_classes:
     v4:
         -
+            name: c_class
+            assert: "member('a_class') and member('b_class')"
+            options:
+                values:
+                    6:
+                        type: ip_list
+                        value: [ 1.1.1.1 ]
+        -
+            name: d_class
+            assert: "member('b_class') and member('c_class')"
+            options:
+                values:
+                    6:
+                        type: ip_list
+                        value: [ 1.1.1.1 ]
+        -
           name: my_class
           assert: "pkt4.mac == 0xDEADBEEF"
           options:
@@ -173,19 +189,4 @@ client_classes:
                     6:
                         type: ip_list
                         value: [ 1.1.1.1 ]
-        -
-            name: c_class
-            assert: "member('a_class') and member('b_class')"
-            options:
-                values:
-                    6:
-                        type: ip_list
-                        value: [ 1.1.1.1 ]
-        -
-            name: d_class
-            assert: "member('b_class') and member('c_class')"
-            options:
-                values:
-                    6:
-                        type: ip_list
-                        value: [ 1.1.1.1 ]
+
