@@ -5,7 +5,7 @@
 //! nodes in the order of which they need to be evaluated.   Ex.
 //!
 //!   ```rust
-//! use dora_core::server::topo_sort::DependencyTree;
+//! use topo_sort::DependencyTree;
 //! use std::any::{Any, TypeId};
 //!
 //! struct A;
@@ -195,8 +195,8 @@ where
     /// Topologically sort the items in our adjecency map, producing a list of
     /// items in order they need be run according to their dependencies.
     /// Ex.
-    /// A -> B -> D
-    ///   -> C
+    /// A <- B <- D
+    /// A <- C
     /// output: [A, C, B, D] or [A, B, C, D]
     /// Will return Err if there is a cycle or if the map is malformed
     pub fn topological_sort(self) -> Result<Vec<T>, TopoSortError> {
@@ -379,7 +379,4 @@ mod tests {
             ]
         );
     }
-
-    #[test]
-    fn runtest() {}
 }

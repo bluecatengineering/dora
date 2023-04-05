@@ -1,20 +1,22 @@
 //! # Client Classes
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::{Context, Result};
-use client_classification::{ast, Expr};
+use client_classification::{ast, Args, Expr, Val};
 use dora_core::dhcproto::{
     self,
     v4::{self, OptionCode, UnknownOption},
     Decodable, Decoder, Encodable,
 };
+use topo_sort::DependencyTree;
 use tracing::{error, trace};
 
 use crate::wire;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientClasses {
+    /// list of classes, order is topologically sorted based on use of `member` dependencies in the expression
     pub(crate) classes: Vec<ClientClass>,
 }
 
@@ -38,31 +40,43 @@ impl TryFrom<wire::client_classes::ClientClasses> for ClientClasses {
     fn try_from(
         cfg: wire::client_classes::ClientClasses,
     ) -> std::result::Result<Self, Self::Error> {
-        let mut classes = Vec::with_capacity(cfg.v4.capacity());
+        let mut dep_tree = DependencyTree::new();
         for class in cfg.v4.into_iter() {
             let assert = ast::parse(&class.assert)
                 .with_context(|| format!("failed to parse client class {}", class.name))?;
-            classes.push(ClientClass {
+            let deps = client_classification::get_class_dependencies(&assert);
+            let name = class.name.clone();
+            let class = ClientClass {
                 name: class.name,
                 assert,
                 options: class.options.get(),
-            });
+            };
+            dep_tree.add(name, class, deps);
         }
-        Ok(Self { classes })
+
+        Ok(Self {
+            classes: dep_tree.topological_sort()?,
+        })
     }
 }
 
 impl ClientClasses {
     /// evaluate all client classes, returning a list of classes that match
     pub fn eval(&self, req: &dhcproto::v4::Message) -> Result<Vec<String>> {
-        let (chaddr, opts) = convert_for_eval(req)?;
-        Ok(self
-            .classes
-            .iter()
-            // TODO: remove clone?
-            .filter(|&class| class.clone().eval(&chaddr, &opts, req))
-            .map(|class| class.name.to_owned())
-            .collect())
+        let (chaddr, opts) = to_unknown_opts(req)?;
+        let mut args = Args {
+            chaddr,
+            deps: HashSet::new(),
+            msg: req,
+            opts,
+        };
+        for class in &self.classes {
+            if class.eval(&args) {
+                args.deps.insert(class.name.to_owned());
+            }
+        }
+
+        Ok(args.deps.into_iter().collect())
     }
     /// take matched client classes, return merge DhcpOptions that contains all classes options merged
     /// together with precedence given based on class position in client_classes list (lower index == higher precedence)
@@ -79,16 +93,11 @@ impl ClientClasses {
 }
 
 impl ClientClass {
-    pub fn eval(
-        self,
-        chaddr: &str,
-        opts: &HashMap<OptionCode, UnknownOption>,
-        msg: &v4::Message,
-    ) -> bool {
-        trace!(expr = ?self.assert, ?chaddr, "evaluating expression");
-        match client_classification::ast::eval_ast(self.assert, chaddr, opts, msg) {
-            Ok(ast::Val::Bool(true)) => true,
-            Ok(ast::Val::Bool(false)) => false,
+    pub fn eval(&self, args: &Args) -> bool {
+        trace!(expr = ?self.assert, chaddr = ?args.chaddr, "evaluating expression");
+        match client_classification::eval(&self.assert, args) {
+            Ok(Val::Bool(true)) => true,
+            Ok(Val::Bool(false)) => false,
             res => {
                 error!(?res, class_name = ?self.name, "didn't evaluate to true/false");
                 false
@@ -97,7 +106,7 @@ impl ClientClass {
     }
 }
 
-fn convert_for_eval(
+fn to_unknown_opts(
     req: &dhcproto::v4::Message,
 ) -> Result<(String, HashMap<OptionCode, UnknownOption>)> {
     // TODO: find a better way to do this so we don't have to convert to Unknown on every eval
