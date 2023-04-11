@@ -20,6 +20,8 @@ pub enum EvalErr {
     ExpectedEmpty(Val),
     #[error("expected ip: got {0}")]
     ExpectedBytes(Val),
+    #[error("utf8 error {0}")]
+    Utf8Error(std::str::Utf8Error),
     #[error("failed to get sub-opt")]
     SubOptionParseFail(#[from] dhcproto::error::DecodeError),
 }
@@ -180,9 +182,68 @@ pub fn eval(expr: &Expr, args: &Args) -> Result<Val, EvalErr> {
         Or(lhs, rhs) => Val::Bool(is_bool(eval(lhs, args)?)? || is_bool(eval(rhs, args)?)?),
         Equal(lhs, rhs) => Val::Bool(eval_bool(lhs, rhs, args)?),
         NEqual(lhs, rhs) => Val::Bool(!eval_bool(lhs, rhs, args)?),
-        Substring(lhs, i, j) => Val::String(is_str(eval(lhs, args)?)?[*i..*j].to_string()),
+        Substring(lhs, start, len) => {
+            // TODO: add case for Val::Bytes
+            Val::String(substring(&is_str(eval(lhs, args)?)?, *start, *len))
+        }
+        Concat(lhs, rhs) => match (eval(lhs, args)?, eval(rhs, args)?) {
+            (Val::String(mut a), Val::String(b)) => {
+                a.push_str(&b);
+                Val::String(a)
+            }
+            (Val::Bytes(mut a), Val::Bytes(mut b)) => {
+                a.append(&mut b);
+                Val::Bytes(a)
+            }
+            (Val::String(mut a), Val::Bytes(b)) => {
+                a.push_str(std::str::from_utf8(&b).map_err(EvalErr::Utf8Error)?);
+                Val::String(a)
+            }
+            (Val::Bytes(mut a), Val::String(b)) => {
+                a.extend_from_slice(b.as_bytes());
+                Val::Bytes(a)
+            }
+            (a, _b) => return Err(EvalErr::ExpectedString(a)),
+        },
         Member(s) => Val::Bool(args.deps.contains(s)),
     })
+}
+
+fn substring(s: &str, mut start: isize, j: Option<isize>) -> String {
+    if start.unsigned_abs() >= s.len() {
+        return String::default();
+    }
+    let mut neg = false;
+    if start.is_negative() {
+        // start is neg
+        neg = true;
+        start += s.len() as isize;
+    }
+
+    match j {
+        None => {
+            if neg {
+                s[..start.unsigned_abs()].to_owned()
+            } else {
+                s[start.unsigned_abs()..].to_owned()
+            }
+        }
+        Some(mut len) => {
+            if len.is_negative() {
+                len = len.abs();
+                if len <= start {
+                    start -= len;
+                } else {
+                    len = start;
+                    start = 0;
+                }
+            }
+            if start + len > s.len() as isize {
+                len = len.clamp(0, s.len() as isize - start);
+            }
+            s[start.unsigned_abs()..(start.unsigned_abs() + len.unsigned_abs())].to_owned()
+        }
+    }
 }
 
 fn eval_bool(lhs: &Expr, rhs: &Expr, args: &Args) -> Result<bool, EvalErr> {
@@ -475,5 +536,34 @@ mod tests {
         };
         let val = eval(&expr, &args).unwrap();
         assert_eq!(val, Val::Bool(false));
+    }
+
+    #[test]
+    fn test_substring() {
+        assert_eq!(substring("foobar", 0, Some(6)), "foobar");
+        assert_eq!(substring("foobar", 3, Some(3)), "bar");
+        assert_eq!(substring("foobar", 3, None), "bar"); // "all"
+        assert_eq!(substring("foobar", 0, None), "foobar"); // "all"
+        assert_eq!(substring("foobar", 1, Some(4)), "ooba");
+        assert_eq!(substring("foobar", -5, Some(4)), "ooba");
+        assert_eq!(substring("foobar", -1, Some(-3)), "oba");
+        assert_eq!(substring("foobar", 4, Some(-2)), "ob");
+        assert_eq!(substring("foobar", 10, Some(2)), "");
+        assert_eq!(substring("foobar", -1, None), "fooba");
+        assert_eq!(substring("foobar", 0, Some(10)), "foobar");
+    }
+
+    #[test]
+    fn test_concat() {
+        let args = Args {
+            chaddr: "001122334455".to_owned(),
+            opts: HashMap::new(),
+            msg: &v4::Message::default(),
+            deps: HashSet::new(),
+        };
+
+        let expr = ast::parse("concat('foo', 'bar')").unwrap();
+        let val = eval(&expr, &args).unwrap();
+        assert_eq!(val, Val::String("foobar".to_owned()));
     }
 }

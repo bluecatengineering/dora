@@ -31,8 +31,9 @@ pub enum Expr {
     SiAddr(),
     MsgType(),
     TransId(),
-    // operation
-    Substring(Box<Expr>, usize, usize),
+    // operation (expr, start, len) where len of None means 'all'
+    Substring(Box<Expr>, isize, Option<isize>),
+    Concat(Box<Expr>, Box<Expr>),
     // prefix
     Not(Box<Expr>),
     // postfix
@@ -64,6 +65,8 @@ pub enum ParseErr {
     Ip(#[from] std::net::AddrParseError),
     #[error("substring parse error with: {0}")]
     Substring(String),
+    #[error("'concat parse error with: {0}")]
+    Concat(String),
     #[error("expected option but found: {0}")]
     Option(Expr),
     #[error("bool parse error with: {0}")]
@@ -120,16 +123,34 @@ fn parse_expr(pairs: Pairs<Rule>, pratt: &PrattParser<Rule>) -> ParseResult<Expr
                 Rule::hex => Expr::Hex(primary.as_str()[2..].to_string()),
                 Rule::substring => {
                     let mut inner = primary.into_inner();
-                    let j = inner
+                    let len = inner
                         .next_back()
                         .ok_or_else(|| ParseErr::Substring(inner.to_string()))?;
-                    let i = inner
+                    let start = inner
                         .next_back()
                         .ok_or_else(|| ParseErr::Substring(inner.to_string()))?;
+
                     Expr::Substring(
                         Box::new(parse_expr(inner, pratt)?),
-                        i.as_str().parse()?,
-                        j.as_str().parse()?,
+                        start.as_str().parse()?,
+                        if len.as_str() == "all" {
+                            None
+                        } else {
+                            Some(len.as_str().parse()?)
+                        },
+                    )
+                }
+                Rule::concat => {
+                    let mut inner = primary.into_inner();
+                    let b = inner
+                        .next_back()
+                        .ok_or_else(|| ParseErr::Concat(inner.to_string()))?;
+                    let a = inner
+                        .next_back()
+                        .ok_or_else(|| ParseErr::Concat(inner.to_string()))?;
+                    Expr::Concat(
+                        Box::new(parse_expr(a.into_inner(), pratt)?),
+                        Box::new(parse_expr(b.into_inner(), pratt)?),
                     )
                 }
                 Rule::expr => parse_expr(primary.into_inner(), pratt)?, // from "(" ~ expr ~ ")"

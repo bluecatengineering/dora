@@ -42,6 +42,7 @@ pkt = _{
     pkt_transid = @{ "pkt4.transid" }
 
 substring = { "substring(" ~ expr ~ "," ~ integer ~ "," ~ integer ~ ")" }
+concat = { "concat(" ~ expr ~ "," ~ expr ~ ")" }
 
 expr = { prefix* ~ primary ~ postfix* ~ (operation ~ prefix* ~ primary ~ postfix* )* }
 
@@ -53,7 +54,7 @@ postfix  =  _{ to_hex | exists | sub_opt }
     exists    =   { ".exists" } 
     sub_opt    =   { "." ~ option } 
 
-primary = _{ hex | ip | integer | string | boolean | option | relay | pkt | substring | member | "(" ~ expr ~ ")" }
+primary = _{ hex | ip | integer | string | boolean | option | relay | pkt | substring | concat | member | "(" ~ expr ~ ")" }
 predicate = _{ SOI ~ expr ~ EOI }
 
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
