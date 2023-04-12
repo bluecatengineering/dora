@@ -1,4 +1,7 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    str,
+};
 
 use dhcproto::{v4, Decoder};
 use thiserror::Error;
@@ -21,7 +24,7 @@ pub enum EvalErr {
     #[error("expected ip: got {0}")]
     ExpectedBytes(Val),
     #[error("utf8 error {0}")]
-    Utf8Error(std::str::Utf8Error),
+    Utf8Error(#[from] str::Utf8Error),
     #[error("failed to get sub-opt")]
     SubOptionParseFail(#[from] dhcproto::error::DecodeError),
 }
@@ -196,7 +199,7 @@ pub fn eval(expr: &Expr, args: &Args) -> Result<Val, EvalErr> {
                 Val::Bytes(a)
             }
             (Val::String(mut a), Val::Bytes(b)) => {
-                a.push_str(std::str::from_utf8(&b).map_err(EvalErr::Utf8Error)?);
+                a.push_str(str::from_utf8(&b)?);
                 Val::String(a)
             }
             (Val::Bytes(mut a), Val::String(b)) => {

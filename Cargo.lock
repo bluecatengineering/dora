@@ -483,6 +483,7 @@ dependencies = [
  "serde_yaml",
  "topo_sort",
  "tracing",
+ "trust-dns-proto 0.22.0",
 ]
 
 [[package]]
