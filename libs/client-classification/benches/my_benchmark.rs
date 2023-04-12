@@ -1,6 +1,6 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use client_classification::ast;
+use client_classification::{ast, Args};
 use criterion::{criterion_group, criterion_main, Criterion};
 use dhcproto::v4::{self, UnknownOption};
 use pest::Parser;
@@ -12,13 +12,13 @@ fn criterion_benchmark(c: &mut Criterion) {
         "substring(mac, 0, 6) == '001122' && option[61].hex == 'some_client_id'",
         |b| {
             b.iter(|| {
-                let mut options = HashMap::new();
-                options.insert(
+                let mut opts = HashMap::new();
+                opts.insert(
                     61.into(),
                     UnknownOption::new(61.into(), b"some_client_id".to_vec()),
                 );
 
-                let chaddr = "001122334455";
+                let chaddr = "001122334455".to_owned();
 
                 let tokens = ast::PredicateParser::parse(
                     ast::Rule::expr,
@@ -26,11 +26,15 @@ fn criterion_benchmark(c: &mut Criterion) {
                 )
                 .unwrap();
 
-                client_classification::ast::eval_ast(
-                    client_classification::ast::build_ast(tokens).unwrap(),
+                let args = Args {
                     chaddr,
-                    &options,
-                    &v4::Message::default(),
+                    opts,
+                    msg: &v4::Message::default(),
+                    deps: HashSet::new(),
+                };
+                client_classification::eval(
+                    &client_classification::ast::build_ast(tokens).unwrap(),
+                    &args,
                 )
                 .unwrap()
             })
@@ -48,20 +52,19 @@ fn criterion_benchmark(c: &mut Criterion) {
             let ast = client_classification::ast::build_ast(tokens).unwrap();
 
             b.iter(move || {
-                let chaddr = "001122334455";
-                let mut options = HashMap::new();
-                options.insert(
+                let chaddr = "001122334455".to_owned();
+                let mut opts = HashMap::new();
+                opts.insert(
                     61.into(),
                     UnknownOption::new(61.into(), b"some_client_id".to_vec()),
                 );
-
-                client_classification::ast::eval_ast(
-                    ast.clone(),
+                let args = Args {
                     chaddr,
-                    &options,
-                    &v4::Message::default(),
-                )
-                .unwrap()
+                    opts,
+                    msg: &v4::Message::default(),
+                    deps: HashSet::new(),
+                };
+                client_classification::eval(&ast, &args).unwrap()
             })
         },
     );

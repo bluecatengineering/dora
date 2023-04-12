@@ -481,6 +481,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "topo_sort",
  "tracing",
 ]
 
@@ -830,6 +831,7 @@ dependencies = [
  "tokio-stream",
  "tokio-test",
  "tokio-util",
+ "topo_sort",
  "tracing",
  "tracing-futures",
  "tracing-subscriber",
@@ -3186,6 +3188,13 @@ dependencies = [
  "pin-project-lite",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "topo_sort"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
 ]
 
 [[package]]

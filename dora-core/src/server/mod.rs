@@ -25,15 +25,15 @@ pub mod context;
 pub mod ioctl;
 pub mod msg;
 pub mod state;
-pub mod topo_sort;
 pub mod typemap;
 pub(crate) mod udp;
 
 use crate::{
     config::cli::{Config, ALL_DHCP_RELAY_AGENTS_AND_SERVERS},
     handler::*,
-    server::{context::MsgContext, msg::SerialMsg, topo_sort::DependencyTree, udp::UdpStream},
+    server::{context::MsgContext, msg::SerialMsg, udp::UdpStream},
 };
+use topo_sort::DependencyTree;
 
 /// Handy type alias for different `handle` traits
 pub(crate) type PluginFn<T> = Arc<dyn Plugin<T>>;

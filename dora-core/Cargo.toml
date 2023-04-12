@@ -11,6 +11,7 @@ license = "MPL-2.0"
 [dependencies]
 # local
 env-parser = { path = "../libs/env-parser" }
+topo_sort = { path = "../libs/topo_sort" }
 # third party
 async-trait = { workspace = true } 
 anyhow = { workspace = true }

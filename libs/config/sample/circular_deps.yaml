@@ -1,0 +1,38 @@
+chaddr_only: false
+# interfaces:
+#     - wlan0
+client_classes:
+    v4:
+        -
+          name: my_class
+          assert: "member('c_class')"
+          options:
+                values:
+                    6:
+                        type: ip_list
+                        value: [ 1.1.1.1 ]
+        -
+            name: a_class
+            assert: "option[12].hex == 'hostname'"
+            options:
+                values:
+                    6:
+                        type: ip_list
+                        value: [ 1.1.1.1 ]
+        -
+            name: b_class
+            assert: "member('a_class') and pkt4.mac == 0xDEADBEEF"
+            options:
+                values:
+                    6:
+                        type: ip_list
+                        value: [ 1.1.1.1 ]
+        -
+            name: c_class
+            # circular
+            assert: "member('a_class') and member('b_class') or member('my_class')"
+            options:
+                values:
+                    6:
+                        type: ip_list
+                        value: [ 1.1.1.1 ]

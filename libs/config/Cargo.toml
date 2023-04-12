@@ -18,3 +18,4 @@ hex = "0.4"
 
 dora-core = { path = "../../dora-core" }
 client-classification = { path = "../client-classification" }
+topo_sort = { path = "../topo_sort" }
