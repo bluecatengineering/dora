@@ -46,13 +46,17 @@ use anyhow::Result;
 use base64::Engine;
 use dora_core::{
     dhcproto::{
-        v4::{DhcpOption, DhcpOptions, OptionCode},
+        v4::{self, DhcpOption, DhcpOptions, OptionCode},
         Decodable, Decoder, Encodable, Encoder,
     },
     pnet::util::MacAddr,
 };
 use serde::{de, Deserialize, Deserializer, Serialize};
 use tracing::warn;
+use trust_dns_proto::{
+    rr,
+    serialize::binary::{BinEncodable, BinEncoder},
+};
 
 use crate::wire::MinMax;
 
@@ -149,6 +153,7 @@ pub struct Opts(pub DhcpOptions);
 enum Opt {
     Ip(Ipv4Addr),
     IpList(Vec<Ipv4Addr>),
+    DomainList(Vec<String>),
     U8(u8),
     U16(u16),
     U32(u32),
@@ -184,51 +189,66 @@ impl<'de> serde::Deserialize<'de> for Opts {
 }
 
 fn write_opt(enc: &mut Encoder<'_>, code: u8, opt: Opt) -> anyhow::Result<()> {
-    enc.write_u8(code)?;
     match opt {
         Opt::Ip(ip) => {
+            enc.write_u8(code)?;
             enc.write_u8(4)?;
             enc.write_slice(&ip.octets())?;
         }
         Opt::IpList(list) => {
-            enc.write_u8(list.len() as u8 * 4)?;
-            for ip in list {
-                enc.write_u32(ip.into())?;
+            v4::encode_long_opt_chunks(
+                OptionCode::from(code),
+                4,
+                &list,
+                |ip, e| e.write_u32((*ip).into()),
+                enc,
+            )?;
+        }
+        // encode in DNS format
+        Opt::DomainList(list) => {
+            let mut buf = Vec::new();
+            let mut name_encoder = BinEncoder::new(&mut buf);
+            for name in list {
+                let name = name.parse::<rr::Name>()?;
+                name.emit(&mut name_encoder)?;
             }
+            v4::encode_long_opt_bytes(OptionCode::from(code), &buf, enc)?;
         }
         Opt::Str(s) => {
-            enc.write_u8(s.as_bytes().len() as u8)?;
-            enc.write_slice(s.as_bytes())?;
+            v4::encode_long_opt_bytes(OptionCode::from(code), s.as_bytes(), enc)?;
         }
         Opt::U32(n) => {
+            enc.write_u8(code)?;
             enc.write_u8(4)?;
             enc.write_u32(n)?;
         }
         Opt::I32(n) => {
+            enc.write_u8(code)?;
             enc.write_u8(4)?;
             enc.write_i32(n)?;
         }
         Opt::U8(n) => {
+            enc.write_u8(code)?;
             enc.write_u8(1)?;
             enc.write_u8(n)?;
         }
         Opt::Bool(b) => {
+            enc.write_u8(code)?;
             enc.write_u8(1)?;
             enc.write_u8(b.into())?;
         }
         Opt::U16(n) => {
+            enc.write_u8(code)?;
             enc.write_u8(2)?;
             enc.write_u16(n)?;
         }
         Opt::B64(s) => {
             let bytes = base64::engine::general_purpose::STANDARD_NO_PAD.decode(s)?;
-            enc.write_u8(bytes.len() as u8)?;
-            enc.write_slice(&bytes)?;
+            v4::encode_long_opt_bytes(OptionCode::from(code), &bytes, enc)?;
         }
         Opt::Hex(s) => {
             let bytes = hex::decode(s)?;
-            enc.write_u8(bytes.len() as u8)?;
-            enc.write_slice(&bytes)?;
+            v4::encode_long_opt_bytes(OptionCode::from(code), &bytes, enc)?;
         }
         Opt::SubOption(sub_opts) => {
             // we'll encode the map to buf so we can use DhcpOptions::decode
@@ -237,8 +257,8 @@ fn write_opt(enc: &mut Encoder<'_>, code: u8, opt: Opt) -> anyhow::Result<()> {
             for (sub_code, sub_opt) in sub_opts {
                 write_opt(&mut sub_enc, sub_code, sub_opt)?;
             }
-            enc.write_u8(sub_buf.len() as u8)?;
-            enc.write_slice(&sub_buf)?;
+
+            v4::encode_long_opt_bytes(OptionCode::from(code), &sub_buf, enc)?;
         }
     }
     Ok(())
@@ -336,7 +356,11 @@ fn to_opt(code: &OptionCode, opt: &DhcpOption) -> Option<(u8, Opt)> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use ipnet::Ipv4Net;
+
     pub static SAMPLE_YAML: &str = include_str!("../../sample/config.yaml");
+    pub static LONG_OPTS: &str = include_str!("../../sample/long_opts.yaml");
 
     // test we can encode/decode sample
     #[test]
@@ -346,5 +370,24 @@ mod tests {
         // back to the yaml
         let s = serde_yaml::to_string(&cfg).unwrap();
         println!("{s}");
+    }
+
+    #[test]
+    fn test_long_opts() {
+        let cfg: crate::wire::Config = serde_yaml::from_str(LONG_OPTS).unwrap();
+        let opts = cfg
+            .networks
+            .get(&Ipv4Net::new([192, 168, 1, 100].into(), 30).unwrap())
+            .unwrap()
+            .ranges
+            .first()
+            .unwrap()
+            .clone()
+            .options
+            .get();
+        let vendor = opts.get(v4::OptionCode::VendorExtensions);
+        println!("{opts:?}");
+        println!("{vendor:?}");
+        // TODO: add test for sub-opts in vendor extensions
     }
 }
