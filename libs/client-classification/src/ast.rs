@@ -34,6 +34,7 @@ pub enum Expr {
     // operation (expr, start, len) where len of None means 'all'
     Substring(Box<Expr>, isize, Option<isize>),
     Concat(Box<Expr>, Box<Expr>),
+    IfElse(Box<Expr>, Box<Expr>, Box<Expr>),
     // prefix
     Not(Box<Expr>),
     // postfix
@@ -65,6 +66,8 @@ pub enum ParseErr {
     Ip(#[from] std::net::AddrParseError),
     #[error("substring parse error with: {0}")]
     Substring(String),
+    #[error("ifelse parse error with: {0}")]
+    IfElse(String),
     #[error("'concat parse error with: {0}")]
     Concat(String),
     #[error("expected option but found: {0}")]
@@ -151,6 +154,23 @@ fn parse_expr(pairs: Pairs<Rule>, pratt: &PrattParser<Rule>) -> ParseResult<Expr
                     Expr::Concat(
                         Box::new(parse_expr(a.into_inner(), pratt)?),
                         Box::new(parse_expr(b.into_inner(), pratt)?),
+                    )
+                }
+                Rule::ifelse => {
+                    let mut inner = primary.into_inner();
+                    let c = inner
+                        .next_back()
+                        .ok_or_else(|| ParseErr::IfElse(inner.to_string()))?;
+                    let b = inner
+                        .next_back()
+                        .ok_or_else(|| ParseErr::IfElse(inner.to_string()))?;
+                    let a = inner
+                        .next_back()
+                        .ok_or_else(|| ParseErr::IfElse(inner.to_string()))?;
+                    Expr::IfElse(
+                        Box::new(parse_expr(a.into_inner(), pratt)?),
+                        Box::new(parse_expr(b.into_inner(), pratt)?),
+                        Box::new(parse_expr(c.into_inner(), pratt)?),
                     )
                 }
                 Rule::expr => parse_expr(primary.into_inner(), pratt)?, // from "(" ~ expr ~ ")"

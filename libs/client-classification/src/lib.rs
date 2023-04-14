@@ -208,6 +208,13 @@ pub fn eval(expr: &Expr, args: &Args) -> Result<Val, EvalErr> {
             }
             (a, _b) => return Err(EvalErr::ExpectedString(a)),
         },
+        IfElse(expr, a, b) => {
+            if is_bool(eval(expr, args)?)? {
+                eval(a, args)?
+            } else {
+                eval(b, args)?
+            }
+        }
         Member(s) => Val::Bool(args.deps.contains(s)),
     })
 }
@@ -568,5 +575,31 @@ mod tests {
         let expr = ast::parse("concat('foo', 'bar')").unwrap();
         let val = eval(&expr, &args).unwrap();
         assert_eq!(val, Val::String("foobar".to_owned()));
+    }
+
+    #[test]
+    fn test_ifelse() {
+        let args = Args {
+            chaddr: "001122334455".to_owned(),
+            opts: HashMap::new(),
+            msg: &v4::Message::default(),
+            deps: HashSet::new(),
+        };
+
+        let expr = ast::parse("ifelse(true, 'foo', 'bar')").unwrap();
+        let val = eval(&expr, &args).unwrap();
+        assert_eq!(val, Val::String("foo".to_owned()));
+
+        let expr = ast::parse("ifelse(false, 'foo', 'bar')").unwrap();
+        let val = eval(&expr, &args).unwrap();
+        assert_eq!(val, Val::String("bar".to_owned()));
+
+        let expr = ast::parse("ifelse((not option[123].exists), 'foo', 'bar')").unwrap();
+        let val = eval(&expr, &args).unwrap();
+        assert_eq!(val, Val::String("foo".to_owned()));
+
+        let expr = ast::parse("ifelse((not option[123].exists), option[1].exists, 'bar')").unwrap();
+        let val = eval(&expr, &args).unwrap();
+        assert_eq!(val, Val::Bool(false));
     }
 }
