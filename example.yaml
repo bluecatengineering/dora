@@ -291,6 +291,10 @@ v6:
 #   ifelse(expr, expr_a, expr_b): if else control flow, first expression must evaluate to true/false
 #                       and if true expr_a will return else expr_b
 #
+#   hexstring(pkt4.mac, ':'): turns bytes into a string separated by the separator string
+#                       ex. hexstring(pkt4.mac, ':') == '66:6f:6f' 
+#                        (if pkt4.mac is '0x666f6f')
+#
 #   member('classname'): reference another class using the `member('my_class')` function. Dependency
 #                   cycles will fail to parse the config. 
 # 

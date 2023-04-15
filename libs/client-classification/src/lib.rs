@@ -667,7 +667,7 @@ mod tests {
     #[test]
     fn test_hexstring() {
         let args = Args {
-            chaddr: &hex::decode("DEADBEEF").unwrap(),
+            chaddr: &hex::decode(hex::encode("foo")).unwrap(),
             opts: HashMap::new(),
             msg: &v4::Message::default(),
             deps: HashSet::new(),
@@ -688,5 +688,10 @@ mod tests {
         let expr = ast::parse("hexstring(0xf01234,'..')").unwrap();
         let val = eval(&expr, &args).unwrap();
         assert_eq!(val, Val::String("f0..12..34".to_owned()));
+
+        let expr = ast::parse("hexstring(pkt4.mac,':')").unwrap();
+        let val = eval(&expr, &args).unwrap();
+        // foo -> 666f6f
+        assert_eq!(val, Val::String("66:6f:6f".to_owned()));
     }
 }
