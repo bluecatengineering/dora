@@ -40,7 +40,7 @@
 //!  belonging to the subnet.
 //! Non-authoritative INFORM packets received from the clients on a
 //! non-authoritative network will be ignored.
-use std::{collections::HashMap, net::Ipv4Addr, ops::RangeInclusive};
+use std::{collections::HashMap, hash::Hash, net::Ipv4Addr, ops::RangeInclusive};
 
 use anyhow::Result;
 use base64::Engine;
@@ -170,13 +170,59 @@ impl<'de> serde::Deserialize<'de> for Opts {
     where
         D: Deserializer<'de>,
     {
+        static NAME_MAP: phf::Map<&'static str, u8> = phf::phf_map! {
+            "subnet_mask" => 1,
+            "time_offset" => 2,
+            "routers" => 3,
+            "time_servers" => 4,
+            "name_servers" => 5,
+            "domain_name_servers" => 6,
+            "log_servers" => 7,
+            "quote_servers" => 8,
+            "lpr_servers" => 9,
+            "impress_servers" => 10,
+            "resource_location_servers" => 11,
+            "hostname" => 12,
+            "boot_size" => 13,
+            "merit_dump" => 14,
+            "domain_name" => 15,
+            "swap_server" => 16,
+            "root_path" => 17,
+            "extensions_path" => 18,
+            "ip_forwarding" => 19,
+            "non_local_source_routing" => 20,
+            "default_ip_ttl" => 23,
+            "interface_mtu" => 26,
+            "all_subnets_local" => 27,
+            "broadcast_addr" => 28,
+            "static_routing_table" => 33,
+            "vendor_extensions" => 43,
+            "domain_search" => 119,
+        };
+
+        #[derive(Serialize, Debug, PartialEq, Eq, Hash)]
+        struct OptKey(u8);
+        impl<'de> serde::Deserialize<'de> for OptKey {
+            fn deserialize<D>(de: D) -> Result<OptKey, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                let key: String = Deserialize::deserialize(de)?;
+                Ok(OptKey(key.parse::<u8>().or_else(|_| {
+                    NAME_MAP
+                        .get(&key)
+                        .cloned()
+                        .ok_or_else(|| de::Error::custom(format!("unknown option key {}", key)))
+                })?))
+            }
+        }
         // decode what was on the wire to a map
-        let map: HashMap<u8, Opt> = Deserialize::deserialize(de)?;
+        let map: HashMap<OptKey, Opt> = Deserialize::deserialize(de)?;
         // we'll encode the map to buf so we can use DhcpOptions::decode
         let mut buf = vec![];
         let mut enc = Encoder::new(&mut buf);
         for (code, opt) in map {
-            write_opt(&mut enc, code, opt).map_err(de::Error::custom)?;
+            write_opt(&mut enc, code.0, opt).map_err(de::Error::custom)?;
         }
         // write `End` so DhcpOptions can decode
         enc.write_u8(OptionCode::End.into())
