@@ -121,11 +121,11 @@ impl ClientClass {
 
 fn to_unknown_opts(
     req: &dhcproto::v4::Message,
-) -> Result<(String, HashMap<OptionCode, UnknownOption>)> {
+) -> Result<(&[u8], HashMap<OptionCode, UnknownOption>)> {
     // TODO: find a better way to do this so we don't have to convert to Unknown on every eval
     // possibly, add better methods to dhcproto so we can pull the data section out?
     Ok((
-        hex::encode(req.chaddr()),
+        req.chaddr(),
         req.opts()
             .iter()
             .map(|(k, v)| {

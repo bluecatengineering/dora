@@ -9,7 +9,7 @@ use pest::Parser;
 
 fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function(
-        "substring(mac, 0, 6) == '001122' && option[61].hex == 'some_client_id'",
+        "substring('foobar, 0, 6) == 'foo' && option[61].hex == 'some_client_id'",
         |b| {
             b.iter(|| {
                 let mut opts = HashMap::new();
@@ -18,11 +18,10 @@ fn criterion_benchmark(c: &mut Criterion) {
                     UnknownOption::new(61.into(), b"some_client_id".to_vec()),
                 );
 
-                let chaddr = "001122334455".to_owned();
-
+                let chaddr = &hex::decode("DEADBEEF").unwrap();
                 let tokens = ast::PredicateParser::parse(
                     ast::Rule::expr,
-                    "substring(pkt4.mac, 0, 6) == '001122' and option[61].hex == 'some_client_id'",
+                    "substring('foobar', 0, 3) == 'foo' and option[61].hex == 'some_client_id'",
                 )
                 .unwrap();
 
@@ -41,18 +40,18 @@ fn criterion_benchmark(c: &mut Criterion) {
         },
     );
     c.bench_function(
-        "just eval: substring(pkt4.mac, 0, 6) == '001122' && option[61].hex == 'some_client_id'",
+        "just eval: substring('foobar', 0, 6) == 'foo' && option[61].hex == 'some_client_id'",
         |b| {
             let tokens = ast::PredicateParser::parse(
                 ast::Rule::expr,
-                "substring(pkt4.mac, 0, 6) == '001122' and option[61].hex == 'some_client_id'",
+                "substring('foobar', 0, 6) == 'foo' and option[61].hex == 'some_client_id'",
             )
             .unwrap();
 
             let ast = client_classification::ast::build_ast(tokens).unwrap();
 
             b.iter(move || {
-                let chaddr = "001122334455".to_owned();
+                let chaddr = &hex::decode("DEADBEEF").unwrap();
                 let mut opts = HashMap::new();
                 opts.insert(
                     61.into(),

@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    ops::{Range, RangeFrom, RangeTo},
     str,
 };
 
@@ -50,10 +51,10 @@ fn is_bool(val: Val) -> EvalResult<bool> {
         err => Err(EvalErr::ExpectedBool(err)),
     }
 }
-fn is_str(val: Val) -> EvalResult<String> {
+fn is_bytes(val: Val) -> EvalResult<Vec<u8>> {
     match val {
-        Val::String(s) => Ok(s),
-        err => Err(EvalErr::ExpectedString(err)),
+        Val::Bytes(s) => Ok(s),
+        err => Err(EvalErr::ExpectedBytes(err)),
     }
 }
 fn is_int(val: Val) -> EvalResult<u32> {
@@ -118,7 +119,7 @@ pub fn get_class_dependencies(expr: &Expr) -> Vec<String> {
 }
 
 pub struct Args<'a> {
-    pub chaddr: String,
+    pub chaddr: &'a [u8],
     pub opts: HashMap<v4::OptionCode, v4::UnknownOption>,
     pub msg: &'a v4::Message,
     pub deps: HashSet<String>,
@@ -130,9 +131,9 @@ pub fn eval(expr: &Expr, args: &Args) -> Result<Val, EvalErr> {
     use Expr::*;
     Ok(match expr {
         Bool(b) => Val::Bool(*b),
-        String(s) => Val::String(s.to_lowercase()),
+        String(s) => Val::String(s.clone()),
         Int(i) => Val::Int(*i),
-        Hex(h) => Val::String(h.to_lowercase()),
+        Hex(h) => Val::Bytes(h.to_vec()),
         Relay(o) => match args
             .opts
             .get(&v4::OptionCode::RelayAgentInformation)
@@ -146,7 +147,7 @@ pub fn eval(expr: &Expr, args: &Args) -> Result<Val, EvalErr> {
             None => Val::Empty,
         },
         // TODO: can probably use msg.chaddr() instead of an explicit param here
-        Mac() => Val::String(args.chaddr.to_lowercase()),
+        Mac() => Val::Bytes(args.chaddr.to_vec()),
         Hlen() => Val::Int(args.msg.hlen() as u32),
         HType() => Val::Int(u8::from(args.msg.htype()) as u32),
         CiAddr() => Val::Int(u32::from(args.msg.ciaddr())),
@@ -185,10 +186,11 @@ pub fn eval(expr: &Expr, args: &Args) -> Result<Val, EvalErr> {
         Or(lhs, rhs) => Val::Bool(is_bool(eval(lhs, args)?)? || is_bool(eval(rhs, args)?)?),
         Equal(lhs, rhs) => Val::Bool(eval_bool(lhs, rhs, args)?),
         NEqual(lhs, rhs) => Val::Bool(!eval_bool(lhs, rhs, args)?),
-        Substring(lhs, start, len) => {
-            // TODO: add case for Val::Bytes
-            Val::String(substring(&is_str(eval(lhs, args)?)?, *start, *len))
-        }
+        Substring(lhs, start, len) => match eval(lhs, args)? {
+            Val::Bytes(b) => Val::Bytes(slice(b, *start, *len)),
+            Val::String(s) => Val::String(substring(&s, *start, *len)),
+            err => return Err(EvalErr::ExpectedString(err)),
+        },
         Concat(lhs, rhs) => match (eval(lhs, args)?, eval(rhs, args)?) {
             (Val::String(mut a), Val::String(b)) => {
                 a.push_str(&b);
@@ -208,27 +210,70 @@ pub fn eval(expr: &Expr, args: &Args) -> Result<Val, EvalErr> {
             }
             (a, _b) => return Err(EvalErr::ExpectedString(a)),
         },
+        IfElse(expr, a, b) => {
+            if is_bool(eval(expr, args)?)? {
+                eval(a, args)?
+            } else {
+                eval(b, args)?
+            }
+        }
+        Hexstring(expr, sep) => Val::String(
+            hex::encode(is_bytes(eval(expr, args)?)?)
+                .as_bytes()
+                .chunks_exact(2)
+                .map(std::str::from_utf8)
+                .collect::<Result<Vec<_>, _>>()?
+                .join(sep),
+        ),
         Member(s) => Val::Bool(args.deps.contains(s)),
     })
 }
 
-fn substring(s: &str, mut start: isize, j: Option<isize>) -> String {
-    if start.unsigned_abs() >= s.len() {
-        return String::default();
+fn substring(s: &str, start: isize, j: Option<isize>) -> String {
+    match get_pos(s.len(), start, j) {
+        None => String::default(),
+        Some(SliceSubstr::To(r)) => s[r].to_owned(),
+        Some(SliceSubstr::From(r)) => s[r].to_owned(),
+        Some(SliceSubstr::Slice(r)) => s[r].to_owned(),
+    }
+}
+
+fn slice<T>(s: T, start: isize, j: Option<isize>) -> Vec<u8>
+where
+    T: AsRef<[u8]>,
+{
+    let s = s.as_ref();
+    match get_pos(s.len(), start, j) {
+        None => Vec::default(),
+        Some(SliceSubstr::To(r)) => s[r].to_owned(),
+        Some(SliceSubstr::From(r)) => s[r].to_owned(),
+        Some(SliceSubstr::Slice(r)) => s[r].to_owned(),
+    }
+}
+
+enum SliceSubstr {
+    To(RangeTo<usize>),
+    From(RangeFrom<usize>),
+    Slice(Range<usize>),
+}
+
+fn get_pos(s_len: usize, mut start: isize, j: Option<isize>) -> Option<SliceSubstr> {
+    if start.unsigned_abs() >= s_len {
+        return None;
     }
     let mut neg = false;
     if start.is_negative() {
         // start is neg
         neg = true;
-        start += s.len() as isize;
+        start += s_len as isize;
     }
 
     match j {
         None => {
             if neg {
-                s[..start.unsigned_abs()].to_owned()
+                Some(SliceSubstr::To(..start.unsigned_abs()))
             } else {
-                s[start.unsigned_abs()..].to_owned()
+                Some(SliceSubstr::From(start.unsigned_abs()..))
             }
         }
         Some(mut len) => {
@@ -241,10 +286,12 @@ fn substring(s: &str, mut start: isize, j: Option<isize>) -> String {
                     start = 0;
                 }
             }
-            if start + len > s.len() as isize {
-                len = len.clamp(0, s.len() as isize - start);
+            if start + len > s_len as isize {
+                len = len.clamp(0, s_len as isize - start);
             }
-            s[start.unsigned_abs()..(start.unsigned_abs() + len.unsigned_abs())].to_owned()
+            Some(SliceSubstr::Slice(
+                start.unsigned_abs()..(start.unsigned_abs() + len.unsigned_abs()),
+            ))
         }
     }
 }
@@ -280,7 +327,7 @@ mod tests {
     fn test_opt_exists() {
         let tokens = PredicateParser::parse(Rule::expr, "not option[123].exists").unwrap();
         let args = Args {
-            chaddr: "001122334455".to_owned(),
+            chaddr: "001122334455".as_bytes(),
             opts: HashMap::new(),
             msg: &v4::Message::default(),
             deps: HashSet::new(),
@@ -293,12 +340,24 @@ mod tests {
     fn test_ip_parser() {
         let tokens = PredicateParser::parse(Rule::expr, "100.10.10.10 == 100.10.10.10").unwrap();
         let args = Args {
-            chaddr: "001122334455".to_owned(),
+            chaddr: "001122334455".as_bytes(),
             opts: HashMap::new(),
             msg: &v4::Message::default(),
             deps: HashSet::new(),
         };
         let val = eval(&build_ast(tokens).unwrap(), &args).unwrap();
+        assert_eq!(val, Val::Bool(true));
+    }
+    #[test]
+    fn test_mac() {
+        let args = Args {
+            chaddr: &hex::decode("010203040506").unwrap(),
+            opts: HashMap::new(),
+            msg: &v4::Message::default(),
+            deps: HashSet::new(),
+        };
+        let expr = ast::parse("pkt4.mac == 0x010203040506").unwrap();
+        let val = eval(&expr, &args).unwrap();
         assert_eq!(val, Val::Bool(true));
     }
 
@@ -310,12 +369,11 @@ mod tests {
             UnknownOption::new(61.into(), b"some_client_id".to_vec()),
         );
 
-        let tokens = ast::parse(
-            "substring(pkt4.mac, 0, 6) == '001122' and option[61].hex == 'some_client_id'",
-        )
-        .unwrap();
+        let tokens =
+            ast::parse("substring('foobar', 0, 3) == 'foo' and option[61].hex == 'some_client_id'")
+                .unwrap();
         let args = Args {
-            chaddr: "001122334455".to_owned(),
+            chaddr: &hex::decode("DEADBEEF").unwrap(),
             opts,
             msg: &v4::Message::default(),
             deps: HashSet::new(),
@@ -343,7 +401,7 @@ mod tests {
             UnknownOption::new(v4::OptionCode::RelayAgentInformation, data),
         );
         let args = Args {
-            chaddr: "001122334455".to_owned(),
+            chaddr: &hex::decode("DEADBEEF").unwrap(),
             opts,
             msg: &v4::Message::default(),
             deps: HashSet::new(),
@@ -377,7 +435,7 @@ mod tests {
             UnknownOption::new(v4::OptionCode::RelayAgentInformation, data),
         );
         let args = Args {
-            chaddr: "001122334455".to_owned(),
+            chaddr: &hex::decode("DEADBEEF").unwrap(),
             opts,
             msg: &v4::Message::default(),
             deps: HashSet::new(),
@@ -390,6 +448,11 @@ mod tests {
         let expr = ast::parse("option[82].option[23].hex").unwrap();
         let val = eval(&expr, &args).unwrap();
         assert_eq!(val, Val::Bytes(vec![1, 2, 3]));
+
+        let r = hex::encode([1, 2, 3]);
+        let expr = ast::parse(format!("option[82].option[23].hex == 0x{r}")).unwrap();
+        let val = eval(&expr, &args).unwrap();
+        assert_eq!(val, Val::Bool(true));
 
         let expr = ast::parse("option[82].option[23].exists").unwrap();
         let val = eval(&expr, &args).unwrap();
@@ -440,13 +503,14 @@ mod tests {
             Ipv4Addr::new(4, 4, 4, 4),
             "123456".as_bytes(),
         );
-        msg.set_htype(v4::HType::Eth);
-        let mut opts = v4::DhcpOptions::new();
-        opts.insert(v4::DhcpOption::MessageType(v4::MessageType::Offer));
-        msg.set_opts(opts);
+        msg.set_xid(1234).set_htype(v4::HType::Eth).set_opts({
+            let mut opts = v4::DhcpOptions::new();
+            opts.insert(v4::DhcpOption::MessageType(v4::MessageType::Offer));
+            opts
+        });
 
         let args = Args {
-            chaddr: "001122334455".to_owned(),
+            chaddr: &hex::decode("DEADBEEF").unwrap(),
             opts: options,
             msg: &msg,
             deps: HashSet::new(),
@@ -468,6 +532,10 @@ mod tests {
         assert_eq!(val, Val::Bool(true));
 
         let expr = ast::parse("pkt4.msgtype == 2").unwrap();
+        let val = eval(&expr, &args).unwrap();
+        assert_eq!(val, Val::Bool(true));
+
+        let expr = ast::parse("pkt4.transid == 1234").unwrap();
         let val = eval(&expr, &args).unwrap();
         assert_eq!(val, Val::Bool(true));
     }
@@ -503,7 +571,7 @@ mod tests {
         );
 
         let args = Args {
-            chaddr: "001122334455".to_owned(),
+            chaddr: &hex::decode("DEADBEEF").unwrap(),
             opts: opts.clone(),
             msg: &msg,
             deps: ["foobar", "bazz", "bingo", "bongo"]
@@ -516,7 +584,7 @@ mod tests {
 
         // remove one member from `or`, should eval to true still
         let args = Args {
-            chaddr: "001122334455".to_owned(),
+            chaddr: &hex::decode("DEADBEEF").unwrap(),
             opts: opts.clone(),
             msg: &msg,
             deps: ["foobar", "bazz", "bingo"]
@@ -529,7 +597,7 @@ mod tests {
 
         // remove one of members so eval == false
         let args = Args {
-            chaddr: "001122334455".to_owned(),
+            chaddr: &hex::decode("DEADBEEF").unwrap(),
             opts,
             msg: &msg,
             deps: ["foobar", "bingo"]
@@ -559,7 +627,7 @@ mod tests {
     #[test]
     fn test_concat() {
         let args = Args {
-            chaddr: "001122334455".to_owned(),
+            chaddr: &hex::decode("DEADBEEF").unwrap(),
             opts: HashMap::new(),
             msg: &v4::Message::default(),
             deps: HashSet::new(),
@@ -568,5 +636,62 @@ mod tests {
         let expr = ast::parse("concat('foo', 'bar')").unwrap();
         let val = eval(&expr, &args).unwrap();
         assert_eq!(val, Val::String("foobar".to_owned()));
+    }
+
+    #[test]
+    fn test_ifelse() {
+        let args = Args {
+            chaddr: &hex::decode("DEADBEEF").unwrap(),
+            opts: HashMap::new(),
+            msg: &v4::Message::default(),
+            deps: HashSet::new(),
+        };
+
+        let expr = ast::parse("ifelse(true, 'foo', 'bar')").unwrap();
+        let val = eval(&expr, &args).unwrap();
+        assert_eq!(val, Val::String("foo".to_owned()));
+
+        let expr = ast::parse("ifelse(false, 'foo', 'bar')").unwrap();
+        let val = eval(&expr, &args).unwrap();
+        assert_eq!(val, Val::String("bar".to_owned()));
+
+        let expr = ast::parse("ifelse((not option[123].exists), 'foo', 'bar')").unwrap();
+        let val = eval(&expr, &args).unwrap();
+        assert_eq!(val, Val::String("foo".to_owned()));
+
+        let expr = ast::parse("ifelse((not option[123].exists), option[1].exists, 'bar')").unwrap();
+        let val = eval(&expr, &args).unwrap();
+        assert_eq!(val, Val::Bool(false));
+    }
+
+    #[test]
+    fn test_hexstring() {
+        let args = Args {
+            chaddr: &hex::decode(hex::encode("foo")).unwrap(),
+            opts: HashMap::new(),
+            msg: &v4::Message::default(),
+            deps: HashSet::new(),
+        };
+
+        let expr = ast::parse("hexstring(0x1234,':')").unwrap();
+        let val = eval(&expr, &args).unwrap();
+        assert_eq!(val, Val::String("12:34".to_owned()));
+
+        let expr = ast::parse("hexstring(0x56789a,'-')").unwrap();
+        let val = eval(&expr, &args).unwrap();
+        assert_eq!(val, Val::String("56-78-9a".to_owned()));
+
+        let expr = ast::parse("hexstring(0xbcde,'')").unwrap();
+        let val = eval(&expr, &args).unwrap();
+        assert_eq!(val, Val::String("bcde".to_owned()));
+
+        let expr = ast::parse("hexstring(0xf01234,'..')").unwrap();
+        let val = eval(&expr, &args).unwrap();
+        assert_eq!(val, Val::String("f0..12..34".to_owned()));
+
+        let expr = ast::parse("hexstring(pkt4.mac,':')").unwrap();
+        let val = eval(&expr, &args).unwrap();
+        // foo -> 666f6f
+        assert_eq!(val, Val::String("66:6f:6f".to_owned()));
     }
 }

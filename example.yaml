@@ -284,17 +284,44 @@ v6:
 #   pkt header:
 #       pkt4.mac: chaddr in DHCP message header (`pkt4.mac == 0xDEADBEEF`)
 #   
-#   substring(expr, i, j): substring function (`substring('foobar', 0, 3) == 'foo')
+#   substring(expr, start, len): substring function (`substring('foobar', 0, 3) == 'foo'`)
 #
-#   member('classname'): reference another class using the `member()` function. Dependency
+#   concat(expr, concat): concat function (`concat('foo', 'bar') == 'foobar')
+#
+#   ifelse(expr, expr_a, expr_b): if else control flow, first expression must evaluate to true/false
+#                       and if true expr_a will return else expr_b
+#
+#   hexstring(pkt4.mac, ':'): turns bytes into a string separated by the separator string
+#                       ex. hexstring(pkt4.mac, ':') == '66:6f:6f' 
+#                        (if pkt4.mac is '0x666f6f')
+#
+#   member('classname'): reference another class using the `member('my_class')` function. Dependency
 #                   cycles will fail to parse the config. 
 # 
 # example:
 #
-#       substring(option[61].hex, 0, 3) == 'foo'
+#       `substring(option[61].hex, 0, 3) == 'foo'`
 # 
-
-
+#  Vendor classes:
+#
+#   To match on the standard option 60 vendor class identifier, use `option[60].hex` in your assertion.
+#   You can then specify options for the class providing option 43, for the encapsulated vendor options.
+#   example.
+#       name: my_vendor_class
+#       assert: "option[60].hex == 'MSFT5.0'"
+#       options:
+#           values:
+#              43:
+#                  type: sub_option
+#                  value:
+#                      1:
+#                          type: str
+#                          value: "foobar"
+#                      2:
+#                          type: ip
+#                          value: 1.2.3.4
+#
+#   Attaching `my_vendor_class` to a range/reservation will provide the defined opt 43 vendor options.
 client_classes:
     # only v4 supported at the moment
     v4:

@@ -17,7 +17,7 @@ pub enum Expr {
     String(String),
     Ip(Ipv4Addr),
     Int(u32),
-    Hex(String),
+    Hex(Vec<u8>),
     Bool(bool),
     Option(u8),
     Member(String),
@@ -34,6 +34,8 @@ pub enum Expr {
     // operation (expr, start, len) where len of None means 'all'
     Substring(Box<Expr>, isize, Option<isize>),
     Concat(Box<Expr>, Box<Expr>),
+    IfElse(Box<Expr>, Box<Expr>, Box<Expr>),
+    Hexstring(Box<Expr>, String),
     // prefix
     Not(Box<Expr>),
     // postfix
@@ -63,8 +65,14 @@ pub enum ParseErr {
     Int(#[from] std::num::ParseIntError),
     #[error("addr parse error")]
     Ip(#[from] std::net::AddrParseError),
+    #[error("hex conversion error")]
+    HexErr(#[from] hex::FromHexError),
     #[error("substring parse error with: {0}")]
     Substring(String),
+    #[error("string parse error with: {0}")]
+    String(String),
+    #[error("ifelse parse error with: {0}")]
+    IfElse(String),
     #[error("'concat parse error with: {0}")]
     Concat(String),
     #[error("expected option but found: {0}")]
@@ -120,7 +128,7 @@ fn parse_expr(pairs: Pairs<Rule>, pratt: &PrattParser<Rule>) -> ParseResult<Expr
                 Rule::relay => Expr::Relay(parse_num(primary)?),
                 Rule::member => Expr::Member(parse_string_inner(primary)),
                 // trim off '0x'. hex decode?
-                Rule::hex => Expr::Hex(primary.as_str()[2..].to_string()),
+                Rule::hex => Expr::Hex(hex::decode(&primary.as_str()[2..])?),
                 Rule::substring => {
                     let mut inner = primary.into_inner();
                     let len = inner
@@ -151,6 +159,39 @@ fn parse_expr(pairs: Pairs<Rule>, pratt: &PrattParser<Rule>) -> ParseResult<Expr
                     Expr::Concat(
                         Box::new(parse_expr(a.into_inner(), pratt)?),
                         Box::new(parse_expr(b.into_inner(), pratt)?),
+                    )
+                }
+                Rule::hexstring => {
+                    let mut inner = primary.into_inner();
+                    let separator = parse_string(
+                        inner
+                            .next_back()
+                            .ok_or_else(|| ParseErr::String(inner.to_string()))?,
+                    );
+                    let expr = parse_expr(
+                        inner
+                            .next_back()
+                            .ok_or_else(|| ParseErr::String(inner.to_string()))?
+                            .into_inner(),
+                        pratt,
+                    )?;
+                    Expr::Hexstring(Box::new(expr), separator)
+                }
+                Rule::ifelse => {
+                    let mut inner = primary.into_inner();
+                    let c = inner
+                        .next_back()
+                        .ok_or_else(|| ParseErr::IfElse(inner.to_string()))?;
+                    let b = inner
+                        .next_back()
+                        .ok_or_else(|| ParseErr::IfElse(inner.to_string()))?;
+                    let a = inner
+                        .next_back()
+                        .ok_or_else(|| ParseErr::IfElse(inner.to_string()))?;
+                    Expr::IfElse(
+                        Box::new(parse_expr(a.into_inner(), pratt)?),
+                        Box::new(parse_expr(b.into_inner(), pratt)?),
+                        Box::new(parse_expr(c.into_inner(), pratt)?),
                     )
                 }
                 Rule::expr => parse_expr(primary.into_inner(), pratt)?, // from "(" ~ expr ~ ")"
