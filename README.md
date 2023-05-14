@@ -139,9 +139,17 @@ We _could_ go much faster by keeping leases in memory and appending to the db li
 
 ## Troubleshooting/Testing
 
+### Using dhcpm
+[dhcpm](https://github.com/leshow/dhcpm) is a tool built in rust that that will mock dhcp requests and is highly useful for testing dhcp in an isolated manner. 
+
 ### Using perfdhcp
 
 [perfdhcp](https://kea.readthedocs.io/en/kea-2.0.1/man/perfdhcp.8.html) can be used to test dora, include `giaddr`, the subnet select option or the relay agent link selection opt, you can use this as a starting point:
+
+`perfdhcp` is a component of `kea-admin` so you'll need to install it to get the binary:
+
+Ubuntu/Debian:
+`sudo apt-get install kea-admin`
 
 ```
 sudo perfdhcp -4 -N 9900 -L 9903 -r 1 -xi -t 1 -o 118,C0A80001 -R 100 127.0.0.1
