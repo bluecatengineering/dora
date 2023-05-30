@@ -72,15 +72,15 @@ networks:
                 # to respond to any parameter request list values.
                 options:
                     values:
-                        # each option has a `type`/`value`. valid types are:
-                        #   ip          ex. 1.2.3.4
-                        #   ip_list     ex. [1.2.3.4, 1.2.3.4]
-                        #   domain_list (encodes list of domains in compressed DNS format) ex. ["foobar.com.", "apple.marketing.com."]
+                        # each option has a `type`/`value`. the 'value' field can implicitly be a list for (all types except b64/hex/sub_option).
+                        # valid types are:
+                        #   ip          ex. 1.2.3.4 or [1.2.3.4, 1.2.3.4]
+                        #   domain      (encodes list of domains in compressed DNS format) ex. ["foobar.com.", "apple.marketing.com."] or a single domain ex. "foobar.com."
                         #   str         ex. "foobar"
-                        #   u8
-                        #   u16
-                        #   u32
-                        #   i32
+                        #   u8          ex. 1 or [1, 2, 3]
+                        #   u16         ex. 1 or [1, 2, 3]
+                        #   u32         ex. 1 or [1, 2, 3]
+                        #   i32         ex. -1 or [-1, 2, 3]
                         #   b64         ex. "Zm9vYmFy"
                         #   hex         ex. "DEADBEEF"
                         #   sub_option
@@ -99,11 +99,11 @@ networks:
                             type: ip
                             value: 255.255.255.0
                         3: # router (if not specified, will come from `interfaces`)
-                            type: ip_list
+                            type: ip
                             value:
                                 - 192.168.5.1
                         6: # domain name (if running a DNS server like dnsmasq also, use its IP)
-                            type: ip_list
+                            type: ip
                             value:
                                 - 8.8.8.8
                         28: # broadcast addr (if not specified, comes from `interfaces`)
@@ -129,11 +129,11 @@ networks:
                             type: ip
                             value: 255.255.255.0
                         3:
-                            type: ip_list
+                            type: ip
                             value:
                                 - 192.168.5.1
                         6:
-                            type: ip_list
+                            type: ip
                             value:
                                 - 8.8.8.8
                         28:
@@ -341,6 +341,6 @@ client_classes:
           options: 
                 values: 
                     6:
-                        type: ip_list
+                        type: ip
                         value: [ 1.1.1.1 ]
           

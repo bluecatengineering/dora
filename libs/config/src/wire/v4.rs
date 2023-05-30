@@ -145,21 +145,29 @@ pub enum Condition {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Opts(pub DhcpOptions);
 
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(untagged)]
+enum MaybeList<T> {
+    Val(T),
+    List(Vec<T>),
+}
+
 /// this type is only used as an intermediate representation
 /// Opts are received as essentially a HashMap<u8, Opt>
 /// and transformed into DhcpOptions
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 enum Opt {
-    Ip(Ipv4Addr),
-    IpList(Vec<Ipv4Addr>),
-    DomainList(Vec<String>),
-    U8(u8),
-    U16(u16),
-    U32(u32),
-    I32(i32),
-    Bool(bool),
-    Str(String),
+    Ip(MaybeList<Ipv4Addr>),
+    IpList(Vec<Ipv4Addr>), // keep for backwards compatibility
+    Domain(MaybeList<String>),
+    DomainList(Vec<String>), // keep for backwards compatibility
+    U8(MaybeList<u8>),
+    U16(MaybeList<u16>),
+    U32(MaybeList<u32>),
+    I32(MaybeList<i32>),
+    Bool(MaybeList<bool>),
+    Str(MaybeList<String>),
     B64(String),
     Hex(String),
     SubOption(HashMap<u8, Opt>),
@@ -236,12 +244,12 @@ impl<'de> serde::Deserialize<'de> for Opts {
 
 fn write_opt(enc: &mut Encoder<'_>, code: u8, opt: Opt) -> anyhow::Result<()> {
     match opt {
-        Opt::Ip(ip) => {
+        Opt::Ip(MaybeList::Val(ip)) => {
             enc.write_u8(code)?;
             enc.write_u8(4)?;
             enc.write_slice(&ip.octets())?;
         }
-        Opt::IpList(list) => {
+        Opt::Ip(MaybeList::List(list)) | Opt::IpList(list) => {
             v4::encode_long_opt_chunks(
                 OptionCode::from(code),
                 4,
@@ -250,8 +258,15 @@ fn write_opt(enc: &mut Encoder<'_>, code: u8, opt: Opt) -> anyhow::Result<()> {
                 enc,
             )?;
         }
+        Opt::Domain(MaybeList::Val(domain)) => {
+            let mut buf = Vec::new();
+            let mut name_encoder = BinEncoder::new(&mut buf);
+            let name = domain.parse::<rr::Name>()?;
+            name.emit(&mut name_encoder)?;
+            v4::encode_long_opt_bytes(OptionCode::from(code), &buf, enc)?;
+        }
         // encode in DNS format
-        Opt::DomainList(list) => {
+        Opt::Domain(MaybeList::List(list)) | Opt::DomainList(list) => {
             let mut buf = Vec::new();
             let mut name_encoder = BinEncoder::new(&mut buf);
             for name in list {
@@ -260,33 +275,74 @@ fn write_opt(enc: &mut Encoder<'_>, code: u8, opt: Opt) -> anyhow::Result<()> {
             }
             v4::encode_long_opt_bytes(OptionCode::from(code), &buf, enc)?;
         }
-        Opt::Str(s) => {
+        Opt::Str(MaybeList::Val(s)) => {
             v4::encode_long_opt_bytes(OptionCode::from(code), s.as_bytes(), enc)?;
         }
-        Opt::U32(n) => {
+        Opt::Str(MaybeList::List(list)) => {
+            let buf = list
+                .into_iter()
+                .flat_map(|s| s.as_bytes().to_vec())
+                .collect::<Vec<_>>();
+            v4::encode_long_opt_bytes(OptionCode::from(code), &buf, enc)?;
+        }
+        Opt::U32(MaybeList::Val(n)) => {
             enc.write_u8(code)?;
             enc.write_u8(4)?;
             enc.write_u32(n)?;
         }
-        Opt::I32(n) => {
+        Opt::U32(MaybeList::List(list)) => {
+            v4::encode_long_opt_chunks(
+                OptionCode::from(code),
+                4,
+                &list,
+                |n, e| e.write_u32(*n),
+                enc,
+            )?;
+        }
+        Opt::I32(MaybeList::Val(n)) => {
             enc.write_u8(code)?;
             enc.write_u8(4)?;
             enc.write_i32(n)?;
         }
-        Opt::U8(n) => {
+        Opt::I32(MaybeList::List(list)) => {
+            v4::encode_long_opt_chunks(
+                OptionCode::from(code),
+                4,
+                &list,
+                |n, e| e.write_i32(*n),
+                enc,
+            )?;
+        }
+        Opt::U8(MaybeList::Val(n)) => {
             enc.write_u8(code)?;
             enc.write_u8(1)?;
             enc.write_u8(n)?;
         }
-        Opt::Bool(b) => {
+        Opt::U8(MaybeList::List(list)) => {
+            v4::encode_long_opt_bytes(OptionCode::from(code), &list, enc)?;
+        }
+        Opt::Bool(MaybeList::Val(b)) => {
             enc.write_u8(code)?;
             enc.write_u8(1)?;
             enc.write_u8(b.into())?;
         }
-        Opt::U16(n) => {
+        Opt::Bool(MaybeList::List(list)) => {
+            let list = list.into_iter().map(|b| b.into()).collect::<Vec<u8>>();
+            v4::encode_long_opt_bytes(OptionCode::from(code), &list, enc)?;
+        }
+        Opt::U16(MaybeList::Val(n)) => {
             enc.write_u8(code)?;
             enc.write_u8(2)?;
             enc.write_u16(n)?;
+        }
+        Opt::U16(MaybeList::List(list)) => {
+            v4::encode_long_opt_chunks(
+                OptionCode::from(code),
+                2,
+                &list,
+                |n, e| e.write_u16(*n),
+                enc,
+            )?;
         }
         Opt::B64(s) => {
             let bytes = base64::engine::general_purpose::STANDARD_NO_PAD.decode(s)?;
@@ -337,7 +393,7 @@ fn to_opt(code: &OptionCode, opt: &DhcpOption) -> Option<(u8, Opt)> {
         | RouterSolicitationAddr(addr)
         | RequestedIpAddress(addr)
         | ServerIdentifier(addr)
-        | SubnetSelection(addr) => Some(((*code).into(), Opt::Ip(*addr))),
+        | SubnetSelection(addr) => Some(((*code).into(), Opt::Ip(MaybeList::Val(*addr)))),
         TimeServer(ips)
         | NameServer(ips)
         | Router(ips)
@@ -353,13 +409,13 @@ fn to_opt(code: &OptionCode, opt: &DhcpOption) -> Option<(u8, Opt)> {
         | NTPServers(ips)
         | NetBiosNameServers(ips)
         | NetBiosDatagramDistributionServer(ips) => {
-            Some(((*code).into(), Opt::IpList(ips.clone())))
+            Some(((*code).into(), Opt::Ip(MaybeList::List(ips.clone()))))
         }
-        TimeOffset(num) => Some(((*code).into(), Opt::I32(*num))),
+        TimeOffset(num) => Some(((*code).into(), Opt::I32(MaybeList::Val(*num)))),
         DefaultTcpTtl(num) | DefaultIpTtl(num) | OptionOverload(num) => {
-            Some(((*code).into(), Opt::U8(*num)))
+            Some(((*code).into(), Opt::U8(MaybeList::Val(*num))))
         }
-        NetBiosNodeType(ntype) => Some(((*code).into(), Opt::U8((*ntype).into()))),
+        NetBiosNodeType(ntype) => Some(((*code).into(), Opt::U8(MaybeList::Val((*ntype).into())))),
         IpForwarding(b)
         | NonLocalSrcRouting(b)
         | AllSubnetsLocal(b)
@@ -367,16 +423,18 @@ fn to_opt(code: &OptionCode, opt: &DhcpOption) -> Option<(u8, Opt)> {
         | MaskSupplier(b)
         | PerformRouterDiscovery(b)
         | EthernetEncapsulation(b)
-        | TcpKeepaliveGarbage(b) => Some(((*code).into(), Opt::Bool(*b))),
+        | TcpKeepaliveGarbage(b) => Some(((*code).into(), Opt::Bool(MaybeList::Val(*b)))),
         ArpCacheTimeout(num)
         | TcpKeepaliveInterval(num)
         | AddressLeaseTime(num)
         | Renewal(num)
-        | Rebinding(num) => Some(((*code).into(), Opt::U32(*num))),
+        | Rebinding(num) => Some(((*code).into(), Opt::U32(MaybeList::Val(*num)))),
         Hostname(s) | MeritDumpFile(s) | DomainName(s) | ExtensionsPath(s) | NISDomain(s)
-        | RootPath(s) | NetBiosScope(s) | Message(s) => Some(((*code).into(), Opt::Str(s.clone()))),
+        | RootPath(s) | NetBiosScope(s) | Message(s) => {
+            Some(((*code).into(), Opt::Str(MaybeList::Val(s.clone()))))
+        }
         BootFileSize(num) | MaxDatagramSize(num) | InterfaceMtu(num) | MaxMessageSize(num) => {
-            Some(((*code).into(), Opt::U16(*num)))
+            Some(((*code).into(), Opt::U16(MaybeList::Val(*num))))
         }
         Unknown(opt) => Some(((*code).into(), Opt::Hex(hex::encode(opt.data())))),
         _ => {
@@ -407,6 +465,14 @@ mod tests {
 
     pub static SAMPLE_YAML: &str = include_str!("../../sample/config.yaml");
     pub static LONG_OPTS: &str = include_str!("../../sample/long_opts.yaml");
+
+    #[test]
+    fn test_untagged_opt() {
+        let v: Opt =
+            serde_json::from_str("{\"type\": \"ip\", \"value\": [\"1.2.3.4\", \"2.3.4.5\" ] }")
+                .unwrap();
+        assert!(matches!(v, Opt::Ip(MaybeList::List(_))));
+    }
 
     // test we can encode/decode sample
     #[test]
