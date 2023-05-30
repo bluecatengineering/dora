@@ -1,6 +1,6 @@
 use base64::Engine;
 use dora_core::dhcproto::{
-    v6::{DhcpOption, DhcpOptions, OptionCode},
+    v6::{DhcpOption, DhcpOptions, EncodeResult, OptionCode},
     Decodable, Decoder, Encodable, Encoder,
 };
 use ipnet::Ipv6Net;
@@ -9,7 +9,7 @@ use tracing::warn;
 
 use std::{collections::HashMap, net::Ipv6Addr, ops::RangeInclusive};
 
-use crate::wire::MinMax;
+use crate::wire::{MaybeList, MinMax};
 
 /// top-level config type
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default)]
@@ -101,12 +101,12 @@ pub struct Opts(pub DhcpOptions);
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 enum Opt {
-    Ip(Ipv6Addr),
+    Ip(MaybeList<Ipv6Addr>),
     IpList(Vec<Ipv6Addr>),
-    U8(u8),
-    U32(u32),
-    U16(u16),
-    Str(String),
+    U8(MaybeList<u8>),
+    U32(MaybeList<u32>),
+    U16(MaybeList<u16>),
+    Str(MaybeList<String>),
     B64(String),
     Hex(String),
 }
@@ -131,34 +131,58 @@ impl<'de> serde::Deserialize<'de> for Opts {
     }
 }
 
+fn encode_opt<'a, T, F>(data: &[T], f: F, e: &mut Encoder<'a>) -> EncodeResult<()>
+where
+    F: Fn(&T, &mut Encoder<'a>) -> EncodeResult<()>,
+{
+    e.write_u16((data.len() * std::mem::size_of::<T>()) as u16)?;
+    for thing in data {
+        f(thing, e)?;
+    }
+    Ok(())
+}
+
 fn write_opt(enc: &mut Encoder<'_>, code: u16, opt: Opt) -> anyhow::Result<()> {
     enc.write_u16(code)?;
     match opt {
-        Opt::Ip(ip) => {
+        Opt::Ip(MaybeList::Val(ip)) => {
             enc.write_u16(16)?;
             enc.write_u128(ip.into())?;
         }
-        Opt::IpList(list) => {
+        Opt::IpList(list) | Opt::Ip(MaybeList::List(list)) => {
             enc.write_u16(list.len() as u16 * 16)?;
             for ip in list {
                 enc.write_u128(ip.into())?;
             }
         }
-        Opt::U8(n) => {
+        Opt::U8(MaybeList::Val(n)) => {
             enc.write_u16(1)?;
             enc.write_u8(n)?;
         }
-        Opt::U32(n) => {
+        Opt::U8(MaybeList::List(list)) => {
+            enc.write_u16(list.len() as u16)?;
+            enc.write_slice(&list)?;
+        }
+        Opt::U32(MaybeList::Val(n)) => {
             enc.write_u16(4)?;
             enc.write_u32(n)?;
         }
-        Opt::U16(n) => {
+        Opt::U32(MaybeList::List(list)) => {
+            encode_opt(&list, |n, e| e.write_u32(*n), enc)?;
+        }
+        Opt::U16(MaybeList::Val(n)) => {
             enc.write_u16(2)?;
             enc.write_u16(n)?;
         }
-        Opt::Str(s) => {
+        Opt::U16(MaybeList::List(list)) => {
+            encode_opt(&list, |n, e| e.write_u16(*n), enc)?;
+        }
+        Opt::Str(MaybeList::Val(s)) => {
             enc.write_u16(s.as_bytes().len() as u16)?;
             enc.write_slice(s.as_bytes())?;
+        }
+        Opt::Str(MaybeList::List(list)) => {
+            encode_opt(&list, |n, e| e.write_slice(n.as_bytes()), enc)?;
         }
         Opt::B64(s) => {
             let bytes = base64::engine::general_purpose::STANDARD_NO_PAD.decode(s)?;
@@ -196,9 +220,9 @@ fn decode_opt(opt: &DhcpOption) -> Option<(u16, Opt)> {
     let code: OptionCode = opt.into();
     match opt {
         // inspiration: https://kea.readthedocs.io/en/kea-2.2.0/arm/dhcp6-srv.html?highlight=router%20advertisement#dhcp6-std-options-list
-        Preference(n) => Some((code.into(), Opt::U8(*n))),
-        ServerUnicast(ip) => Some((code.into(), Opt::Ip(*ip))),
-        DomainNameServers(addrs) => Some((code.into(), Opt::IpList(addrs.clone()))),
+        Preference(n) => Some((code.into(), Opt::U8(MaybeList::Val(*n)))),
+        ServerUnicast(ip) => Some((code.into(), Opt::Ip(MaybeList::Val(*ip)))),
+        DomainNameServers(addrs) => Some((code.into(), Opt::Ip(MaybeList::List(addrs.clone())))),
         Unknown(opt) => Some((code.into(), Opt::Hex(hex::encode(opt.data())))),
         _ => {
             // the data includes the code value, let's slice that off
@@ -217,5 +241,32 @@ fn decode_opt(opt: &DhcpOption) -> Option<(u16, Opt)> {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_encode() {
+        let mut buf = Vec::new();
+        let mut e = Encoder::new(&mut buf);
+        let opt = Opt::Ip(MaybeList::List(vec![
+            Ipv6Addr::UNSPECIFIED,
+            Ipv6Addr::LOCALHOST,
+        ]));
+        write_opt(&mut e, 23, opt).unwrap();
+        dbg!(std::mem::size_of::<Ipv6Addr>());
+        assert_eq!(
+            // [<2 byte code><2 byte len><data>]
+            &[
+                0, 23, // code
+                0, 32, // len in bytes
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // first addr
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 // second addr
+            ],
+            &buf[..]
+        );
     }
 }

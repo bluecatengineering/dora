@@ -72,11 +72,11 @@ networks:
                 # to respond to any parameter request list values.
                 options:
                     values:
-                        # each option has a `type`/`value`. the 'value' field can implicitly be a list for (all types except b64/hex/sub_option).
+                        # each option has a `type`/`value`. the 'value' field can implicitly be a list (all types except b64/hex/sub_option).
                         # valid types are:
                         #   ip          ex. 1.2.3.4 or [1.2.3.4, 1.2.3.4]
                         #   domain      (encodes list of domains in compressed DNS format) ex. ["foobar.com.", "apple.marketing.com."] or a single domain ex. "foobar.com."
-                        #   str         ex. "foobar"
+                        #   str         ex. "foobar" or ["foo", "bar"] 
                         #   u8          ex. 1 or [1, 2, 3]
                         #   u16         ex. 1 or [1, 2, 3]
                         #   u32         ex. 1 or [1, 2, 3]
@@ -84,7 +84,7 @@ networks:
                         #   b64         ex. "Zm9vYmFy"
                         #   hex         ex. "DEADBEEF"
                         #   sub_option
-                        # Look at: https://docs.rs/dhcproto/latest/dhcproto/v4/enum.DhcpOption.html for a list of opts and their type.
+                        # Look at: https://docs.rs/dhcproto/latest/dhcproto/v4/enum.DhcpOption.html for available opts and their corresponding type.
                         #
                         # For specifying options, use the number code or the name, for example
                         #   1:
@@ -169,7 +169,7 @@ networks:
     #     server_id: 192.168.0.1
 #
 # DHCPv6 
-# v6 support is largely unfinished at the moment. There is some early support for 
+# v6 support is largely experimental and unfinished. There is some early support for 
 # responding to INFOREQ.
 v6:
     # optional, interfaces to bind

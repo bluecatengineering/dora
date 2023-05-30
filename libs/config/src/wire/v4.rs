@@ -58,7 +58,7 @@ use trust_dns_proto::{
     serialize::binary::{BinEncodable, BinEncoder},
 };
 
-use crate::wire::MinMax;
+use crate::wire::{MaybeList, MinMax};
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Net {
@@ -144,13 +144,6 @@ pub enum Condition {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Opts(pub DhcpOptions);
-
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(untagged)]
-enum MaybeList<T> {
-    Val(T),
-    List(Vec<T>),
-}
 
 /// this type is only used as an intermediate representation
 /// Opts are received as essentially a HashMap<u8, Opt>
