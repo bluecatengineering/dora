@@ -197,10 +197,17 @@ impl<'de> serde::Deserialize<'de> for Opts {
             "all_subnets_local" => 27,
             "broadcast_addr" => 28,
             "static_routing_table" => 33,
+            "arp_cache_timeout" => 35,
+            "default_tcp_ttl" => 37,
+            "nis_domain" => 40,
+            "nis_servers" => 41,
+            "ntp_servers" => 42,
             "vendor_extensions" => 43,
+            "netbios_name_servers" => 44,
             "domain_search" => 119,
         };
 
+        // inner key type to handle string name or number
         #[derive(Serialize, Debug, PartialEq, Eq, Hash)]
         struct OptKey(u8);
         impl<'de> serde::Deserialize<'de> for OptKey {
