@@ -72,31 +72,38 @@ networks:
                 # to respond to any parameter request list values.
                 options:
                     values:
-                        # each option has a `type`/`value`. valid types are:
-                        #   ip          ex. 1.2.3.4
-                        #   ip_list     ex. [1.2.3.4, 1.2.3.4]
-                        #   domain_list (encodes list of domains in compressed DNS format) ex. ["foobar.com.", "apple.marketing.com."]
-                        #   str         ex. "foobar"
-                        #   u8
-                        #   u16
-                        #   u32
-                        #   i32
+                        # each option has a `type`/`value`. the 'value' field can implicitly be a list (all types except b64/hex/sub_option).
+                        # valid types are:
+                        #   ip          ex. 1.2.3.4 or [1.2.3.4, 1.2.3.4]
+                        #   domain      (encodes list of domains in compressed DNS format) ex. ["foobar.com.", "apple.marketing.com."] or a single domain ex. "foobar.com."
+                        #   str         ex. "foobar" or ["foo", "bar"] 
+                        #   u8          ex. 1 or [1, 2, 3]
+                        #   u16         ex. 1 or [1, 2, 3]
+                        #   u32         ex. 1 or [1, 2, 3]
+                        #   i32         ex. -1 or [-1, 2, 3]
                         #   b64         ex. "Zm9vYmFy"
                         #   hex         ex. "DEADBEEF"
                         #   sub_option
-                        # Look at: https://docs.rs/dhcproto/latest/dhcproto/v4/enum.DhcpOption.html for a list of opts and their type.
+                        # Look at: https://docs.rs/dhcproto/latest/dhcproto/v4/enum.DhcpOption.html for available opts and their corresponding type.
                         #
-                        # In the future, we could support a nicer way to handwrite 
-                        # these options, perhaps matching a string name to the opt code and type. 
+                        # For specifying options, use the number code or the name, for example
+                        #   1:
+                        #       type: ip
+                        #       value: 255.255.255.0
+                        # is equivalent to
+                        #   subnet_mask:
+                        #       type: ip
+                        #       value: 255.255.255.0
+                        # only some options have support for the string name identifier. 
                         1: # subnet mask (if not specified, comes from `interfaces`)
                             type: ip
                             value: 255.255.255.0
                         3: # router (if not specified, will come from `interfaces`)
-                            type: ip_list
+                            type: ip
                             value:
                                 - 192.168.5.1
                         6: # domain name (if running a DNS server like dnsmasq also, use its IP)
-                            type: ip_list
+                            type: ip
                             value:
                                 - 8.8.8.8
                         28: # broadcast addr (if not specified, comes from `interfaces`)
@@ -122,11 +129,11 @@ networks:
                             type: ip
                             value: 255.255.255.0
                         3:
-                            type: ip_list
+                            type: ip
                             value:
                                 - 192.168.5.1
                         6:
-                            type: ip_list
+                            type: ip
                             value:
                                 - 8.8.8.8
                         28:
@@ -162,7 +169,7 @@ networks:
     #     server_id: 192.168.0.1
 #
 # DHCPv6 
-# v6 support is largely unfinished at the moment. There is some early support for 
+# v6 support is largely experimental and unfinished. There is some early support for 
 # responding to INFOREQ.
 v6:
     # optional, interfaces to bind
@@ -334,6 +341,6 @@ client_classes:
           options: 
                 values: 
                     6:
-                        type: ip_list
+                        type: ip
                         value: [ 1.1.1.1 ]
           

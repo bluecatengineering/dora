@@ -107,12 +107,12 @@ impl ClientClasses {
 
 impl ClientClass {
     pub fn eval(&self, args: &Args) -> bool {
-        trace!(expr = ?self.assert, chaddr = ?args.chaddr, "evaluating expression");
+        trace!(name = ?self.name, expr = ?self.assert, chaddr = ?args.chaddr, "evaluating expression");
         match client_classification::eval(&self.assert, args) {
             Ok(Val::Bool(true)) => true,
             Ok(Val::Bool(false)) => false,
             res => {
-                error!(?res, class_name = ?self.name, "didn't evaluate to true/false");
+                error!(name = ?self.name, ?res, "expression didn't evaluate to true/false");
                 false
             }
         }

@@ -64,3 +64,26 @@ impl From<MinMax> for LeaseTime {
         LeaseTime { default, min, max }
     }
 }
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(untagged)]
+pub(crate) enum MaybeList<T> {
+    Val(T),
+    List(Vec<T>),
+}
+
+#[cfg(test)]
+mod tests {
+
+    pub static EXAMPLE: &str = include_str!("../../../../example.yaml");
+
+    // test we can encode/decode example file
+    #[test]
+    fn test_example() {
+        let cfg: crate::wire::Config = serde_yaml::from_str(EXAMPLE).unwrap();
+        println!("{cfg:#?}");
+        // back to the yaml
+        let s = serde_yaml::to_string(&cfg).unwrap();
+        println!("{s}");
+    }
+}

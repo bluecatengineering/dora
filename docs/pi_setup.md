@@ -59,11 +59,11 @@ edit `/etc/dhcpcd.conf` and append:
 ```
 interface wlan0
 # pick some static IP, this is the subnet we'll serve dora on
-static ip_address=192.168.5.1/24 
+static ip_address=192.168.5.1/24
 nohook wpa_supplicant
 ```
 
-### 3. Set up IP forwarding to eth0  
+### 3. Set up IP forwarding to eth0
 
 edit `/etc/sysctl.d/99-sysctl.conf` and either ensure the following lines are uncommented or append them:
 
@@ -72,7 +72,7 @@ net.ipv4.ip_forward=1
 net.ipv6.conf.all.forwarding=1
 ```
 
-***Note***: You may also find it useful here to create `/etc/sysctl.d/routed-ap.conf` and set its contents to:
+**_Note_**: You may also find it useful here to create `/etc/sysctl.d/routed-ap.conf` and set its contents to:
 
 ```
 # Enable IPv4 routing
@@ -85,7 +85,7 @@ then reboot the Pi to ensure the configuration settings are properly applied:
 sudo reboot
 ```
 
-once the Pi has rebooted, SSH back in and execute: 
+once the Pi has rebooted, SSH back in and execute:
 
 ```bash
 sudo iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
@@ -101,8 +101,8 @@ sudo netfilter-persistent save
 A very simple config (IPv4 only) that matches how this guide has configured hostapd might look like:
 
 ```yaml
-interfaces: 
-  - wlan0
+interfaces:
+    - wlan0
 networks:
     192.168.5.0/24:
         probation_period: 86400
@@ -121,16 +121,16 @@ networks:
                           type: ip
                           value: 255.255.255.0
                       3: # router (if not specified, will come from `interfaces`)
-                          type: ip_list
+                          type: ip
                           value:
                               - 192.168.5.1
                       6: # domain name (if running a DNS server like dnsmasq also, use its IP)
-                          type: ip_list
+                          type: ip
                           value:
                               - 8.8.8.8
                       28: # broadcast addr (if not specified, comes from `interfaces`)
-                         type: ip
-                         value: 192.168.5.255
+                          type: ip
+                          value: 192.168.5.255
 ```
 
 You may wish to save this minimal config to `pi.yaml` to try it out, or see [example.yaml](../example.yaml) for the full set of options. You can also use `dora --help` to see arguments.
