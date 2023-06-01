@@ -201,6 +201,12 @@ pub fn eval(expr: &Expr, args: &Args) -> Result<Val, EvalErr> {
             Val::Int(i) => Val::Bytes(i.to_be_bytes().to_vec()),
             err => return Err(EvalErr::ExpectedBytes(err)),
         },
+        ToText(lhs) => match eval(lhs, args)? {
+            Val::String(s) => Val::String(s),
+            Val::Bytes(b) => Val::String(std::str::from_utf8(&b)?.to_owned()),
+            Val::Int(i) => Val::String(i.to_string()),
+            err => return Err(EvalErr::ExpectedString(err)),
+        },
         SubOpt(lhs, o) => {
             let bytes = match eval(lhs, args)? {
                 Val::String(s) => s.as_bytes().to_vec(),
@@ -393,7 +399,7 @@ mod tests {
     }
 
     #[test]
-    fn test_substring_opts() {
+    fn test_substring_hex() {
         let mut opts = HashMap::new();
         opts.insert(
             61.into(),
@@ -403,6 +409,60 @@ mod tests {
         let tokens =
             ast::parse("substring('foobar', 0, 3) == 'foo' and option[61].hex == 'some_client_id'")
                 .unwrap();
+        let args = Args {
+            chaddr: &hex::decode("DEADBEEF").unwrap(),
+            opts: opts.clone(),
+            msg: &v4::Message::default(),
+            member: HashSet::new(),
+        };
+        let val = eval(&tokens, &args).unwrap();
+        assert_eq!(val, Val::Bool(true));
+
+        let tokens = ast::parse(format!(
+            "option[61].hex == 0x{}",
+            hex::encode("some_client_id")
+        ))
+        .unwrap();
+        let args = Args {
+            chaddr: &hex::decode("DEADBEEF").unwrap(),
+            opts,
+            msg: &v4::Message::default(),
+            member: HashSet::new(),
+        };
+        let val = eval(&tokens, &args).unwrap();
+        assert_eq!(val, Val::Bool(true));
+    }
+
+    #[test]
+    fn test_to_text() {
+        let mut opts = HashMap::new();
+        opts.insert(
+            61.into(),
+            UnknownOption::new(61.into(), b"some_client_id".to_vec()),
+        );
+
+        let tokens = ast::parse("option[61].text == 'some_client_id'").unwrap();
+        let args = Args {
+            chaddr: &hex::decode("DEADBEEF").unwrap(),
+            opts,
+            msg: &v4::Message::default(),
+            member: HashSet::new(),
+        };
+        assert_eq!(eval(&tokens, &args).unwrap(), Val::Bool(true));
+    }
+
+    #[test]
+    fn test_substring_opts() {
+        let mut opts = HashMap::new();
+        opts.insert(
+            61.into(),
+            UnknownOption::new(61.into(), b"some_client_id".to_vec()),
+        );
+
+        let tokens = ast::parse(
+            "substring('foobar', 0, 3) == 'foo' and option[61].text == 'some_client_id'",
+        )
+        .unwrap();
         let args = Args {
             chaddr: &hex::decode("DEADBEEF").unwrap(),
             opts,
@@ -442,7 +502,7 @@ mod tests {
         let val = eval(&expr, &args).unwrap();
         assert_eq!(val, Val::Bool(true));
 
-        let expr = ast::parse("relay4[12].hex == 'foo'").unwrap();
+        let expr = ast::parse("relay4[12].text == 'foo'").unwrap();
         let val = eval(&expr, &args).unwrap();
         assert_eq!(val, Val::Bool(true));
     }
@@ -456,9 +516,10 @@ mod tests {
         data.push(sub_opt.len() as u8);
         data.extend(sub_opt);
         data.extend([
-            23, 3, 1, 2, 3, // two
-            45, 0, // three
-            123, 10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+            23, 3, 1, 2, 3, // one
+            45, 0, // two
+            123, 10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, // three
+            25, 3, b'f', b'o', b'o', // four
         ]);
 
         opts.insert(
@@ -480,16 +541,21 @@ mod tests {
         let val = eval(&expr, &args).unwrap();
         assert_eq!(val, Val::Bytes(vec![1, 2, 3]));
 
+        let expr = ast::parse("option[82].option[25].text").unwrap();
+        let val = eval(&expr, &args).unwrap();
+        assert_eq!(val, Val::String("foo".to_owned()));
+
         let r = hex::encode([1, 2, 3]);
         let expr = ast::parse(format!("option[82].option[23].hex == 0x{r}")).unwrap();
         let val = eval(&expr, &args).unwrap();
         assert_eq!(val, Val::Bool(true));
 
-        let expr = ast::parse("option[82].option[23].exists").unwrap();
+        let expr =
+            ast::parse("option[82].option[23].exists and option[82].option[25].exists").unwrap();
         let val = eval(&expr, &args).unwrap();
         assert_eq!(val, Val::Bool(true));
 
-        let expr = ast::parse("option[82].option[25].exists").unwrap();
+        let expr = ast::parse("option[82].option[26].exists").unwrap();
         let val = eval(&expr, &args).unwrap();
         assert_eq!(val, Val::Bool(false));
 

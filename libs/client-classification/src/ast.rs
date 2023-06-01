@@ -40,6 +40,7 @@ pub enum Expr {
     Not(Box<Expr>),
     // postfix
     ToHex(Box<Expr>),
+    ToText(Box<Expr>),
     Exists(Box<Expr>),
     SubOpt(Box<Expr>, u8),
     // infix
@@ -97,7 +98,10 @@ pub fn build_ast(pair: Pairs<Rule>) -> ParseResult<Expr> {
         .op(Op::infix(Rule::and, Assoc::Left))
         .op(Op::infix(Rule::equal, Assoc::Right) | Op::infix(Rule::neq, Assoc::Right))
         .op(Op::prefix(Rule::not))
-        .op(Op::postfix(Rule::to_hex) | Op::postfix(Rule::exists) | Op::postfix(Rule::sub_opt));
+        .op(Op::postfix(Rule::to_hex)
+            | Op::postfix(Rule::exists)
+            | Op::postfix(Rule::sub_opt)
+            | Op::postfix(Rule::to_text));
 
     parse_expr(pair, &climber)
 }
@@ -207,6 +211,7 @@ fn parse_expr(pairs: Pairs<Rule>, pratt: &PrattParser<Rule>) -> ParseResult<Expr
         .map_postfix(|lhs, op| {
             Ok(match op.as_rule() {
                 Rule::to_hex => Expr::ToHex(Box::new(lhs?)),
+                Rule::to_text => Expr::ToText(Box::new(lhs?)),
                 Rule::exists => Expr::Exists(Box::new(lhs?)),
                 Rule::sub_opt => {
                     // parse inner op (".option[_]"), should return Expr::Option(_)
