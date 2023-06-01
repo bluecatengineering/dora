@@ -2,7 +2,7 @@
 
 ![](dora.jpg)
 
-`dora` is a DHCP server written in Rust using tokio. It is built on the [`dhcproto`](https://github.com/bluecatengineering/dhcproto) library and `sqlx`. We currently use the sqlite backend, although that could change in the future. The goal of `dora` is to provide a complete DHCP implementation for IPv4, and eventually IPv6. Dora supports duplicate address detection, ping, binding multiple interfaces, static addresses, etc [see example.yaml for all options](./example.yaml).
+`dora` is a DHCP server written in Rust using tokio. It is built on the [`dhcproto`](https://github.com/bluecatengineering/dhcproto) library and `sqlx`. We currently use the sqlite backend, although that could change in the future. The goal of `dora` is to provide a complete, performant, and correct implementation of DHCPv4, and eventually DHCPv6. Dora supports duplicate address detection, ping, binding multiple interfaces, static addresses, client classes, etc [see example.yaml for all options](./example.yaml).
 
 It is, however, an **early release version** and may contain bugs. We hope to build an active community around this project so we can create a new DHCP server together. PRs, issues, and constructive comments are welcome.
 
