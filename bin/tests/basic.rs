@@ -2,7 +2,7 @@ mod common;
 
 use std::net::Ipv4Addr;
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use common::{builder::*, client::Client, env::DhcpServerEnv};
 use dora_core::{dhcproto::v4, prelude::MacAddr, tracing};
 use tracing_test::traced_test;
@@ -492,5 +492,79 @@ fn test_decline() -> Result<()> {
         .build()?;
     let resp = client.run(MsgType::Discover(msg_args))?;
     assert_ne!(resp.yiaddr(), yiaddr);
+    Ok(())
+}
+
+/// send a Discover with vendor id "android-dhcp-13"
+/// we've got a class that has 1 range with this class guarding it,
+/// an assertion on substring(option[60], 0, 7) == 'android'
+#[test]
+#[traced_test]
+fn test_vendor_class() -> Result<()> {
+    let _srv = DhcpServerEnv::start(
+        "classes.yaml",
+        "classes.db",
+        "dora_test",
+        "dhcpcli",
+        "dhcpsrv",
+        "192.168.2.1",
+    );
+    // use veth_cli created in start()
+    let settings = ClientSettingsBuilder::default()
+        .iface_name("dhcpcli")
+        .target("192.168.2.1".parse::<std::net::IpAddr>().unwrap())
+        .port(9900_u16)
+        .build()?;
+    // create a client that sends dhcpv4 messages
+    let mut client = Client::<v4::Message>::new(settings);
+    // create DISCOVER msg & send
+    let msg_args = DiscoverBuilder::default()
+        .giaddr([192, 168, 2, 1])
+        .req_list([v4::OptionCode::VendorExtensions])
+        .opts([v4::DhcpOption::ClassIdentifier(b"android-dhcp-13".to_vec())])
+        .build()?;
+    let resp = client.run(MsgType::Discover(msg_args))?;
+
+    assert_eq!(resp.opts().msg_type().unwrap(), v4::MessageType::Offer);
+    let v4::DhcpOption::VendorExtensions(vendor_ext) = resp.opts().get(v4::OptionCode::VendorExtensions).unwrap() else {
+        bail!("vendor extensions not present");
+    };
+    // classes.yaml adds [1,2,3,4] as a Vec<u32>, translated into
+    let ret = vec![0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4];
+    assert_eq!(vendor_ext, &ret);
+    Ok(())
+}
+
+/// send a Discover with vendor id "iphone-dhcp-13"
+/// we've got a class that has 1 range with this class guarding it,
+/// an assertion on substring(option[60], 0, 7) == 'android'
+#[test]
+#[traced_test]
+fn test_vendor_class_not_match() -> Result<()> {
+    let _srv = DhcpServerEnv::start(
+        "classes.yaml",
+        "classes.db",
+        "dora_test",
+        "dhcpcli",
+        "dhcpsrv",
+        "192.168.2.1",
+    );
+    // use veth_cli created in start()
+    let settings = ClientSettingsBuilder::default()
+        .iface_name("dhcpcli")
+        .target("192.168.2.1".parse::<std::net::IpAddr>().unwrap())
+        .port(9900_u16)
+        .build()?;
+    // create a client that sends dhcpv4 messages
+    let mut client = Client::<v4::Message>::new(settings);
+    // create DISCOVER msg & send
+    let msg_args = DiscoverBuilder::default()
+        .giaddr([192, 168, 2, 1])
+        .req_list([v4::OptionCode::VendorExtensions])
+        .opts([v4::DhcpOption::ClassIdentifier(b"iphone-dhcp-13".to_vec())])
+        .build()?;
+    let resp = client.run(MsgType::Discover(msg_args));
+    // iphone-dhcp-13 doesn't match the configured vendor id
+    assert!(resp.is_err());
     Ok(())
 }
