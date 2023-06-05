@@ -15,6 +15,8 @@ pub enum Error {
     },
     #[error("received mismatched reply for request: {seq_cnt:?} {payload:?}")]
     WrongReply { seq_cnt: u16, payload: Token },
+    #[error("listener has been cancelled already")]
+    ListenerCancelled,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

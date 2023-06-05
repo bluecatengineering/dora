@@ -1,6 +1,5 @@
 mod errors;
 mod icmp;
-mod shutdown;
 mod socket;
 
 pub use crate::errors::Error;
@@ -8,10 +7,9 @@ pub use crate::icmp::{Decode, EchoReply, EchoRequest, Encode, Icmpv4, Icmpv6, IC
 use crate::{icmp::Proto, socket::Socket};
 
 use parking_lot::Mutex;
-use shutdown::Shutdown;
 use socket2::{Domain, Protocol, Type};
-use tokio::sync::{broadcast, oneshot};
-use tokio::task;
+use tokio::{sync::oneshot, task};
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, trace, warn};
 
 use core::fmt;
@@ -88,14 +86,14 @@ impl<P: Proto> Pinger<P> {
         host: IpAddr,
         socket: Arc<IcmpEcho<P>>,
         map: PingMap,
-        // shutdown: Shutdown,
+        shutdown: CancellationToken,
     ) -> Pinger<P> {
         Self {
             socket,
             host,
             ident: rand::random(),
             map,
-            // shutdown,
+            shutdown,
             timeout: Duration::from_millis(500),
         }
     }
@@ -109,6 +107,9 @@ impl<P: Proto> Pinger<P> {
     where
         for<'a> EchoRequest<'a>: Encode<P>,
     {
+        if self.shutdown.is_cancelled() {
+            return Err(errors::Error::ListenerCancelled);
+        }
         let (tx, rx) = oneshot::channel();
         let payload = rand::random::<Token>();
 
@@ -165,44 +166,44 @@ macro_rules! impl_icmp {
         impl Listener<$t> {
             pub fn new() -> errors::Result<Listener<$t>> {
                 let soc = Arc::new(IcmpEcho::<$t>::new()?);
-                // when notify_shutdown is dropped, all pingers will shutdown
-                let (notify_shutdown, _) = broadcast::channel(1);
-
-                let r = soc.clone();
-                let mut shutdown = Shutdown::new(notify_shutdown.subscribe());
+                // when Listener is dropped we will cancel()
+                let cancel = CancellationToken::new();
                 let map: PingMap = Arc::new(Mutex::new(HashMap::new()));
 
-                let task_map = map.clone();
-                task::spawn(async move {
-                    loop {
-                        tokio::select! {
-                            ret = r.reply() => {
-                                if let Ok((reply, addr)) = ret {
-                                    debug!(?addr, ?reply, "received reply");
-                                    let now = Instant::now();
-                                    if let Some(ping) = task_map.lock().remove(&reply.payload[..]) {
-                                        let time = now - ping.sent;
-                                        if let Err(err) = ping.tx.send(PingReply { reply, addr, time }) {
-                                            error!(?err, "error on oneshot sender (receiver likely dropped)");
+                task::spawn({
+                    let soc = soc.clone();
+                    let cancel = cancel.clone();
+                    let map = map.clone();
+                    async move {
+                        loop {
+                            tokio::select! {
+                                ret = soc.reply() => {
+                                    if let Ok((reply, addr)) = ret {
+                                        debug!(?addr, ?reply, "received reply");
+                                        let now = Instant::now();
+                                        if let Some(ping) = map.lock().remove(&reply.payload[..]) {
+                                            let time = now - ping.sent;
+                                            if let Err(err) = ping.tx.send(PingReply { reply, addr, time }) {
+                                                error!(?err, "error on oneshot sender (receiver likely dropped)");
+                                            }
+                                        } else {
+                                            error!(?reply, ?addr, "received reply that we've already received or that we've never sent");
                                         }
-                                    } else {
-                                        error!(?reply, ?addr, "received reply that we've already received or that we've never sent");
                                     }
                                 }
-                            }
-                            _ = shutdown.recv() => {
-                                debug!("ICMP listener shutdown received");
-                                break;
+                                _ = cancel.cancelled() => {
+                                    debug!("ICMP listener shutdown received");
+                                    break;
+                                }
                             }
                         }
-                    }
-                });
+                }});
 
                 Ok(Self {
                     inner: soc,
                     map,
                     // once Dropped, triggers shutdown in listener task (could also just abort()?)
-                    notify_shutdown,
+                    cancel,
                 })
             }
 
@@ -216,7 +217,7 @@ macro_rules! impl_icmp {
                     host,
                     self.inner.clone(),
                     self.map.clone(),
-                    // Shutdown::new(self.notify_shutdown.subscribe()),
+                    self.cancel.child_token(),
                 )
             }
         }
@@ -283,7 +284,7 @@ pub struct Pinger<M> {
     // may get swapped out by kernel
     ident: u16,
     timeout: Duration,
-    // shutdown: Shutdown,
+    shutdown: CancellationToken,
 }
 
 #[derive(Debug)]
@@ -311,19 +312,18 @@ impl Drop for Guard {
 pub struct Listener<M> {
     inner: Arc<IcmpEcho<M>>,
     map: PingMap,
-    // on Drop this will stop our spawned task, but it is never read
-    #[allow(dead_code)]
-    notify_shutdown: broadcast::Sender<()>,
+    cancel: CancellationToken,
 }
 
 impl<M> Drop for Listener<M> {
     fn drop(&mut self) {
+        self.cancel.cancel();
         debug!("ICMP listener dropped");
     }
 }
 
 /// a reply received on the ICMP socket
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PingReply {
     pub reply: EchoReply,
     pub addr: SocketAddr,
@@ -399,6 +399,21 @@ mod tests {
             let res = pinger.ping(i).await?;
             assert_eq!(res.reply.seq_cnt, i);
         }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_listener_cancel() -> errors::Result<()> {
+        let listener = Listener::<Icmpv4>::new()?;
+        let pinger = listener.pinger("127.0.0.2".parse().unwrap());
+        let pinger_2 = listener.pinger("127.0.0.3".parse().unwrap());
+        drop(listener);
+        let res = pinger.ping(1).await;
+        let res2 = pinger_2.ping(1).await;
+        assert!(matches!(res, Err(errors::Error::ListenerCancelled)));
+        assert!(matches!(res2, Err(errors::Error::ListenerCancelled)));
 
         Ok(())
     }
