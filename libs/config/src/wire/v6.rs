@@ -135,7 +135,8 @@ fn encode_opt<'a, T, F>(data: &[T], f: F, e: &mut Encoder<'a>) -> EncodeResult<(
 where
     F: Fn(&T, &mut Encoder<'a>) -> EncodeResult<()>,
 {
-    e.write_u16((data.len() * std::mem::size_of::<T>()) as u16)?;
+    // size_of_val removes data.len() * mem::size_of::<T>()
+    e.write_u16((std::mem::size_of_val(data)) as u16)?;
     for thing in data {
         f(thing, e)?;
     }

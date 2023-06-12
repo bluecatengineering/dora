@@ -215,7 +215,7 @@ where
                     Err(_) => None,
                 }
             };
-            match self.ping_cache.get_with(ip, async { fut.await }).await {
+            match self.ping_cache.get_with(ip, fut).await {
                 Some(_reply) => Err(IpError::AddrInUse(ip)),
                 None => Ok(()),
             }

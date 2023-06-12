@@ -30,16 +30,6 @@ impl Clone for SqliteDb {
 
 impl SqliteDb {
     pub async fn new(uri: impl AsRef<str>) -> Result<Self, sqlx::Error> {
-        // in memory sqlite will clear the db after all conns close,
-        // to keep it alive for testing-- we can make sure conns _never_ close.
-        //
-        // let inner = if uri.as_ref().contains("memory") {
-        //     sqlx::sqlite::SqlitePoolOptions::new()
-        //         .idle_timeout(None)
-        //         .max_lifetime(None)
-        //         .connect(uri.as_ref())
-        //         .await?
-        // } else {
         let mut opts = SqliteConnectOptions::from_str(uri.as_ref())?
             .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
             .create_if_missing(true);
@@ -47,7 +37,6 @@ impl SqliteDb {
         opts.log_statements(tracing::log::LevelFilter::Trace);
 
         let inner = SqlitePool::connect_with(opts).await?;
-        // };
         sqlx::migrate!("../../migrations").run(&inner).await?;
         Ok(Self { inner })
     }

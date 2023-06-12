@@ -115,23 +115,26 @@ where
             .get(OptionCode::RapidCommit)
             .is_some()
             && self.cfg.v4().rapid_commit();
+        let bootp = self.cfg.v4().bootp_enabled();
 
-        match (
-            req.opts().msg_type().context("No message type found")?,
-            network,
-        ) {
+        match (req.opts().msg_type(), network) {
             // if yiaddr is set, then a previous plugin has already given the message an IP (like static)
-            (MessageType::Discover, _) if resp_has_yiaddr => {
+            (Some(MessageType::Discover), _) if resp_has_yiaddr => {
                 return Ok(Action::Continue);
             }
             // giaddr has matched one of our configured subnets
-            (MessageType::Discover, Some(net)) => {
+            (Some(MessageType::Discover), Some(net)) => {
                 self.discover(ctx, &client_id, net, classes, rapid_commit)
                     .await
             }
-            (MessageType::Request, Some(net)) => self.request(ctx, &client_id, net, classes).await,
-            (MessageType::Release, _) => self.release(ctx, &client_id).await,
-            (MessageType::Decline, Some(net)) => self.decline(ctx, &client_id, net).await,
+            (Some(MessageType::Request), Some(net)) => {
+                self.request(ctx, &client_id, net, classes).await
+            }
+            (Some(MessageType::Release), _) => self.release(ctx, &client_id).await,
+            (Some(MessageType::Decline), Some(net)) => self.decline(ctx, &client_id, net).await,
+            // if BOOTP enabled and no msg type
+            // getting here means no static address has been assigned either
+            (_, Some(net)) if bootp => self.bootp(ctx, &client_id, net, classes).await,
             _ => {
                 debug!(?subnet, giaddr = ?req.giaddr(), "message type or subnet did not match");
                 // NoResponse means no other plugin gets to try to send a message
@@ -145,28 +148,34 @@ impl<S> Leases<S>
 where
     S: Storage,
 {
-    async fn discover(
+    async fn bootp(
         &self,
         ctx: &mut MsgContext<Message>,
         client_id: &[u8],
         network: &Network,
         classes: Option<Vec<String>>,
-        rapid_commit: bool,
     ) -> Result<Action> {
-        let req = ctx.decoded_msg();
-        // give 60 seconds between discover & request, TODO: configurable?
-        let expires_at = SystemTime::now() + Duration::from_secs(60);
+        // BOOTP addresses are forever
+        // TODO: we should probably set the expiry time to NULL but for now, 40 years in the future
+        let expires_at = SystemTime::now() + Duration::from_secs(60 * 60 * 24 * 7 * 12 * 40);
+        let state = Some(IpState::Lease);
+        self.first_available(ctx, client_id, network, classes, expires_at, state)
+            .await
+    }
+
+    /// uses requested ip from client, or the first available IP in the range
+    async fn first_available(
+        &self,
+        ctx: &mut MsgContext<Message>,
+        client_id: &[u8],
+        network: &Network,
+        classes: Option<Vec<String>>,
+        expires_at: SystemTime,
+        state: Option<IpState>,
+    ) -> Result<Action> {
         let classes = classes.as_deref();
-        let state = if rapid_commit {
-            Some(IpState::Lease)
-        } else {
-            None
-        };
         // requested ip included in message, try to reserve
-        if let Some(DhcpOption::RequestedIpAddress(ip)) =
-            req.opts().get(OptionCode::RequestedIpAddress)
-        {
-            let ip = *ip;
+        if let Some(ip) = ctx.requested_ip() {
             // within our range. `range` makes sure IP is not in exclude list
             if let Some(range) = network.range(ip, classes) {
                 match self
@@ -221,6 +230,25 @@ where
         }
         debug!("leases plugin did not assign ip");
         Ok(Action::NoResponse)
+    }
+
+    async fn discover(
+        &self,
+        ctx: &mut MsgContext<Message>,
+        client_id: &[u8],
+        network: &Network,
+        classes: Option<Vec<String>>,
+        rapid_commit: bool,
+    ) -> Result<Action> {
+        // give 60 seconds between discover & request, TODO: configurable?
+        let expires_at = SystemTime::now() + Duration::from_secs(60);
+        let state = if rapid_commit {
+            Some(IpState::Lease)
+        } else {
+            None
+        };
+        self.first_available(ctx, client_id, network, classes, expires_at, state)
+            .await
     }
 
     async fn request(

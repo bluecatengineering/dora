@@ -2,7 +2,7 @@
 
 You will need a Pi3 or later with either an onboard WiFi module or an external WiFi dongle. We also assume that you are running Raspbian (tested with 32-bit).
 
-### 0. SSH into the Pi
+## 0. SSH into the Pi
 
 Ensure everything is up to date with:
 
