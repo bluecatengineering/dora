@@ -181,6 +181,38 @@ fn static_bootp() -> Result<()> {
     Ok(())
 }
 
+/// send a BOOTP message
+#[test]
+#[traced_test]
+fn dynamic_bootp() -> Result<()> {
+    let _srv = DhcpServerEnv::start(
+        "basic.yaml",
+        "basic.db",
+        "dora_test",
+        "dhcpcli",
+        "dhcpsrv",
+        "192.168.2.1",
+    );
+    // use veth_cli created in start()
+    let settings = ClientSettingsBuilder::default()
+        .iface_name("dhcpcli")
+        .target("192.168.2.1".parse::<std::net::IpAddr>().unwrap())
+        .port(9900_u16)
+        .build()?;
+
+    // create a client that sends dhcpv4 messages
+    let mut client = Client::<v4::Message>::new(settings);
+    // create BOOTP msg & send
+    let resp = client.run(MsgType::BootP(
+        BootPBuilder::default().giaddr([192, 168, 2, 1]).build()?,
+    ))?;
+
+    assert_eq!(resp.opts().msg_type(), None);
+    assert!(resp.yiaddr().is_private());
+
+    Ok(())
+}
+
 /// standard negotiation but with matching on an option value for reserved IP
 #[test]
 #[traced_test]

@@ -159,8 +159,12 @@ where
         // TODO: we should probably set the expiry time to NULL but for now, 40 years in the future
         let expires_at = SystemTime::now() + Duration::from_secs(60 * 60 * 24 * 7 * 12 * 40);
         let state = Some(IpState::Lease);
-        self.first_available(ctx, client_id, network, classes, expires_at, state)
-            .await
+        let resp = self
+            .first_available(ctx, client_id, network, classes, expires_at, state)
+            .await;
+        ctx.filter_dhcp_opts();
+
+        resp
     }
 
     /// uses requested ip from client, or the first available IP in the range
