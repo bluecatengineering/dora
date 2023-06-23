@@ -33,6 +33,8 @@ pub struct Config {
     chaddr_only: bool,
     bootp_enable: bool,
     rapid_commit: bool,
+    flood_threshold: Option<FloodThreshold>,
+    renew_threshold: Option<u32>,
     /// used to make a selection on which network or subnet to use
     networks: HashMap<Ipv4Net, Network>,
     v6: Option<crate::v6::Config>,
@@ -111,6 +113,22 @@ impl TryFrom<wire::Config> for Config {
             chaddr_only: cfg.chaddr_only,
             bootp_enable: cfg.bootp_enable,
             rapid_commit: cfg.rapid_commit,
+            flood_threshold: cfg.flood_protection_threshold.map(|f| FloodThreshold {
+                packets: f.packets.get(),
+                period: Duration::from_secs(f.secs.get() as u64),
+            }),
+            // error if threshold exists and > 100
+            renew_threshold: cfg
+                .cache_threshold
+                .map(|threshold| {
+                    let threshold: u32 = threshold.get();
+                    if threshold > 100 {
+                        Err(anyhow::anyhow!("cache_threshold must be between 0 and 100"))
+                    } else {
+                        Ok(threshold.clamp(0, 100))
+                    }
+                })
+                .transpose()?,
             v6: cfg
                 .v6
                 .map(crate::v6::Config::try_from)
@@ -128,6 +146,14 @@ impl TryFrom<wire::Config> for Config {
 impl Config {
     pub fn v6(&self) -> Option<&crate::v6::Config> {
         self.v6.as_ref()
+    }
+    /// return the flood threshold config
+    pub fn flood_threshold(&self) -> Option<FloodThreshold> {
+        self.flood_threshold.clone()
+    }
+    /// return the renew threshold config
+    pub fn renew_threshold(&self) -> Option<u32> {
+        self.renew_threshold
     }
     /// eval all client classes, return names of classes that evaluate to true
     pub fn eval_client_classes(&self, req: &dhcproto::v4::Message) -> Option<Result<Vec<String>>> {
@@ -577,6 +603,33 @@ fn merge_opts(mut a: DhcpOptions, b: Option<DhcpOptions>) -> DhcpOptions {
             }
             a
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FloodThreshold {
+    packets: u32,
+    period: Duration,
+}
+
+impl Default for FloodThreshold {
+    fn default() -> Self {
+        Self {
+            packets: 6,
+            period: Duration::from_secs(5),
+        }
+    }
+}
+
+impl FloodThreshold {
+    pub fn new(packets: u32, period: Duration) -> Self {
+        Self { packets, period }
+    }
+    pub fn packets(&self) -> u32 {
+        self.packets
+    }
+    pub fn period(&self) -> Duration {
+        self.period
     }
 }
 

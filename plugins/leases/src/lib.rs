@@ -7,7 +7,7 @@
     non_upper_case_globals
 )]
 #![deny(rustdoc::broken_intra_doc_links)]
-#![allow(clippy::cognitive_complexity)]
+#![allow(clippy::cognitive_complexity, clippy::too_many_arguments)]
 
 use std::{
     fmt,
@@ -15,6 +15,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use client_protection::RenewThreshold;
 use dora_core::{
     anyhow::anyhow,
     chrono::{DateTime, SecondsFormat, Utc},
@@ -40,6 +41,7 @@ where
 {
     cfg: Arc<DhcpConfig>,
     ip_mgr: IpManager<S>,
+    renew_cache: Option<RenewThreshold<Vec<u8>>>,
 }
 
 impl<S> fmt::Debug for Leases<S>
@@ -56,29 +58,40 @@ where
     S: Storage,
 {
     pub fn new(cfg: Arc<DhcpConfig>, ip_mgr: IpManager<S>) -> Self {
-        Self { cfg, ip_mgr }
+        Self {
+            renew_cache: cfg.v4().renew_threshold().map(RenewThreshold::new),
+            ip_mgr,
+            cfg,
+        }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    async fn set_response(
+    pub fn renew_threshold(&self, id: &[u8]) -> bool {
+        self.renew_cache
+            .as_ref()
+            .map(|cache| cache.threshold(id))
+            .unwrap_or(false)
+    }
+
+    pub fn renew_insert(&self, id: &[u8], lease_time: Duration) {
+        self.renew_cache
+            .as_ref()
+            // TODO: try to remove to_vec?
+            .and_then(|cache| {
+                let old = cache.insert(id.to_vec(), lease_time);
+                trace!(?old, ?id, "replacing old renewal time");
+                old
+            });
+    }
+
+    fn set_lease(
         &self,
-        network: &Network,
+        ctx: &mut MsgContext<Message>,
+        (lease, t1, t2): (Duration, Duration, Duration),
         ip: Ipv4Addr,
-        range: &NetRange,
-        client_id: &[u8],
         expires_at: SystemTime,
         classes: Option<&[String]>,
-        ctx: &mut MsgContext<Message>,
+        range: &NetRange,
     ) -> Result<()> {
-        let (lease, t1, t2) = range.lease().determine_lease(ctx.requested_lease_time());
-        debug!(
-            ?ip,
-            ?client_id,
-            expires_at = %DateTime::<Utc>::from(expires_at).to_rfc3339_opts(SecondsFormat::Secs, true),
-            range = ?range.addrs(),
-            subnet = ?network.subnet(),
-            "reserved requested ip"
-        );
         ctx.decoded_resp_msg_mut()
             .context("response message must be set before leases is run")?
             .set_yiaddr(ip);
@@ -195,8 +208,16 @@ where
                     .await
                 {
                     Ok(_) => {
-                        self.set_response(network, ip, range, client_id, expires_at, classes, ctx)
-                            .await?;
+                        debug!(
+                            ?ip,
+                            ?client_id,
+                            expires_at = %DateTime::<Utc>::from(expires_at).to_rfc3339_opts(SecondsFormat::Secs, true),
+                            range = ?range.addrs(),
+                            subnet = ?network.subnet(),
+                           "reserved IP for client-- sending offer"
+                        );
+                        let lease = range.lease().determine_lease(ctx.requested_lease_time());
+                        self.set_lease(ctx, lease, ip, expires_at, classes, range)?;
                         return Ok(Action::Continue);
                     }
                     // address in use from ping or cannot reserve this ip
@@ -218,9 +239,16 @@ where
                 .await
             {
                 Ok(IpAddr::V4(ip)) => {
-                    debug!(?ip, ?client_id, "got IP for client-- sending offer");
-                    self.set_response(network, ip, range, client_id, expires_at, classes, ctx)
-                        .await?;
+                    debug!(
+                        ?ip,
+                        ?client_id,
+                        expires_at = %DateTime::<Utc>::from(expires_at).to_rfc3339_opts(SecondsFormat::Secs, true),
+                        range = ?range.addrs(),
+                        subnet = ?network.subnet(),
+                        "reserved IP for client-- sending offer"
+                    );
+                    let lease = range.lease().determine_lease(ctx.requested_lease_time());
+                    self.set_lease(ctx, lease, ip, expires_at, classes, range)?;
                     return Ok(Action::Continue);
                 }
                 Err(IpError::DbError(err)) => {
@@ -282,31 +310,37 @@ where
         let range = network.range(ip, classes);
         debug!(?ip, range = ?range.map(|r| r.addrs()), "is IP in range?");
         if let Some(range) = range {
+            let lease = range.lease().determine_lease(ctx.requested_lease_time());
+            let expires_at = SystemTime::now() + lease.0;
             // calculate the lease time
-            let (lease, t1, t2) = range.lease().determine_lease(ctx.requested_lease_time());
-            let expires_at = SystemTime::now() + lease;
+            if self.renew_threshold(client_id) {
+                debug!(
+                    ?ip,
+                    ?client_id,
+                    expires_at = %DateTime::<Utc>::from(expires_at).to_rfc3339_opts(SecondsFormat::Secs, true),
+                    range = ?range.addrs(),
+                    subnet = ?network.subnet(),
+                    "sending old LEASE. client is attempting to renew inside of the renew threshold"
+                );
+                self.set_lease(ctx, lease, ip, expires_at, classes, range)?;
+                return Ok(Action::Continue);
+            }
+
             match self
                 .ip_mgr
                 .try_lease(ip.into(), client_id, expires_at, network)
                 .await
             {
                 Ok(_) => {
-                    ctx.decoded_resp_msg_mut()
-                        .context("response message must be set before leases is run")?
-                        .set_yiaddr(ip);
                     debug!(
                         ?ip,
                         ?client_id,
                         expires_at = %DateTime::<Utc>::from(expires_at).to_rfc3339_opts(SecondsFormat::Secs, true),
-                        "leased requested ip"
+                        range = ?range.addrs(),
+                        subnet = ?network.subnet(),
+                        "sending LEASE"
                     );
-                    ctx.populate_opts_lease(
-                        &self.cfg.v4().collect_opts(range.opts(), classes),
-                        lease,
-                        t1,
-                        t2,
-                    );
-                    ctx.set_local(ExpiresAt(expires_at));
+                    self.set_lease(ctx, lease, ip, expires_at, classes, range)?;
                     return Ok(Action::Continue);
                 }
                 // ip not reserved or chaddr doesn't match

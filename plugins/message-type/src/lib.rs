@@ -9,6 +9,7 @@
 #![deny(rustdoc::broken_intra_doc_links)]
 #![allow(clippy::cognitive_complexity)]
 
+use client_protection::FloodCache;
 use dora_core::{
     dhcproto::{
         v4::{DhcpOption, Message, MessageType, Opcode, OptionCode},
@@ -18,21 +19,38 @@ use dora_core::{
     tracing::warn,
 };
 use register_derive::Register;
-use std::net::Ipv4Addr;
+use std::{fmt::Debug, net::Ipv4Addr};
 
 use config::DhcpConfig;
 
-#[derive(Debug, Register)]
+#[derive(Register)]
 #[register(msg(Message))]
 #[register(msg(v6::Message))]
 #[register(plugin())]
 pub struct MsgType {
     cfg: Arc<DhcpConfig>,
+    flood: Option<FloodCache<Vec<u8>>>,
+}
+
+impl Debug for MsgType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MsgType").field("cfg", &self.cfg).finish()
+    }
 }
 
 impl MsgType {
     pub fn new(cfg: Arc<DhcpConfig>) -> Result<Self> {
-        Ok(Self { cfg })
+        Ok(Self {
+            flood: cfg.v4().flood_threshold().map(FloodCache::new),
+            cfg,
+        })
+    }
+
+    pub fn flood_check(&self, id: &Vec<u8>) -> bool {
+        self.flood
+            .as_ref()
+            .map(|flood| flood.is_allowed(id))
+            .unwrap_or(false)
     }
 }
 
@@ -61,6 +79,15 @@ impl Plugin<Message> for MsgType {
             ?subnet,
             req = %ctx.decoded_msg(),
         );
+
+        let client_id = self.cfg.v4().client_id(req).to_vec(); // to_vec required b/c of borrowck error
+        if self.flood_check(&client_id) {
+            debug!(
+                ?client_id,
+                "client is chatty, engaging rate limit and not responding"
+            );
+            return Ok(Action::NoResponse);
+        }
         // otherwise our interface IP as the id
         let server_id = self
             .cfg

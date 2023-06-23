@@ -16,12 +16,28 @@
 #
 # rapid_commit: false
 #
-# Dora binds to inaddr_any, if an interface is specified dora will filter 
+# The DHCP flood attack protection enables the DHCP device to detect DHCP
+# flood attacks according to the DHCP packet rate threshold on a per-MAC basis.
+# By default this section is not enabled.
+#
+# flood_protection_threshold:
+#       packets: 6
+#       secs: 5
+#
+# The renew_threshold statement takes one integer parameter with
+# allowed values between 0 and 100. This parameter expresses the
+# percentage of the total lease time, measured from the beginning,
+# during which a client's attempt to renew its lease will result
+# in getting the already assigned lease, rather than an extended lease.
+#
+# renew_threshold: 25
+#
+# Dora binds to inaddr_any, if an interface is specified dora will filter
 # all traffic not from this interface.
 # If no interface is specified, we will listen on inaddr_any (0.0.0.0) and send
 # each response on the same interface we recv'd it on.
 #
-# interfaces: 
+# interfaces:
 #   - enp6s0
 #
 networks:
@@ -48,16 +64,16 @@ networks:
         # the probation period.
         #
         probation_period: 86400
-        # (optional) 
-        # `server_id` _must_ be an IP that dora is reachable on. 
-        # OR IF IT IS NOT specified, dora will use the IP of the interface we recv'd the message on. 
+        # (optional)
+        # `server_id` _must_ be an IP that dora is reachable on.
+        # OR IF IT IS NOT specified, dora will use the IP of the interface we recv'd the message on.
         # OR we will just use the first non-loopback interface IP
         server_id: 192.168.5.1
         # (optional) this will replace the `sname` field in the DHCP header
         # server_name: "example.org"
         #
         # (optional) this will replace the `fname` field in the DHCP header
-        # file_name: "bootfile.efi" 
+        # file_name: "bootfile.efi"
         ranges:
             -
                 # (optional) specifies the class name that must have been matched on
@@ -81,7 +97,7 @@ networks:
                         # valid types are:
                         #   ip          ex. 1.2.3.4 or [1.2.3.4, 1.2.3.4]
                         #   domain      (encodes list of domains in compressed DNS format) ex. ["foobar.com.", "apple.marketing.com."] or a single domain ex. "foobar.com."
-                        #   str         ex. "foobar" or ["foo", "bar"] 
+                        #   str         ex. "foobar" or ["foo", "bar"]
                         #   u8          ex. 1 or [1, 2, 3]
                         #   u16         ex. 1 or [1, 2, 3]
                         #   u32         ex. 1 or [1, 2, 3]
@@ -99,7 +115,7 @@ networks:
                         #   subnet_mask:
                         #       type: ip
                         #       value: 255.255.255.0
-                        # only some options have support for the string name identifier. 
+                        # only some options have support for the string name identifier.
                         1: # subnet mask (if not specified, comes from `interfaces`)
                             type: ip
                             value: 255.255.255.0
@@ -154,7 +170,7 @@ networks:
                                     type: ip
                                     value: 1.2.3.4
 
-                        
+
                 # Reservations are supported based on `chaddr`, or `options`. Currently, only a single
                 # options may be specified for a match. There is no AND/OR logic for matching on options.
                 match:
@@ -162,7 +178,7 @@ networks:
                     # OR match using an option
                     # options:
                     #   values:
-                    #       x: 
+                    #       x:
                     #           type: ip
                     #           value: x.x.x.x
     #
@@ -173,15 +189,15 @@ networks:
     #     probation_period: 86400
     #     server_id: 192.168.0.1
 #
-# DHCPv6 
-# v6 support is largely experimental and unfinished. There is some early support for 
+# DHCPv6
+# v6 support is largely experimental and unfinished. There is some early support for
 # responding to INFOREQ.
 v6:
     # optional, interfaces to bind
     interfaces:
         - enp6s0
     # TODO: SERVER ID
-    # server_id: 
+    # server_id:
     #       type: DUID-LLT (default) | DUID-LL | DUID-EN | ...
     #       value: ""
     # global options (optional)
@@ -207,7 +223,7 @@ v6:
         #
         2001:db8:1::/64: # https://en.wikipedia.org/wiki/IPv6_address#Documentation
             # optional - what interfaces we will apply to this network
-            interfaces: 
+            interfaces:
                 - enp6s0
             # no explicit ranges (yet)
             config:
@@ -227,12 +243,12 @@ v6:
                             - 2001:db8::2
 
 # Example Client Classifier
-# 
-# We define in the dora config a client_classes section, where each class has a predicate whose syntax 
-# is identical to Kea's expression syntax. At least initially, all client classes will be evaluated when a packet is received. 
+#
+# We define in the dora config a client_classes section, where each class has a predicate whose syntax
+# is identical to Kea's expression syntax. At least initially, all client classes will be evaluated when a packet is received.
 # The classes will be evaluated in topological order, according to their dependencies. Option precedence will still be
 # given by the order in the config.
-# A range/reservation can then define a client_class field with the name of a class that will restrict 
+# A range/reservation can then define a client_class field with the name of a class that will restrict
 # that range/reservation to only allow packets that have evaluated the associated client class predicate to true.
 #
 # Ex.
@@ -244,43 +260,43 @@ v6:
 #         options:
 #           <options data>
 # networks:
-#     192.168.1.100/30:                         
+#     192.168.1.100/30:
 #         ranges:
-#             -                                 
+#             -
 #                 class: my_class
 #                 ...
 # ```
-# 
-# Dora does not allow the same level of configuration as Kea (right now). 
-# We will not allow classes to be set on subnets, only ranges/reservations. 
-# This follows with dora’s generally ‘flattened’ config structure. 
+#
+# Dora does not allow the same level of configuration as Kea (right now).
+# We will not allow classes to be set on subnets, only ranges/reservations.
+# This follows with dora’s generally ‘flattened’ config structure.
 # This doesn’t close the door on adding those features in the future, just defines a minimum set of functionality.
 # DHCP message flow:
-# 
-#    - Dora receives a DHCP packet, it evaluates any globally defined client classes. 
+#
+#    - Dora receives a DHCP packet, it evaluates any globally defined client classes.
 #       Dora attaches matching classes to the currently processing message
-#    - Dora uses subnet selection logic to determine which top level network 
+#    - Dora uses subnet selection logic to determine which top level network
 #       a given message should get its IP from (giaddr/ iaddr and opts like subnet select & relay agent info).
-#    - Dora checks to see if any static IP reservations exist with matching client classes, if so it uses that reservation, 
-#       potentially with option/config data from the client class. Precedence for option data goes to the reservation 
+#    - Dora checks to see if any static IP reservations exist with matching client classes, if so it uses that reservation,
+#       potentially with option/config data from the client class. Precedence for option data goes to the reservation
 #       over any client class data.
-#    - Dora iterates ranges in the network and if any client class is defined for the range, it checks 
-#       to see that the packet evaluated a match for that client class-- i.e. the packet’s matching classes 
-#       must contain the range’s class if it exists. Range precedence is set by index in the range list. 
+#    - Dora iterates ranges in the network and if any client class is defined for the range, it checks
+#       to see that the packet evaluated a match for that client class-- i.e. the packet’s matching classes
+#       must contain the range’s class if it exists. Range precedence is set by index in the range list.
 #       Precedence for option data goes to the range over any client class option data.
-#    - If, during iterating through ranges, there are classless ranges, we attempt to assign an IP 
-#       from the classless range. If the packet has classes associated with it, it may get 
+#    - If, during iterating through ranges, there are classless ranges, we attempt to assign an IP
+#       from the classless range. If the packet has classes associated with it, it may get
 #       option data from those classes, but it can still have an IP assigned from a classless range.
 #    - Continue normal execution
-# 
-# Note on precedence: If multiple client classes are applied to an incoming message, 
-# the options given to the client will be the union of all matching client classes. 
+#
+# Note on precedence: If multiple client classes are applied to an incoming message,
+# the options given to the client will be the union of all matching client classes.
 # Where there is a duplicate, precedence will be given in the order it was evaluated.
 #
 # Predicate evaluation:
 # see: https://kea.readthedocs.io/en/kea-2.2.0/arm/classify.html#using-expressions-in-classification
 # and if anything you want isn't supported yet file a ticket asking us to work on it!
-#  
+#
 # Currently supports all grammar defined in the `grammar.pest` file in libs/client-classification:
 #
 #   primitives: integer (123), 'string', ip (1.2.3.4), 0xhex, true/false
@@ -295,7 +311,7 @@ v6:
 #
 #   pkt header:
 #       pkt4.mac: chaddr in DHCP message header (`pkt4.mac == 0xDEADBEEF`)
-#   
+#
 #   substring(expr, start, len): substring function (`substring('foobar', 0, 3) == 'foo'`)
 #
 #   concat(expr, concat): concat function (`concat('foo', 'bar') == 'foobar')
@@ -304,16 +320,16 @@ v6:
 #                       and if true expr_a will return else expr_b
 #
 #   hexstring(pkt4.mac, ':'): turns bytes into a string separated by the separator string
-#                       ex. hexstring(pkt4.mac, ':') == '66:6f:6f' 
+#                       ex. hexstring(pkt4.mac, ':') == '66:6f:6f'
 #                        (if pkt4.mac is '0x666f6f')
 #
 #   member('classname'): reference another class using the `member('my_class')` function. Dependency
-#                   cycles will fail to parse the config. 
-# 
+#                   cycles will fail to parse the config.
+#
 # example:
 #
 #       `substring(option[61].hex, 0, 3) == 'foo'`
-# 
+#
 #  Vendor classes:
 #
 #   To match on the standard option 60 vendor class identifier, use `option[60].hex` in your assertion.
@@ -337,15 +353,15 @@ v6:
 client_classes:
     # only v4 supported at the moment
     v4:
-        - 
+        -
           # class name
           name: my_class
           # assertion will be run for each class defined
           assert: "option[61].hex == 'foobar'"
           # any options defined here will be provided to the message
-          options: 
-                values: 
+          options:
+                values:
                     6:
                         type: ip
                         value: [ 1.1.1.1 ]
-          
+
