@@ -30,16 +30,6 @@ impl Clone for SqliteDb {
 
 impl SqliteDb {
     pub async fn new(uri: impl AsRef<str>) -> Result<Self, sqlx::Error> {
-        // in memory sqlite will clear the db after all conns close,
-        // to keep it alive for testing-- we can make sure conns _never_ close.
-        //
-        // let inner = if uri.as_ref().contains("memory") {
-        //     sqlx::sqlite::SqlitePoolOptions::new()
-        //         .idle_timeout(None)
-        //         .max_lifetime(None)
-        //         .connect(uri.as_ref())
-        //         .await?
-        // } else {
         let mut opts = SqliteConnectOptions::from_str(uri.as_ref())?
             .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
             .create_if_missing(true);
@@ -47,7 +37,6 @@ impl SqliteDb {
         opts.log_statements(tracing::log::LevelFilter::Trace);
 
         let inner = SqlitePool::connect_with(opts).await?;
-        // };
         sqlx::migrate!("../../migrations").run(&inner).await?;
         Ok(Self { inner })
     }
@@ -59,19 +48,22 @@ impl Storage for SqliteDb {
     type Error = sqlx::Error;
 
     /// find the next expired IP in the range, or where client_id matches,
-    /// and update it to leased = false with the new client_id & expiry
+    /// and update it with the new client_id & expiry & state
+    /// NOTE: always sets probation = false
     async fn next_expired(
         &self,
         range: RangeInclusive<IpAddr>,
         network: IpAddr,
         id: &[u8],
         expires_at: SystemTime,
+        state: Option<IpState>,
     ) -> Result<Option<IpAddr>, Self::Error> {
         match (*range.start(), *range.end(), network) {
             (IpAddr::V4(start), IpAddr::V4(end), IpAddr::V4(_network)) => {
                 let start_ip = u32::from(start) as i64;
                 let end_ip = u32::from(end) as i64;
                 let now = util::systime_epoch(SystemTime::now());
+                let (leased, _probate) = state.unwrap_or(IpState::Reserve).into();
 
                 Ok(util::update_next_expired(
                     &self.inner,
@@ -80,7 +72,7 @@ impl Storage for SqliteDb {
                     start_ip,
                     end_ip,
                     util::systime_epoch(expires_at),
-                    false,
+                    leased,
                 )
                 .await?)
             }
@@ -99,6 +91,7 @@ impl Storage for SqliteDb {
         network: IpAddr,
         id: &[u8],
         expires_at: SystemTime,
+        state: Option<IpState>,
     ) -> Result<Option<IpAddr>, Self::Error> {
         // a different Error type here would let us remove Option
         // Option is currently doing work as the method to say "can't find an IP in the range",
@@ -134,7 +127,7 @@ impl Storage for SqliteDb {
                         u32::from(network) as i64,
                         &id,
                         util::systime_epoch(expires_at),
-                        None,
+                        state.map(|s| s.into()),
                     )
                     .await?;
                     // TRANSACTION COMMIT
@@ -156,11 +149,11 @@ impl Storage for SqliteDb {
     async fn update_expired(
         &self,
         ip: IpAddr,
-        state: IpState,
+        state: Option<IpState>,
         id: &[u8],
         expires_at: SystemTime,
     ) -> Result<bool, Self::Error> {
-        let (lease, probation) = state.into();
+        let (lease, probation) = state.unwrap_or(IpState::Reserve).into();
         match ip {
             IpAddr::V4(ip) => Ok(util::update_expired(
                 &self.inner,

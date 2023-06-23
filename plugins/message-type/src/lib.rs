@@ -98,7 +98,18 @@ impl Plugin<Message> for MsgType {
                 subnet
             }
         };
+        let rapid_commit = ctx
+            .decoded_msg()
+            .opts()
+            .get(OptionCode::RapidCommit)
+            .is_some()
+            && self.cfg.v4().rapid_commit();
+
         match msg_type {
+            Some(MessageType::Discover) if rapid_commit => {
+                resp.opts_mut()
+                    .insert(DhcpOption::MessageType(MessageType::Ack));
+            }
             Some(MessageType::Discover) => {
                 resp.opts_mut()
                     .insert(DhcpOption::MessageType(MessageType::Offer));

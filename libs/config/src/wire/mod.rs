@@ -17,6 +17,8 @@ pub struct Config {
     pub chaddr_only: bool,
     #[serde(default = "default_bootp_enable")]
     pub bootp_enable: bool,
+    #[serde(default = "default_rapid_commit")]
+    pub rapid_commit: bool,
     #[serde(default)]
     pub networks: HashMap<Ipv4Net, v4::Net>,
     pub v6: Option<v6::Config>,
@@ -47,6 +49,10 @@ pub const fn default_chaddr_only() -> bool {
 }
 
 pub const fn default_bootp_enable() -> bool {
+    false
+}
+
+pub const fn default_rapid_commit() -> bool {
     false
 }
 

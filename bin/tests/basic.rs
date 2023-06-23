@@ -63,6 +63,41 @@ fn test_basic_dhcpv4_unicast() -> Result<()> {
     Ok(())
 }
 
+#[test]
+#[traced_test]
+/// runs through a standard Discover Offer Request Ack,
+/// then resends Request to renew the lease
+fn test_rapid_commit() -> Result<()> {
+    let _srv = DhcpServerEnv::start(
+        "basic.yaml",
+        "basic.db",
+        "dora_test",
+        "dhcpcli",
+        "dhcpsrv",
+        "192.168.2.1",
+    );
+    // use veth_cli created in start()
+    let settings = ClientSettingsBuilder::default()
+        .iface_name("dhcpcli")
+        .target("192.168.2.1".parse::<std::net::IpAddr>().unwrap())
+        .port(9900_u16)
+        .build()?;
+    // create a client that sends dhcpv4 messages
+    let mut client = Client::<v4::Message>::new(settings);
+    // create DISCOVER msg & send
+    let msg_args = DiscoverBuilder::default()
+        .giaddr([192, 168, 2, 1])
+        .opts(vec![v4::DhcpOption::RapidCommit])
+        .build()?;
+    let resp = client.run(MsgType::Discover(msg_args))?;
+
+    assert_eq!(resp.opts().msg_type().unwrap(), v4::MessageType::Ack);
+
+    // pedantic drop
+    drop(_srv);
+    Ok(())
+}
+
 /// standard negotiation but with a chaddr present in the reserved space
 #[test]
 #[traced_test]
@@ -142,6 +177,38 @@ fn static_bootp() -> Result<()> {
     assert_eq!(resp.opts().msg_type(), None);
     // this is the addr the mac is configured to have
     assert_eq!(resp.yiaddr(), "192.168.2.165".parse::<Ipv4Addr>()?);
+
+    Ok(())
+}
+
+/// send a BOOTP message
+#[test]
+#[traced_test]
+fn dynamic_bootp() -> Result<()> {
+    let _srv = DhcpServerEnv::start(
+        "basic.yaml",
+        "basic.db",
+        "dora_test",
+        "dhcpcli",
+        "dhcpsrv",
+        "192.168.2.1",
+    );
+    // use veth_cli created in start()
+    let settings = ClientSettingsBuilder::default()
+        .iface_name("dhcpcli")
+        .target("192.168.2.1".parse::<std::net::IpAddr>().unwrap())
+        .port(9900_u16)
+        .build()?;
+
+    // create a client that sends dhcpv4 messages
+    let mut client = Client::<v4::Message>::new(settings);
+    // create BOOTP msg & send
+    let resp = client.run(MsgType::BootP(
+        BootPBuilder::default().giaddr([192, 168, 2, 1]).build()?,
+    ))?;
+
+    assert_eq!(resp.opts().msg_type(), None);
+    assert!(resp.yiaddr().is_private());
 
     Ok(())
 }
