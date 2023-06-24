@@ -9,6 +9,8 @@
 #![deny(rustdoc::broken_intra_doc_links)]
 #![allow(clippy::cognitive_complexity, clippy::too_many_arguments)]
 
+const OFFER_TIME: Duration = Duration::from_secs(60);
+
 use std::{
     fmt,
     net::{IpAddr, Ipv4Addr},
@@ -211,7 +213,7 @@ where
                         debug!(
                             ?ip,
                             ?client_id,
-                            expires_at = %DateTime::<Utc>::from(expires_at).to_rfc3339_opts(SecondsFormat::Secs, true),
+                            expires_at = %print_time(expires_at),
                             range = ?range.addrs(),
                             subnet = ?network.subnet(),
                            "reserved IP for client-- sending offer"
@@ -242,7 +244,7 @@ where
                     debug!(
                         ?ip,
                         ?client_id,
-                        expires_at = %DateTime::<Utc>::from(expires_at).to_rfc3339_opts(SecondsFormat::Secs, true),
+                        expires_at = %print_time(expires_at),
                         range = ?range.addrs(),
                         subnet = ?network.subnet(),
                         "reserved IP for client-- sending offer"
@@ -273,7 +275,7 @@ where
         rapid_commit: bool,
     ) -> Result<Action> {
         // give 60 seconds between discover & request, TODO: configurable?
-        let expires_at = SystemTime::now() + Duration::from_secs(60);
+        let expires_at = SystemTime::now() + OFFER_TIME;
         let state = if rapid_commit {
             Some(IpState::Lease)
         } else {
@@ -317,7 +319,7 @@ where
                 debug!(
                     ?ip,
                     ?client_id,
-                    expires_at = %DateTime::<Utc>::from(expires_at).to_rfc3339_opts(SecondsFormat::Secs, true),
+                    expires_at = %print_time(expires_at),
                     range = ?range.addrs(),
                     subnet = ?network.subnet(),
                     "sending old LEASE. client is attempting to renew inside of the renew threshold"
@@ -335,7 +337,7 @@ where
                     debug!(
                         ?ip,
                         ?client_id,
-                        expires_at = %DateTime::<Utc>::from(expires_at).to_rfc3339_opts(SecondsFormat::Secs, true),
+                        expires_at = %print_time(expires_at),
                         range = ?range.addrs(),
                         subnet = ?network.subnet(),
                         "sending LEASE"
@@ -391,7 +393,7 @@ where
             .await?;
         debug!(
             ?declined_ip,
-            expires_at = %DateTime::<Utc>::from(expires_at).to_rfc3339_opts(SecondsFormat::Secs, true),
+            expires_at = %print_time(expires_at),
             "added declined IP with probation set"
         );
         Ok(Action::Continue)
@@ -401,3 +403,7 @@ where
 /// When the lease will expire at
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub struct ExpiresAt(pub SystemTime);
+
+fn print_time(expires_at: SystemTime) -> String {
+    DateTime::<Utc>::from(expires_at).to_rfc3339_opts(SecondsFormat::Secs, true)
+}
