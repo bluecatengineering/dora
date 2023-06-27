@@ -20,6 +20,21 @@ option = { "option[" ~ integer ~ "]" }
 relay = { "relay4[" ~ integer ~ "]" }
 member = { "member(" ~ string ~ ")" }
 
+builtin = _{
+    builtin_bootp
+    | builtin_known
+    | builtin_unknown
+    | builtin_all
+    | builtin_drop
+    | builtin_vendor
+}
+    builtin_bootp = @{ "BOOTP" }
+    builtin_known = @{ "KNOWN" }
+    builtin_unknown = @{ "UNKNOWN" }
+    builtin_all = @{ "ALL" }
+    builtin_drop = @{ "DROP" }
+    builtin_vendor = @{ "VENDOR_CLASS_" ~ ANY }
+
 pkt = _{ 
     pkt_mac
     | pkt_hlen

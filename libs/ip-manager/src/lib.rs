@@ -34,6 +34,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+const PING_TTL: u64 = 60;
 pub type ClientId = Option<Vec<u8>>;
 
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
@@ -244,7 +245,7 @@ where
             store,
             ping_cache: moka::future::CacheBuilder::new(1_000)
                 // time_to_idle?
-                .time_to_live(Duration::from_secs(120))
+                .time_to_live(Duration::from_secs(PING_TTL))
                 .initial_capacity(1_000)
                 .build(),
         })
