@@ -50,7 +50,7 @@ impl MsgType {
         self.flood
             .as_ref()
             .map(|flood| flood.is_allowed(id))
-            .unwrap_or(false)
+            .unwrap_or(true)
     }
 }
 
@@ -81,7 +81,7 @@ impl Plugin<Message> for MsgType {
         );
 
         let client_id = self.cfg.v4().client_id(req).to_vec(); // to_vec required b/c of borrowck error
-        if self.flood_check(&client_id) {
+        if !self.flood_check(&client_id) {
             debug!(
                 ?client_id,
                 "client is chatty, engaging rate limit and not responding"

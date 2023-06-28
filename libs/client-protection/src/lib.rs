@@ -80,13 +80,23 @@ where
     K: Eq + Hash + Clone + fmt::Debug,
 {
     pub fn new(cfg: FloodThreshold) -> Self {
-        let rate = cfg.packets() / cfg.period().as_secs() as u32;
-        debug!("creating flood cache threshold {:?} packets/sec", rate);
+        debug!(
+            packets = cfg.packets(),
+            period = cfg.period().as_secs(),
+            "creating flood cache with following settings"
+        );
+        // let rate = cfg.packets() / cfg.period().as_secs() as u32;
+        // debug!("creating flood cache threshold {:?} packets/sec", rate);
 
         Self {
-            rl: RateLimiter::keyed(Quota::per_second(
-                NonZeroU32::new(rate).expect("conversion will not fail"),
-            )),
+            #[allow(deprecated)]
+            rl: RateLimiter::keyed(
+                Quota::new(
+                    NonZeroU32::new(cfg.packets()).expect("conversion will not fail"),
+                    cfg.period(),
+                )
+                .expect("don't pass Duration of 0"),
+            ),
         }
     }
     pub fn is_allowed(&self, id: &K) -> bool {
@@ -116,6 +126,22 @@ mod tests {
         // should be true now
         assert!(cache.is_allowed(&[1, 2, 3, 4]));
         assert!(cache.is_allowed(&[1, 2, 3, 4]));
+    }
+
+    #[test]
+    fn test_flood_threshold_large_period() {
+        let cache = FloodCache::new(FloodThreshold::new(2, Duration::from_secs(5)));
+        assert!(cache.is_allowed(&[1, 2, 3, 4]));
+        assert!(cache.is_allowed(&[1, 2, 3, 4]));
+
+        // // too many packets
+        // assert!(!cache.is_allowed(&[1, 2, 3, 4]));
+
+        // // wait for duration
+        // std::thread::sleep(Duration::from_millis(1_100));
+        // // should be true now
+        // assert!(cache.is_allowed(&[1, 2, 3, 4]));
+        // assert!(cache.is_allowed(&[1, 2, 3, 4]));
     }
 
     #[test]

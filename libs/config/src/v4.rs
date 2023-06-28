@@ -119,7 +119,7 @@ impl TryFrom<wire::Config> for Config {
             }),
             // error if threshold exists and > 100
             renew_threshold: cfg
-                .cache_threshold
+                .renew_threshold
                 .map(|threshold| {
                     let threshold: u32 = threshold.get();
                     if threshold > 100 {

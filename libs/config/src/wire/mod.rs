@@ -16,7 +16,7 @@ pub struct Config {
     #[serde(default = "default_chaddr_only")]
     pub chaddr_only: bool,
     pub flood_protection_threshold: Option<FloodThreshold>,
-    pub cache_threshold: Option<NonZeroU32>,
+    pub renew_threshold: Option<NonZeroU32>,
     #[serde(default = "default_bootp_enable")]
     pub bootp_enable: bool,
     #[serde(default = "default_rapid_commit")]
