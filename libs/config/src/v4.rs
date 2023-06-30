@@ -224,7 +224,7 @@ impl Config {
             .as_ref()
             // range opts
             .map(|classes| merge_opts(opts.clone(), classes.collect_opts(matched_classes)))
-            .unwrap_or(opts.clone())
+            .unwrap_or_else(|| opts.clone())
     }
 
     /// get a `NetRange` within a subnet that contains the given IP & any matching client classes

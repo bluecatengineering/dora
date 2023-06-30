@@ -390,7 +390,7 @@ mod tests {
         let sub_opt = "foo".as_bytes();
         data.push(sub_opt.len() as u8);
         data.extend(sub_opt);
-        data.extend(&[
+        data.extend([
             23, 3, 1, 2, 3, // two
             45, 0, // three
             123, 10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
@@ -424,7 +424,7 @@ mod tests {
         let sub_opt = "foo".as_bytes();
         data.push(sub_opt.len() as u8);
         data.extend(sub_opt);
-        data.extend(&[
+        data.extend([
             23, 3, 1, 2, 3, // two
             45, 0, // three
             123, 10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,

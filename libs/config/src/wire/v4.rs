@@ -156,7 +156,9 @@ enum Opt {
     Domain(MaybeList<String>),
     DomainList(Vec<String>), // keep for backwards compatibility
     U8(MaybeList<u8>),
+    I8(MaybeList<i8>),
     U16(MaybeList<u16>),
+    I16(MaybeList<i16>),
     U32(MaybeList<u32>),
     I32(MaybeList<i32>),
     Bool(MaybeList<bool>),
@@ -321,6 +323,18 @@ fn write_opt(enc: &mut Encoder<'_>, code: u8, opt: Opt) -> anyhow::Result<()> {
         Opt::U8(MaybeList::List(list)) => {
             v4::encode_long_opt_bytes(OptionCode::from(code), &list, enc)?;
         }
+        Opt::I8(MaybeList::Val(n)) => {
+            enc.write_u8(code)?;
+            enc.write_u8(1)?;
+            enc.write(n.to_be_bytes())?;
+        }
+        Opt::I8(MaybeList::List(list)) => {
+            let list = list
+                .into_iter()
+                .map(|b| b.to_be_bytes()[0])
+                .collect::<Vec<u8>>();
+            v4::encode_long_opt_bytes(OptionCode::from(code), &list, enc)?;
+        }
         Opt::Bool(MaybeList::Val(b)) => {
             enc.write_u8(code)?;
             enc.write_u8(1)?;
@@ -341,6 +355,20 @@ fn write_opt(enc: &mut Encoder<'_>, code: u8, opt: Opt) -> anyhow::Result<()> {
                 2,
                 &list,
                 |n, e| e.write_u16(*n),
+                enc,
+            )?;
+        }
+        Opt::I16(MaybeList::Val(n)) => {
+            enc.write_u8(code)?;
+            enc.write_u8(2)?;
+            enc.write(n.to_be_bytes())?;
+        }
+        Opt::I16(MaybeList::List(list)) => {
+            v4::encode_long_opt_chunks(
+                OptionCode::from(code),
+                2,
+                &list,
+                |n, e| e.write(n.to_be_bytes()),
                 enc,
             )?;
         }
