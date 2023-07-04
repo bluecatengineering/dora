@@ -10,6 +10,33 @@ use thiserror::Error;
 pub mod ast;
 pub use ast::{Expr, ParseErr, ParseResult};
 
+pub const DROP_CLASS_NAME: &str = "DROP";
+// the following classes can be used in `member()`
+pub const VENDOR_PREFIX_CLASS: &str = "VENDOR_CLASS_";
+pub const ALL_CLASS: &str = "ALL";
+pub const KNOWN_CLASS: &str = "KNOWN";
+pub const UNKNOWN_CLASS: &str = "UNKNOWN";
+pub const BOOTP_CLASS: &str = "BOOTP";
+
+pub fn parse_builtin_vendor(s: &str) -> Option<&str> {
+    s.strip_prefix(VENDOR_PREFIX_CLASS)
+}
+
+pub fn create_builtin_vendor(req: &v4::Message) -> Result<Option<String>, std::str::Utf8Error> {
+    Ok(req
+        .opts()
+        .get(v4::OptionCode::ClassIdentifier)
+        .and_then(|class| {
+            if let v4::DhcpOption::ClassIdentifier(class) = class {
+                Some(std::str::from_utf8(class))
+            } else {
+                None
+            }
+        })
+        .transpose()?
+        .map(|class| format!("{VENDOR_PREFIX_CLASS}{class}")))
+}
+
 pub type EvalResult<T> = Result<T, EvalErr>;
 
 #[derive(Error, Debug)]
@@ -119,10 +146,14 @@ pub fn get_class_dependencies(expr: &Expr) -> Vec<String> {
 }
 
 pub struct Args<'a> {
+    /// packet mac addr
     pub chaddr: &'a [u8],
+    /// packet options as UnknownOption
     pub opts: HashMap<v4::OptionCode, v4::UnknownOption>,
+    /// decoded packet Message
     pub msg: &'a v4::Message,
-    pub deps: HashSet<String>,
+    /// all classes that eval'd to true for this packet
+    pub member: HashSet<String>,
 }
 
 /// evaluate the AST, using values from this DHCP message
@@ -225,7 +256,7 @@ pub fn eval(expr: &Expr, args: &Args) -> Result<Val, EvalErr> {
                 .collect::<Result<Vec<_>, _>>()?
                 .join(sep),
         ),
-        Member(s) => Val::Bool(args.deps.contains(s)),
+        Member(s) => Val::Bool(args.member.contains(s)),
     })
 }
 
@@ -330,7 +361,7 @@ mod tests {
             chaddr: "001122334455".as_bytes(),
             opts: HashMap::new(),
             msg: &v4::Message::default(),
-            deps: HashSet::new(),
+            member: HashSet::new(),
         };
 
         let val = eval(&dbg!(build_ast(tokens).unwrap()), &args).unwrap();
@@ -343,7 +374,7 @@ mod tests {
             chaddr: "001122334455".as_bytes(),
             opts: HashMap::new(),
             msg: &v4::Message::default(),
-            deps: HashSet::new(),
+            member: HashSet::new(),
         };
         let val = eval(&build_ast(tokens).unwrap(), &args).unwrap();
         assert_eq!(val, Val::Bool(true));
@@ -354,7 +385,7 @@ mod tests {
             chaddr: &hex::decode("010203040506").unwrap(),
             opts: HashMap::new(),
             msg: &v4::Message::default(),
-            deps: HashSet::new(),
+            member: HashSet::new(),
         };
         let expr = ast::parse("pkt4.mac == 0x010203040506").unwrap();
         let val = eval(&expr, &args).unwrap();
@@ -376,7 +407,7 @@ mod tests {
             chaddr: &hex::decode("DEADBEEF").unwrap(),
             opts,
             msg: &v4::Message::default(),
-            deps: HashSet::new(),
+            member: HashSet::new(),
         };
         let val = eval(&tokens, &args).unwrap();
         assert_eq!(val, Val::Bool(true));
@@ -404,7 +435,7 @@ mod tests {
             chaddr: &hex::decode("DEADBEEF").unwrap(),
             opts,
             msg: &v4::Message::default(),
-            deps: HashSet::new(),
+            member: HashSet::new(),
         };
 
         let expr = ast::parse("relay4[12].exists").unwrap();
@@ -438,7 +469,7 @@ mod tests {
             chaddr: &hex::decode("DEADBEEF").unwrap(),
             opts,
             msg: &v4::Message::default(),
-            deps: HashSet::new(),
+            member: HashSet::new(),
         };
         // test that we can address sub options through the sub-opt postfix
         let expr = ast::parse("option[82].option[12] == 'foo'").unwrap();
@@ -513,7 +544,7 @@ mod tests {
             chaddr: &hex::decode("DEADBEEF").unwrap(),
             opts: options,
             msg: &msg,
-            deps: HashSet::new(),
+            member: HashSet::new(),
         };
 
         let expr = ast::parse("pkt4.hlen == 6").unwrap();
@@ -574,7 +605,7 @@ mod tests {
             chaddr: &hex::decode("DEADBEEF").unwrap(),
             opts: opts.clone(),
             msg: &msg,
-            deps: ["foobar", "bazz", "bingo", "bongo"]
+            member: ["foobar", "bazz", "bingo", "bongo"]
                 .into_iter()
                 .map(|s| s.to_owned())
                 .collect(),
@@ -587,7 +618,7 @@ mod tests {
             chaddr: &hex::decode("DEADBEEF").unwrap(),
             opts: opts.clone(),
             msg: &msg,
-            deps: ["foobar", "bazz", "bingo"]
+            member: ["foobar", "bazz", "bingo"]
                 .into_iter()
                 .map(|s| s.to_owned())
                 .collect(),
@@ -600,7 +631,7 @@ mod tests {
             chaddr: &hex::decode("DEADBEEF").unwrap(),
             opts,
             msg: &msg,
-            deps: ["foobar", "bingo"]
+            member: ["foobar", "bingo"]
                 .into_iter()
                 .map(|s| s.to_owned())
                 .collect(),
@@ -630,7 +661,7 @@ mod tests {
             chaddr: &hex::decode("DEADBEEF").unwrap(),
             opts: HashMap::new(),
             msg: &v4::Message::default(),
-            deps: HashSet::new(),
+            member: HashSet::new(),
         };
 
         let expr = ast::parse("concat('foo', 'bar')").unwrap();
@@ -644,7 +675,7 @@ mod tests {
             chaddr: &hex::decode("DEADBEEF").unwrap(),
             opts: HashMap::new(),
             msg: &v4::Message::default(),
-            deps: HashSet::new(),
+            member: HashSet::new(),
         };
 
         let expr = ast::parse("ifelse(true, 'foo', 'bar')").unwrap();
@@ -670,7 +701,7 @@ mod tests {
             chaddr: &hex::decode(hex::encode("foo")).unwrap(),
             opts: HashMap::new(),
             msg: &v4::Message::default(),
-            deps: HashSet::new(),
+            member: HashSet::new(),
         };
 
         let expr = ast::parse("hexstring(0x1234,':')").unwrap();
@@ -693,5 +724,26 @@ mod tests {
         let val = eval(&expr, &args).unwrap();
         // foo -> 666f6f
         assert_eq!(val, Val::String("66:6f:6f".to_owned()));
+    }
+
+    #[test]
+    fn test_builtin_vendor() {
+        let uns = Ipv4Addr::UNSPECIFIED;
+        let mut req = v4::Message::new(
+            uns,
+            uns,
+            uns,
+            uns,
+            &hex::decode(hex::encode("foo")).unwrap(),
+        );
+        req.opts_mut()
+            .insert(v4::DhcpOption::ClassIdentifier(b"docsis3.0".to_vec()));
+        let vendor = super::create_builtin_vendor(&req).unwrap();
+        assert_eq!(vendor, Some("VENDOR_CLASS_docsis3.0".to_owned()));
+
+        assert_eq!(
+            super::parse_builtin_vendor(&vendor.unwrap()).unwrap(),
+            "docsis3.0"
+        );
     }
 }

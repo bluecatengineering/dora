@@ -10,9 +10,10 @@ use dora_core::dhcproto::{
     Decodable, Decoder, Encodable,
 };
 use topo_sort::DependencyTree;
-use tracing::{error, trace};
+use tracing::{error, trace, warn};
 
 use crate::wire;
+pub use client_classification;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientClasses {
@@ -70,14 +71,41 @@ impl TryFrom<wire::client_classes::ClientClasses> for ClientClasses {
 
 impl ClientClasses {
     /// evaluate all client classes, returning a list of classes that match
-    pub fn eval(&self, req: &dhcproto::v4::Message) -> Result<Vec<String>> {
+    pub fn eval(&self, req: &dhcproto::v4::Message, bootp_enabled: bool) -> Result<Vec<String>> {
         let (chaddr, opts) = to_unknown_opts(req)?;
+        let vendor_builtin = client_classification::create_builtin_vendor(req);
+        // if msg-type is not Discover/Offer/Request/Inform/etc then the msg is BOOTP
+        let is_bootp = bootp_enabled
+            && req.opts().msg_type().is_none()
+            && req.opcode() == v4::Opcode::BootRequest;
+
+        if let Err(err) = vendor_builtin {
+            // log error but don't stop evaluation
+            warn!(
+                ?err,
+                "error converting opt 60 (vendor class) to string for VENDOR_CLASS_"
+            );
+        }
         let mut args = Args {
             chaddr,
-            deps: HashSet::new(),
+            member: {
+                // all packets are member of "ALL"
+                let mut set = HashSet::new();
+                set.insert(client_classification::ALL_CLASS.to_owned());
+                // add "VENDOR_CLASS_*" built-in
+                if let Ok(Some(vendor)) = vendor_builtin {
+                    set.insert(vendor);
+                }
+                // add "BOOTP"
+                if is_bootp {
+                    set.insert(client_classification::BOOTP_CLASS.to_owned());
+                }
+                set
+            },
             msg: req,
             opts,
         };
+        // eval all client classes in topological order
         for name in &self.topo_order {
             // this should never fail
             let class = self.classes.get(name).context("class not found")?;
@@ -86,11 +114,11 @@ impl ClientClasses {
                 // add class name to dependencies set, for future evals
                 // classes are always eval'd in topological order, so
                 // future evals know what prior evals were
-                args.deps.insert(class.name.to_owned());
+                args.member.insert(class.name.to_owned());
             }
         }
 
-        Ok(args.deps.into_iter().collect())
+        Ok(args.member.into_iter().collect())
     }
     /// take matched client classes, return merge DhcpOptions that contains all classes options merged
     /// together with precedence given based on original position in client_classes list (lower index == higher precedence)

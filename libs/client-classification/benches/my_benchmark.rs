@@ -29,7 +29,7 @@ fn criterion_benchmark(c: &mut Criterion) {
                     chaddr,
                     opts,
                     msg: &v4::Message::default(),
-                    deps: HashSet::new(),
+                    member: HashSet::new(),
                 };
                 client_classification::eval(
                     &client_classification::ast::build_ast(tokens).unwrap(),
@@ -61,7 +61,7 @@ fn criterion_benchmark(c: &mut Criterion) {
                     chaddr,
                     opts,
                     msg: &v4::Message::default(),
-                    deps: HashSet::new(),
+                    member: HashSet::new(),
                 };
                 client_classification::eval(&ast, &args).unwrap()
             })

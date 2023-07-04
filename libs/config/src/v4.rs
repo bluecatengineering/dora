@@ -161,7 +161,7 @@ impl Config {
     pub fn eval_client_classes(&self, req: &dhcproto::v4::Message) -> Option<Result<Vec<String>>> {
         self.client_classes
             .as_ref()
-            .map(|classes| classes.eval(req))
+            .map(|classes| classes.eval(req, self.bootp_enabled()))
     }
     pub fn classes(&self) -> Option<&ClientClasses> {
         self.client_classes.as_ref()
