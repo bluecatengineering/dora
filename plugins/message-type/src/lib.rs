@@ -21,7 +21,7 @@ use dora_core::{
 use register_derive::Register;
 use std::{fmt::Debug, net::Ipv4Addr};
 
-use config::DhcpConfig;
+use config::{client_classes, DhcpConfig};
 
 #[derive(Register)]
 #[register(msg(Message))]
@@ -158,6 +158,9 @@ impl Plugin<Message> for MsgType {
                     ctx.populate_opts(
                         &self.cfg.v4().collect_opts(range.opts(), matched.as_deref()),
                     );
+                    if let Some(classes) = matched {
+                        ctx.set_local(MatchedClasses(classes));
+                    }
                     return Ok(Action::Respond);
                 }
                 warn!(msg_type = ?MessageType::Inform, "couldn't match appropriate range with INFORM message");
@@ -184,8 +187,16 @@ impl Plugin<Message> for MsgType {
                 return Ok(Action::NoResponse);
             }
         }
-        // evaluate client classes
+
         if let Some(classes) = matched {
+            if classes
+                .iter()
+                .any(|class| class == client_classes::client_classification::DROP_CLASS)
+            {
+                // contains DROP class, drop packet
+                debug!("DROP class matched");
+                return Ok(Action::NoResponse);
+            }
             ctx.set_local(MatchedClasses(classes));
         }
         ctx.set_resp_msg(resp);

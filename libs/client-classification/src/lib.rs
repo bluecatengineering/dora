@@ -10,7 +10,7 @@ use thiserror::Error;
 pub mod ast;
 pub use ast::{Expr, ParseErr, ParseResult};
 
-pub const DROP_CLASS_NAME: &str = "DROP";
+pub const DROP_CLASS: &str = "DROP";
 // the following classes can be used in `member()`
 pub const VENDOR_PREFIX_CLASS: &str = "VENDOR_CLASS_";
 pub const ALL_CLASS: &str = "ALL";
