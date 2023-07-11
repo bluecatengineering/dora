@@ -68,7 +68,7 @@ impl Plugin<Message> for MsgType {
             .context("interface message was received on does not exist?")?;
         ctx.set_interface(interface);
 
-        let req = ctx.decoded_msg();
+        let req = ctx.msg();
         let msg_type = req.opts().msg_type();
 
         let subnet = ctx.subnet()?;
@@ -77,7 +77,7 @@ impl Plugin<Message> for MsgType {
             msg_type = ?msg_type,
             src_addr = %ctx.src_addr(),
             ?subnet,
-            req = %ctx.decoded_msg(),
+            req = %ctx.msg(),
         );
 
         let client_id = self.cfg.v4().client_id(req).to_vec(); // to_vec required b/c of borrowck error
@@ -117,7 +117,7 @@ impl Plugin<Message> for MsgType {
         // evaluate client classes
         let matched = util::client_classes(self.cfg.v4(), req);
         let addr = {
-            let ciaddr = ctx.decoded_msg().ciaddr();
+            let ciaddr = ctx.msg().ciaddr();
             if !ciaddr.is_unspecified() {
                 ciaddr
             } else {
@@ -125,12 +125,8 @@ impl Plugin<Message> for MsgType {
                 subnet
             }
         };
-        let rapid_commit = ctx
-            .decoded_msg()
-            .opts()
-            .get(OptionCode::RapidCommit)
-            .is_some()
-            && self.cfg.v4().rapid_commit();
+        let rapid_commit =
+            ctx.msg().opts().get(OptionCode::RapidCommit).is_some() && self.cfg.v4().rapid_commit();
 
         match msg_type {
             Some(MessageType::Discover) if rapid_commit => {
@@ -158,7 +154,7 @@ impl Plugin<Message> for MsgType {
                     .insert(DhcpOption::MessageType(MessageType::Ack));
 
                 if let Some(range) = self.cfg.v4().range(addr, addr, matched.as_deref()) {
-                    ctx.set_decoded_resp_msg(resp);
+                    ctx.set_resp_msg(resp);
                     ctx.populate_opts(
                         &self.cfg.v4().collect_opts(range.opts(), matched.as_deref()),
                     );
@@ -180,7 +176,7 @@ impl Plugin<Message> for MsgType {
             }
             None if req.opcode() == Opcode::BootRequest && self.cfg.v4().bootp_enabled() => {
                 // No message type but BOOTREQUEST, this is a BOOTP message
-                ctx.set_decoded_resp_msg(resp);
+                ctx.set_resp_msg(resp);
                 return Ok(Action::Continue);
             }
             _ => {
@@ -192,7 +188,7 @@ impl Plugin<Message> for MsgType {
         if let Some(classes) = matched {
             ctx.set_local(MatchedClasses(classes));
         }
-        ctx.set_decoded_resp_msg(resp);
+        ctx.set_resp_msg(resp);
         Ok(Action::Continue)
     }
 }
@@ -265,7 +261,7 @@ impl Plugin<v6::Message> for MsgType {
             ctx.set_global(global_unicast);
         }
 
-        let req = ctx.decoded_msg();
+        let req = ctx.msg();
         let msg_type = req.msg_type();
 
         debug!(
@@ -273,7 +269,7 @@ impl Plugin<v6::Message> for MsgType {
             %interface,
             global = ?ctx.global(),
             src_addr = %ctx.src_addr(),
-            req = %ctx.decoded_msg(),
+            req = %ctx.msg(),
         );
 
         // let network = self.cfg.v6().get_network(meta.ifindex);
@@ -302,7 +298,7 @@ impl Plugin<v6::Message> for MsgType {
             }
             InformationRequest => {
                 if let Some(opts) = self.cfg.v6().get_opts(meta.ifindex) {
-                    ctx.set_decoded_resp_msg(resp);
+                    ctx.set_resp_msg(resp);
                     ctx.populate_opts(opts);
                     return Ok(Action::Respond);
                 }
@@ -318,7 +314,7 @@ impl Plugin<v6::Message> for MsgType {
             }
         }
 
-        ctx.set_decoded_resp_msg(resp);
+        ctx.set_resp_msg(resp);
         Ok(Action::Continue)
     }
 }

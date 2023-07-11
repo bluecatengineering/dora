@@ -162,10 +162,10 @@ impl LeaseTime {
     }
 }
 
-fn renew(t: Duration) -> Duration {
+pub fn renew(t: Duration) -> Duration {
     t / 2
 }
 
-fn rebind(t: Duration) -> Duration {
+pub fn rebind(t: Duration) -> Duration {
     t * 7 / 8
 }

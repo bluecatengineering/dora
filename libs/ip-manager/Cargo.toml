@@ -9,6 +9,7 @@ workspace = "../../"
 [dependencies]
 config = { path = "../../libs/config" }
 icmp-ping = { path = "../icmp-ping" }
+client-protection = { path = "../client-protection" }
 
 async-trait = { workspace = true }
 ipnet = { workspace = true }

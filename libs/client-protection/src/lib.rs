@@ -19,12 +19,39 @@ use std::{
 
 pub struct RenewThreshold<K> {
     percentage: u64,
-    cache: DashMap<K, Instant>,
+    cache: DashMap<K, RenewExpiry>,
 }
 
-fn threshold_expiry(now: Instant, lease_time: Duration, percentage: u64) -> Instant {
-    // cant use self.percentage b/c of borrowck error on `or_insert_with`
-    now + Duration::from_secs((lease_time.as_secs() * percentage) / 100)
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct RenewExpiry {
+    // when entry was created
+    pub created: Instant,
+    // % * lease_time
+    pub percentage: Duration,
+    // full lease time
+    pub lease_time: Duration,
+}
+
+impl RenewExpiry {
+    /// if the elapsed time is less than the fraction of lease time configured
+    /// return the lease time remaining
+    pub fn get_remaining(&self) -> Option<Duration> {
+        if self.created.elapsed() <= self.percentage {
+            Some(self.lease_time - self.created.elapsed())
+        } else {
+            None
+        }
+    }
+}
+
+impl RenewExpiry {
+    pub fn new(now: Instant, lease_time: Duration, percentage: u64) -> Self {
+        Self {
+            percentage: Duration::from_secs((lease_time.as_secs() * percentage) / 100),
+            created: now,
+            lease_time,
+        }
+    }
 }
 
 impl<K: Eq + Hash + Clone> RenewThreshold<K> {
@@ -35,39 +62,24 @@ impl<K: Eq + Hash + Clone> RenewThreshold<K> {
         }
     }
     // insert id into cache with lease time, replacing existing entry
-    pub fn insert(&self, id: K, lease_time: Duration) -> Option<Instant> {
+    pub fn insert(&self, id: K, lease_time: Duration) -> Option<RenewExpiry> {
         let now = Instant::now();
         self.cache
-            .insert(id, threshold_expiry(now, lease_time, self.percentage))
+            .insert(id, RenewExpiry::new(now, lease_time, self.percentage))
     }
     // test if threshold has been met for a given id
-    pub fn threshold<Q>(&self, id: &Q) -> bool
+    pub fn threshold<Q>(&self, id: &Q) -> Option<Duration>
     where
         K: Borrow<Q>,
         Q: Eq + Hash + ?Sized,
     {
-        // 0% means the threshold is always met
-        if self.percentage == 0 {
-            return true;
-        }
-        let now = Instant::now();
         self.cache
             .get(id)
-            .map(|expires| now < *expires)
-            .unwrap_or(false)
+            .map(|e| *e)
+            .and_then(|entry| entry.get_remaining())
     }
-    // test if threshold has been met for a given id, inserting it if it does not exist
-    pub fn allowed_insert(&self, id: K, lease_time: Duration) -> bool {
-        // 0% means the threshold is always met
-        if self.percentage == 0 {
-            return true;
-        }
-        let now = Instant::now();
-        let expires = self.cache.entry(id).or_insert_with(|| {
-            // get the ending of the entry
-            threshold_expiry(now, lease_time, self.percentage)
-        });
-        now < *expires
+    pub fn remove(&self, id: &K) -> Option<(K, RenewExpiry)> {
+        self.cache.remove(id)
     }
 }
 
@@ -158,28 +170,77 @@ mod tests {
     }
 
     #[test]
-    fn test_renew_threshold() {
+    fn test_renew_remaining() {
+        let renew = RenewExpiry::new(Instant::now(), Duration::from_secs(5), 50);
+        std::thread::sleep(Duration::from_secs(1));
+        assert_eq!(
+            renew
+                .get_remaining()
+                .unwrap()
+                .as_secs_f32()
+                // round up
+                .round(),
+            4.
+        );
+        std::thread::sleep(Duration::from_secs(5));
+        assert!(renew.get_remaining().is_none());
+    }
+
+    #[test]
+    fn test_cache_threshold() {
         let cache = RenewThreshold::new(50);
         let lease_time = Duration::from_secs(2);
-        let lease_time_b = Duration::from_secs(5);
-        assert!(cache.allowed_insert([1, 2, 3, 4], lease_time));
-        assert!(cache.allowed_insert([1, 2, 3, 4], lease_time));
+        let lease_time_b = Duration::from_secs(6);
+        assert!(cache.insert([1, 2, 3, 4], lease_time).is_none());
 
         // another client, independent threshold
-        assert!(cache.allowed_insert([4, 3, 2, 1], lease_time_b));
-        assert!(cache.allowed_insert([4, 3, 2, 1], lease_time_b));
-        assert!(cache.allowed_insert([4, 3, 2, 1], lease_time_b));
+        assert!(cache.insert([4, 3, 2, 1], lease_time_b).is_none());
 
         // half of lease time passes
         std::thread::sleep(Duration::from_secs(1));
 
-        assert!(!cache.threshold(&[1, 2, 3, 4]));
-        assert!(!cache.threshold(&[1, 2, 3, 4]));
-        assert!(!cache.threshold(&[1, 2, 3, 4]));
+        assert!(cache.threshold(&[1, 2, 3, 4]).is_none());
+        assert!(cache.threshold(&[1, 2, 3, 4]).is_none());
+        assert_eq!(
+            cache
+                .threshold(&[4, 3, 2, 1])
+                .unwrap()
+                .as_secs_f32()
+                .round(),
+            5.
+        );
 
-        assert!(cache.allowed_insert([4, 3, 2, 1], lease_time_b));
+        std::thread::sleep(Duration::from_secs(1));
+        assert_eq!(
+            cache
+                .threshold(&[4, 3, 2, 1])
+                .unwrap()
+                .as_secs_f32()
+                .round(),
+            4.
+        );
+
+        std::thread::sleep(Duration::from_secs(2));
+        assert!(cache.threshold(&[4, 3, 2, 1]).is_none());
+    }
+
+    #[test]
+    fn test_cache_renew_0() {
+        // threshold set to 0 means the cache will never return a cached lease
+        let cache = RenewThreshold::new(0);
+        let lease_time = Duration::from_secs(2);
+        let lease_time_b = Duration::from_secs(6);
+        assert!(cache.insert([1, 2, 3, 4], lease_time).is_none());
+
+        // another client, independent threshold
+        assert!(cache.insert([4, 3, 2, 1], lease_time_b).is_none());
+
         // half of lease time passes
+        std::thread::sleep(Duration::from_secs(1));
+
+        assert!(cache.threshold(&[1, 2, 3, 4]).is_none());
+        assert!(cache.threshold(&[4, 3, 2, 1]).is_none());
         std::thread::sleep(Duration::from_secs(3));
-        assert!(!cache.allowed_insert([4, 3, 2, 1], lease_time_b));
+        assert!(cache.threshold(&[4, 3, 2, 1]).is_none());
     }
 }

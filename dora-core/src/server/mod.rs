@@ -146,7 +146,7 @@ where
                 Ok(Action::Respond) => return Some(()),
                 Ok(Action::NoResponse) => {
                     // remove the resp_msg if we don't plan to send a response
-                    ctx.decoded_resp_msg_mut().take();
+                    ctx.resp_msg_mut().take();
                     return None;
                 }
                 Err(ref err) => {
@@ -244,7 +244,7 @@ impl RunInner<v4::Message> {
                     socket2::SockRef::from(&*self.soc),
                 );
 
-                if let Some(resp) = self.ctx.decoded_resp_msg() {
+                if let Some(resp) = self.ctx.resp_msg() {
                     let msg_type = resp.opts().msg_type();
                     if let Ok(msg) = SerialMsg::from_msg(resp, dst_addr) {
                         // https://github.com/imp/dnsmasq/blob/master/src/forward.c#L70
@@ -346,7 +346,7 @@ impl RunInner<v6::Message> {
                 let iname = interface.name.as_str();
                 let dst_addr = self.ctx.resp_addr(self.service.config.is_default_port_v6());
 
-                if let Some(resp) = self.ctx.decoded_resp_msg() {
+                if let Some(resp) = self.ctx.resp_msg() {
                     let msg_type = resp.msg_type();
                     if let Ok(msg) = SerialMsg::from_msg(resp, dst_addr) {
                         debug!(

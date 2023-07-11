@@ -61,20 +61,24 @@ where
 {
     pub fn new(cfg: Arc<DhcpConfig>, ip_mgr: IpManager<S>) -> Self {
         Self {
-            renew_cache: cfg.v4().renew_threshold().map(RenewThreshold::new),
+            renew_cache: cfg.v4().cache_threshold().map(RenewThreshold::new),
             ip_mgr,
             cfg,
         }
     }
 
-    pub fn renew_threshold(&self, id: &[u8]) -> bool {
+    pub fn cache_threshold(&self, id: &[u8]) -> Option<Duration> {
         self.renew_cache
             .as_ref()
-            .map(|cache| cache.threshold(id))
-            .unwrap_or(false)
+            .and_then(|cache| cache.threshold(id))
     }
 
-    pub fn renew_insert(&self, id: &[u8], lease_time: Duration) {
+    pub fn cache_remove(&self, id: &[u8]) {
+        self.renew_cache
+            .as_ref()
+            .and_then(|cache| cache.remove(&id.to_vec()));
+    }
+    pub fn cache_insert(&self, id: &[u8], lease_time: Duration) {
         self.renew_cache
             .as_ref()
             // TODO: try to remove to_vec?
@@ -94,7 +98,7 @@ where
         classes: Option<&[String]>,
         range: &NetRange,
     ) -> Result<()> {
-        ctx.decoded_resp_msg_mut()
+        ctx.resp_msg_mut()
             .context("response message must be set before leases is run")?
             .set_yiaddr(ip);
         ctx.populate_opts_lease(
@@ -115,21 +119,16 @@ where
 {
     #[instrument(level = "debug", skip_all)]
     async fn handle(&self, ctx: &mut MsgContext<Message>) -> Result<Action> {
-        let req = ctx.decoded_msg();
+        let req = ctx.msg();
 
         let client_id = self.cfg.v4().client_id(req).to_vec(); // to_vec required b/c of borrowck error
         let subnet = ctx.subnet()?;
         // look up that subnet from our config
         let network = self.cfg.v4().network(subnet);
         let classes = ctx.get_local::<MatchedClasses>().map(|c| c.0.to_owned());
-        let resp_has_yiaddr =
-            matches!(ctx.decoded_resp_msg(), Some(msg) if !msg.yiaddr().is_unspecified());
-        let rapid_commit = ctx
-            .decoded_msg()
-            .opts()
-            .get(OptionCode::RapidCommit)
-            .is_some()
-            && self.cfg.v4().rapid_commit();
+        let resp_has_yiaddr = matches!(ctx.resp_msg(), Some(msg) if !msg.yiaddr().is_unspecified());
+        let rapid_commit =
+            ctx.msg().opts().get(OptionCode::RapidCommit).is_some() && self.cfg.v4().rapid_commit();
         let bootp = self.cfg.v4().bootp_enabled();
 
         match (req.opts().msg_type(), network) {
@@ -312,21 +311,29 @@ where
         let range = network.range(ip, classes);
         debug!(?ip, range = ?range.map(|r| r.addrs()), "is IP in range?");
         if let Some(range) = range {
-            let lease = range.lease().determine_lease(ctx.requested_lease_time());
-            let expires_at = SystemTime::now() + lease.0;
-            // calculate the lease time
-            if self.renew_threshold(client_id) {
+            // if we got a recent renewal and the threshold has not past yet, return the existing lease time
+            // TODO: move to ip-manager?
+            if let Some(remaining) = self.cache_threshold(client_id) {
+                // lease was already handed out so it is valid for this range
+                let lease = (
+                    remaining,
+                    config::renew(remaining),
+                    config::rebind(remaining),
+                );
+                let expires_at = SystemTime::now() + lease.0;
                 debug!(
                     ?ip,
                     ?client_id,
-                    expires_at = %print_time(expires_at),
                     range = ?range.addrs(),
                     subnet = ?network.subnet(),
-                    "sending old LEASE. client is attempting to renew inside of the renew threshold"
+                    "reusing LEASE. client is attempting to renew inside of the renew threshold"
                 );
                 self.set_lease(ctx, lease, ip, expires_at, classes, range)?;
                 return Ok(Action::Continue);
             }
+            // no lease info found -- calculate the lease time
+            let lease = range.lease().determine_lease(ctx.requested_lease_time());
+            let expires_at = SystemTime::now() + lease.0;
 
             match self
                 .ip_mgr
@@ -343,6 +350,8 @@ where
                         "sending LEASE"
                     );
                     self.set_lease(ctx, lease, ip, expires_at, classes, range)?;
+                    // insert lease into cache
+                    self.cache_insert(client_id, lease.0);
                     return Ok(Action::Continue);
                 }
                 // ip not reserved or chaddr doesn't match
@@ -354,7 +363,7 @@ where
                 }
                 Err(err) => {
                     debug!(?err, "can't give out lease & not authoritative");
-                    ctx.decoded_resp_msg_mut().take();
+                    ctx.resp_msg_mut().take();
                 }
             }
             Ok(Action::Continue)
@@ -364,8 +373,9 @@ where
     }
 
     async fn release(&self, ctx: &mut MsgContext<Message>, client_id: &[u8]) -> Result<Action> {
-        let ip = ctx.decoded_msg().ciaddr().into();
+        let ip = ctx.msg().ciaddr().into();
         if let Some(info) = self.ip_mgr.release_ip(ip, client_id).await? {
+            self.cache_remove(ctx.msg().chaddr());
             debug!(?info, "released ip");
         } else {
             debug!(?ip, ?client_id, "ip not found in storage");
@@ -381,7 +391,7 @@ where
         network: &Network,
     ) -> Result<Action> {
         let declined_ip = if let Some(DhcpOption::RequestedIpAddress(ip)) =
-            ctx.decoded_msg().opts().get(OptionCode::RequestedIpAddress)
+            ctx.msg().opts().get(OptionCode::RequestedIpAddress)
         {
             Ok(ip)
         } else {
@@ -391,6 +401,8 @@ where
         self.ip_mgr
             .probate_ip((*declined_ip).into(), client_id, expires_at)
             .await?;
+        // IP is decline, remove from cache
+        self.cache_remove(ctx.msg().chaddr());
         debug!(
             ?declined_ip,
             expires_at = %print_time(expires_at),

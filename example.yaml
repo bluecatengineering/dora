@@ -16,7 +16,7 @@
 #
 # rapid_commit: false
 #
-# The DHCP flood attack protection enables the DHCP device to detect DHCP
+# (default off) The DHCP flood attack protection enables the DHCP device to detect DHCP
 # flood attacks according to the DHCP packet rate threshold on a per-MAC basis.
 # By default this section is not enabled.
 #
@@ -24,13 +24,13 @@
 #       packets: 6
 #       secs: 5
 #
-# The renew_threshold statement takes one integer parameter with
-# allowed values between 0 and 100. This parameter expresses the
+# (default 25) The cache_threshold statement takes one integer parameter with
+# allowed values between 0 (disabled) and 100. This parameter expresses the
 # percentage of the total lease time, measured from the beginning,
 # during which a client's attempt to renew its lease will result
 # in getting the already assigned lease, rather than an extended lease.
 #
-# renew_threshold: 25
+# cache_threshold: 25
 #
 # Dora binds to inaddr_any, if an interface is specified dora will filter
 # all traffic not from this interface.

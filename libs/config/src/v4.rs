@@ -34,7 +34,7 @@ pub struct Config {
     bootp_enable: bool,
     rapid_commit: bool,
     flood_threshold: Option<FloodThreshold>,
-    renew_threshold: Option<u32>,
+    cache_threshold: Option<u32>,
     /// used to make a selection on which network or subnet to use
     networks: HashMap<Ipv4Net, Network>,
     v6: Option<crate::v6::Config>,
@@ -118,17 +118,19 @@ impl TryFrom<wire::Config> for Config {
                 period: Duration::from_secs(f.secs.get() as u64),
             }),
             // error if threshold exists and > 100
-            renew_threshold: cfg
-                .renew_threshold
-                .map(|threshold| {
-                    let threshold: u32 = threshold.get();
-                    if threshold > 100 {
-                        Err(anyhow::anyhow!("cache_threshold must be between 0 and 100"))
-                    } else {
-                        Ok(threshold.clamp(0, 100))
-                    }
-                })
-                .transpose()?,
+            cache_threshold: {
+                let threshold: u32 = cfg.cache_threshold.get();
+                if threshold > 100 {
+                    Some(Err(anyhow::anyhow!(
+                        "cache_threshold must be between 0 and 100"
+                    )))
+                } else if threshold == 0 {
+                    None
+                } else {
+                    Some(Ok(threshold.clamp(0, 100)))
+                }
+            }
+            .transpose()?,
             v6: cfg
                 .v6
                 .map(crate::v6::Config::try_from)
@@ -152,8 +154,8 @@ impl Config {
         self.flood_threshold.clone()
     }
     /// return the renew threshold config
-    pub fn renew_threshold(&self) -> Option<u32> {
-        self.renew_threshold
+    pub fn cache_threshold(&self) -> Option<u32> {
+        self.cache_threshold
     }
     /// eval all client classes, return names of classes that evaluate to true
     pub fn eval_client_classes(&self, req: &dhcproto::v4::Message) -> Option<Result<Vec<String>>> {

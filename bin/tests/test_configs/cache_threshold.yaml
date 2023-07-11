@@ -1,4 +1,4 @@
-renew_threshold: 25
+cache_threshold: 25
 interfaces: 
     - dhcpsrv
 networks:

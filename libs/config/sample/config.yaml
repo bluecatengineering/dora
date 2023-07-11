@@ -2,7 +2,7 @@ chaddr_only: false
 flood_protection_threshold:
     packets: 3
     secs: 5
-renew_threshold: 25
+cache_threshold: 25
 # interfaces:
 #     - wlan0
 networks:

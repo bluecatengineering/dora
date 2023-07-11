@@ -1,6 +1,9 @@
 mod common;
 
-use std::net::Ipv4Addr;
+use std::{
+    net::Ipv4Addr,
+    time::{Duration, Instant},
+};
 
 use anyhow::{bail, Result};
 use common::{builder::*, client::Client, env::DhcpServerEnv};
@@ -686,13 +689,13 @@ fn test_flood_threshold() -> Result<()> {
     Ok(())
 }
 
-/// flood_protection_threshold set for 2 packets in 5 seconds
+/// test cache threshold
 #[test]
 #[traced_test]
-fn test_renew_threshold() -> Result<()> {
+fn test_cache_threshold() -> Result<()> {
     let _srv = DhcpServerEnv::start(
-        "renew_threshold.yaml",
-        "renew_threshold.db",
+        "cache_threshold.yaml",
+        "cache_threshold.db",
         "dora_test",
         "dhcpcli",
         "dhcpsrv",
@@ -720,12 +723,16 @@ fn test_renew_threshold() -> Result<()> {
         .giaddr([192, 168, 2, 1])
         .opt_req_addr(resp.yiaddr())
         .build()?;
+    let now = Instant::now();
+
     let resp = client.run(MsgType::Request(msg_args))?;
     let Some(v4::DhcpOption::AddressLeaseTime(lease_time_a)) = resp.opts().get(v4::OptionCode::AddressLeaseTime) else {
         bail!("invalid option")
     };
     assert_eq!(resp.opts().msg_type().unwrap(), v4::MessageType::Ack);
 
+    // sleep for 1s then get a renew, should use same lease
+    std::thread::sleep(Duration::from_secs(2));
     // renew
     let msg_args = RequestBuilder::default()
         .giaddr([192, 168, 2, 1])
@@ -736,7 +743,12 @@ fn test_renew_threshold() -> Result<()> {
         bail!("invalid option")
     };
     assert_eq!(resp.opts().msg_type().unwrap(), v4::MessageType::Ack);
-    assert_eq!(lease_time_b, lease_time_a);
+    // round off to the second and compare time left on lease, should equal the original lease
+    // i.e. we got the original lease back
+    assert_eq!(
+        *lease_time_b,
+        *lease_time_a - dbg!(now.elapsed().as_secs_f32()).round() as u32
+    );
 
     // pedantic drop
     drop(_srv);

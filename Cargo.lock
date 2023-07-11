@@ -1500,6 +1500,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "client-protection",
  "config",
  "icmp-ping",
  "ipnet",

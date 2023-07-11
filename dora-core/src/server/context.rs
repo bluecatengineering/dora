@@ -25,7 +25,7 @@ use crate::{
 pub struct MsgContext<T> {
     /// underlying byte message and address. msg.addr will always be the address
     /// we received the message from and that we send packets back to.
-    msg: SerialMsg,
+    msg_buf: SerialMsg,
     /// address received. This is initially set to the address that the
     /// UDP packet, but can be overridden with `set_src_addr`.
     src_addr: SocketAddr,
@@ -34,10 +34,10 @@ pub struct MsgContext<T> {
     /// time this context was created
     time: DateTime<Utc>,
     /// decoded from msg
-    decoded_msg: T,
+    msg: T,
     /// decoded response msg  -- **CAREFUL** do not call `take()` on this before
     /// logging the query (or we won't have the data for logging)
-    decoded_resp_msg: Option<T>,
+    resp_msg: Option<T>,
     /// a type map for use by plugins to store values
     type_map: TypeMap,
     /// unique id we assign to each `MsgContext`
@@ -62,8 +62,8 @@ impl<T: fmt::Debug> fmt::Debug for MsgContext<T> {
             .field("time", &self.time)
             .field("id", &self.id)
             .field("is_live", &self.is_live)
-            .field("decoded_msg", &self.decoded_msg)
-            .field("decoded_resp_msg", &self.decoded_resp_msg)
+            .field("msg", &self.msg)
+            .field("resp_msg", &self.resp_msg)
             .field("interface", &self.interface)
             .finish()
     }
@@ -85,7 +85,7 @@ impl<T> MsgContext<T> {
 
     /// Get the `SerialMsg` bytes by shared ref
     pub fn bytes(&self) -> &[u8] {
-        self.msg.bytes()
+        self.msg_buf.bytes()
     }
     /// return meta data associated with recv'd packet
     pub fn meta(&self) -> RecvMeta {
@@ -93,19 +93,19 @@ impl<T> MsgContext<T> {
     }
 
     /// Get `Serial` message by shared ref
-    pub fn msg(&self) -> &SerialMsg {
-        &self.msg
+    pub fn msg_buf(&self) -> &SerialMsg {
+        &self.msg_buf
     }
 
     /// Get `SerialMsg` by mutable ref
-    pub fn msg_mut(&mut self) -> &mut SerialMsg {
-        &mut self.msg
+    pub fn msg_buf_mut(&mut self) -> &mut SerialMsg {
+        &mut self.msg_buf
     }
 
     /// Set the original buffer/address pair that we received for this
     /// `MsgContext`
-    pub fn set_msg(&mut self, msg: SerialMsg) {
-        self.msg = msg;
+    pub fn set_msg_buf(&mut self, msg: SerialMsg) {
+        self.msg_buf = msg;
     }
 
     /// Get the `DateTime` that we first created this `MsgContext`
@@ -195,21 +195,21 @@ impl<T> MsgContext<T> {
 
 impl<T: Encodable + Decodable> MsgContext<T> {
     /// Create a `MsgContext` with state
-    pub fn new(msg: SerialMsg, meta: RecvMeta, state: Arc<State>) -> io::Result<Self> {
-        let decoded_msg = {
-            let mut decoder = Decoder::new(msg.bytes());
+    pub fn new(msg_buf: SerialMsg, meta: RecvMeta, state: Arc<State>) -> io::Result<Self> {
+        let msg = {
+            let mut decoder = Decoder::new(msg_buf.bytes());
             T::decode(&mut decoder).map_err(|op| io::Error::new(io::ErrorKind::InvalidData, op))?
         };
 
         Ok(Self {
-            msg,
+            msg_buf,
             src_addr: meta.addr,
             meta,
             dst_addr: None,
             time: Utc::now(),
-            decoded_msg,
+            msg,
             type_map: TypeMap::new(),
-            decoded_resp_msg: None,
+            resp_msg: None,
             id: state.inc_id(),
             state,
             is_live: true,
@@ -223,7 +223,7 @@ impl<T: Encodable + Decodable> MsgContext<T> {
     ///
     /// [`Decoder`]: dhcproto::decoder::Decoder
     pub fn decode_resp(&mut self, msg: SerialMsg) -> io::Result<()> {
-        self.decoded_resp_msg = Some({
+        self.resp_msg = Some({
             let mut decoder = Decoder::new(msg.bytes());
             T::decode(&mut decoder).map_err(|op| io::Error::new(io::ErrorKind::InvalidData, op))?
         });
@@ -234,34 +234,34 @@ impl<T: Encodable + Decodable> MsgContext<T> {
     /// Takes the decoded response message, encodes into a `SerialMsg`
     pub fn encode_resp_msg(&mut self) -> io::Result<SerialMsg> {
         let msg = self
-            .decoded_resp_msg
+            .resp_msg
             .as_ref()
             .ok_or_else(|| Error::new(ErrorKind::NotFound, "no response message"))?;
-        SerialMsg::from_msg(msg, self.msg.addr())
+        SerialMsg::from_msg(msg, self.msg_buf.addr())
     }
 
     /// The deserialized contents of `msg`
-    pub fn decoded_msg(&self) -> &T {
-        &self.decoded_msg
+    pub fn msg(&self) -> &T {
+        &self.msg
     }
 
     /// The mutable deserialized contents of `msg`
-    pub fn decoded_msg_mut(&mut self) -> &mut T {
-        &mut self.decoded_msg
+    pub fn msg_mut(&mut self) -> &mut T {
+        &mut self.msg
     }
 
-    /// The contents of `decode_resp`
-    pub fn decoded_resp_msg(&self) -> Option<&T> {
-        self.decoded_resp_msg.as_ref()
+    /// The contents of `resp_msg`
+    pub fn resp_msg(&self) -> Option<&T> {
+        self.resp_msg.as_ref()
     }
 
-    /// sets the decoded_resp_msg with a `Message`
-    pub fn set_decoded_resp_msg(&mut self, msg: T) {
-        self.decoded_resp_msg = Some(msg);
+    /// sets the resp_msg with a `Message`
+    pub fn set_resp_msg(&mut self, msg: T) {
+        self.resp_msg = Some(msg);
     }
-    /// The mutable deserialized contents of `decoded_resp_msg`
-    pub fn decoded_resp_msg_mut(&mut self) -> Option<&mut T> {
-        self.decoded_resp_msg.as_mut()
+    /// The mutable deserialized contents of `resp_msg`
+    pub fn resp_msg_mut(&mut self) -> Option<&mut T> {
+        self.resp_msg.as_mut()
     }
     /// set the interface for the message
     pub fn set_interface<I: Into<IpNetwork>>(&mut self, interface: I) {
@@ -311,7 +311,7 @@ impl MsgContext<v4::Message> {
         // device: Option<&str>,
         soc: socket2::SockRef<'_>,
     ) -> SocketAddr {
-        let req = self.decoded_msg();
+        let req = self.msg();
         let giaddr = req.giaddr();
         let ciaddr = req.ciaddr();
 
@@ -321,7 +321,7 @@ impl MsgContext<v4::Message> {
             req.flags().broadcast(),
         );
         //
-        let yiaddr = self.decoded_resp_msg().map(|msg| msg.yiaddr());
+        let yiaddr = self.resp_msg().map(|msg| msg.yiaddr());
         // TODO: set siaddr (dnsmasq does this)? ciaddr?
 
         if !default_port {
@@ -329,14 +329,12 @@ impl MsgContext<v4::Message> {
             // if we are not on the default v4 port, send the response
             // back to the source ip:port as unicast.
             // This is useful for testing
-            self.msg().addr()
+            self.msg_buf().addr()
         } else if !giaddr_zero {
             // relay situation: giaddr nonzero
             // use giaddr
             trace!("responding using giaddr");
-            self.decoded_resp_msg
-                .as_mut()
-                .map(|resp| resp.set_giaddr(giaddr));
+            self.resp_msg.as_mut().map(|resp| resp.set_giaddr(giaddr));
             (giaddr, v4::SERVER_PORT).into()
         } else if !ciaddr_zero {
             // giaddr zero, ciaddr nonzero
@@ -349,8 +347,8 @@ impl MsgContext<v4::Message> {
             trace!("responding using yiaddr");
             // create the sockaddr_in for `yiaddr`
             let yiaddr = yiaddr.unwrap();
-            let htype = self.decoded_msg().htype();
-            let chaddr = self.decoded_msg().chaddr();
+            let htype = self.msg().htype();
+            let chaddr = self.msg().chaddr();
 
             // use a different socket for arp injection?
             if let Err(err) = super::ioctl::arp_set(soc, yiaddr, htype, chaddr) {
@@ -374,7 +372,7 @@ impl MsgContext<v4::Message> {
 
     /// records metrics for recvd DHCP message
     pub fn recv_metrics(&self) -> io::Result<()> {
-        match self.decoded_msg().opts().msg_type() {
+        match self.msg().opts().msg_type() {
             Some(v4::MessageType::Discover) => {
                 RECV_TYPE_COUNT.discover.inc();
             }
@@ -409,7 +407,7 @@ impl MsgContext<v4::Message> {
     /// records metrics for sent DHCP message
     pub fn sent_metrics(&self) -> io::Result<()> {
         match self
-            .decoded_resp_msg()
+            .resp_msg()
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "v4 response not found"))?
             .opts()
             .msg_type()
@@ -449,7 +447,7 @@ impl MsgContext<v4::Message> {
     /// should clear/update corresponding fields in the msg.
     /// for example, if switched to Nak, yiaddr/siaddr/ciaddr will be cleared
     pub fn update_resp_msg(&mut self, msg_type: v4::MessageType) -> Option<()> {
-        let resp = self.decoded_resp_msg_mut()?;
+        let resp = self.resp_msg_mut()?;
         let server_id = resp.opts().get(v4::OptionCode::ServerIdentifier).cloned();
         let client_id = resp.opts().get(v4::OptionCode::ClientIdentifier).cloned();
 
@@ -483,10 +481,8 @@ impl MsgContext<v4::Message> {
     }
     /// Look in the `decoded_msg` and see if there was a lease time requested
     pub fn requested_lease_time(&self) -> Option<Duration> {
-        if let Some(v4::DhcpOption::AddressLeaseTime(t)) = self
-            .decoded_msg()
-            .opts()
-            .get(v4::OptionCode::AddressLeaseTime)
+        if let Some(v4::DhcpOption::AddressLeaseTime(t)) =
+            self.msg().opts().get(v4::OptionCode::AddressLeaseTime)
         {
             Some(Duration::from_secs(*t as u64))
         } else {
@@ -498,7 +494,7 @@ impl MsgContext<v4::Message> {
     /// else if opts has `RequestedIpAddress`, return it,
     /// otherwise return None, there is no requested IP
     pub fn requested_ip(&self) -> Option<Ipv4Addr> {
-        let req = self.decoded_msg();
+        let req = self.msg();
         if !req.ciaddr().is_unspecified() {
             // renew or rebind
             Some(req.ciaddr())
@@ -534,7 +530,7 @@ impl MsgContext<v4::Message> {
         // get link-selection relay agent subopt first
         // OR use subnet-selection option
         let link = self
-            .decoded_msg
+            .msg
             .opts()
             .get(OptionCode::RelayAgentInformation)
             .and_then(|opt| {
@@ -545,14 +541,12 @@ impl MsgContext<v4::Message> {
                 }
                 None
             })
-            .or_else(
-                || match self.decoded_msg.opts().get(OptionCode::SubnetSelection) {
-                    Some(DhcpOption::SubnetSelection(ip)) => Some(ip),
-                    _ => None,
-                },
-            );
-        let giaddr = self.decoded_msg().giaddr();
-        let ciaddr = self.decoded_msg().ciaddr();
+            .or_else(|| match self.msg.opts().get(OptionCode::SubnetSelection) {
+                Some(DhcpOption::SubnetSelection(ip)) => Some(ip),
+                _ => None,
+            });
+        let giaddr = self.msg().giaddr();
+        let ciaddr = self.msg().ciaddr();
 
         if let Some(ip) = link {
             Ok(*ip)
@@ -596,18 +590,14 @@ impl MsgContext<v4::Message> {
         use dhcproto::v4::{DhcpOption, OptionCode};
         // https://datatracker.ietf.org/doc/html/rfc3046#section-2.2
         // copy opt 82 (relay agent) into response
-        let resp = self.decoded_resp_msg.as_mut()?;
-        if let Some(info) = self
-            .decoded_msg
-            .opts()
-            .get(OptionCode::RelayAgentInformation)
-        {
+        let resp = self.resp_msg.as_mut()?;
+        if let Some(info) = self.msg.opts().get(OptionCode::RelayAgentInformation) {
             resp.opts_mut().insert(info.clone());
         }
 
         // https://datatracker.ietf.org/doc/html/rfc6842#section-3
         // copy client id
-        if let Some(id) = self.decoded_msg.opts().get(OptionCode::ClientIdentifier) {
+        if let Some(id) = self.msg.opts().get(OptionCode::ClientIdentifier) {
             resp.opts_mut().insert(id.clone());
         }
 
@@ -622,10 +612,8 @@ impl MsgContext<v4::Message> {
                 .insert(DhcpOption::BroadcastAddr(interface.broadcast()));
         }
 
-        if let Some(DhcpOption::ParameterRequestList(requested)) = self
-            .decoded_msg
-            .opts()
-            .get(OptionCode::ParameterRequestList)
+        if let Some(DhcpOption::ParameterRequestList(requested)) =
+            self.msg.opts().get(OptionCode::ParameterRequestList)
         {
             // look in the requested list of params
             for code in requested {
@@ -653,7 +641,7 @@ impl MsgContext<v4::Message> {
             v4::OptionCode::Rebinding,
             v4::OptionCode::ClientIdentifier,
         ];
-        let resp = self.decoded_resp_msg_mut()?;
+        let resp = self.resp_msg_mut()?;
         for opt in DHCP_OPTS {
             resp.opts_mut().remove(*opt);
         }
@@ -670,14 +658,22 @@ impl MsgContext<v4::Message> {
         rebind: Duration,
     ) -> Option<()> {
         self.populate_opts(param_opts)?; // add time
-        let resp = self.decoded_resp_msg.as_mut()?;
+        let resp = self.resp_msg.as_mut()?;
         resp.opts_mut()
-            .insert(v4::DhcpOption::AddressLeaseTime(lease.as_secs() as u32));
+            .insert(v4::DhcpOption::AddressLeaseTime(whole_seconds(lease)));
         resp.opts_mut()
-            .insert(v4::DhcpOption::Renewal(renew.as_secs() as u32));
+            .insert(v4::DhcpOption::Renewal(whole_seconds(renew)));
         resp.opts_mut()
-            .insert(v4::DhcpOption::Rebinding(rebind.as_secs() as u32));
+            .insert(v4::DhcpOption::Rebinding(whole_seconds(rebind)));
         Some(())
+    }
+}
+
+fn whole_seconds(t: Duration) -> u32 {
+    if t.subsec_millis() >= 500 {
+        t.as_secs() as u32 + 1
+    } else {
+        t.as_secs() as u32
     }
 }
 
@@ -705,7 +701,7 @@ impl MsgContext<v6::Message> {
     ) -> SocketAddr {
         if !default_port {
             trace!("using non-default port for response");
-            self.msg().addr()
+            self.msg_buf().addr()
         } else {
             let mut src = self.src_addr();
             src.set_port(v6::CLIENT_PORT);
@@ -718,14 +714,14 @@ impl MsgContext<v6::Message> {
     /// include the client identifier *if it was present* in the original message
     pub fn populate_opts(&mut self, param_opts: &v6::DhcpOptions) -> Option<()> {
         use dhcproto::v6::{DhcpOption, OptionCode};
-        let resp = self.decoded_resp_msg.as_mut()?;
+        let resp = self.resp_msg.as_mut()?;
 
         // copy client id https://www.rfc-editor.org/rfc/rfc8415.html#section-18.3.9
-        if let Some(id) = self.decoded_msg.opts().get(OptionCode::ClientId) {
+        if let Some(id) = self.msg.opts().get(OptionCode::ClientId) {
             resp.opts_mut().insert(id.clone());
         }
 
-        if let Some(DhcpOption::ORO(requested)) = self.decoded_msg.opts().get(OptionCode::ORO) {
+        if let Some(DhcpOption::ORO(requested)) = self.msg.opts().get(OptionCode::ORO) {
             trace!(?requested, provided = ?param_opts, "requested opts");
             // look in the requested list of params
             for code in &requested.opts {
@@ -740,7 +736,7 @@ impl MsgContext<v6::Message> {
 
     /// records metrics for recvd DHCP message
     pub fn recv_metrics(&self) -> io::Result<()> {
-        match self.decoded_msg().msg_type() {
+        match self.msg().msg_type() {
             v6::MessageType::Solicit => V6_RECV_TYPE_COUNT.solicit.inc(),
             v6::MessageType::Advertise => V6_RECV_TYPE_COUNT.advertise.inc(),
             v6::MessageType::Request => V6_RECV_TYPE_COUNT.request.inc(),
@@ -764,7 +760,7 @@ impl MsgContext<v6::Message> {
     /// records metrics for sent DHCP message
     pub fn sent_metrics(&self) -> io::Result<()> {
         match self
-            .decoded_resp_msg()
+            .resp_msg()
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "v6 response not found"))?
             .msg_type()
         {
@@ -811,7 +807,7 @@ mod tests {
     fn assert_opt(ctx: &MsgContext<v4::Message>, opt: v4::DhcpOption) {
         assert_eq!(
             &opt,
-            ctx.decoded_resp_msg()
+            ctx.resp_msg()
                 .unwrap()
                 .opts()
                 .get(v4::OptionCode::from(&opt))
@@ -916,7 +912,7 @@ mod tests {
             meta,
             state,
         )?;
-        ctx.decoded_resp_msg = Some(v4::Message::new(
+        ctx.resp_msg = Some(v4::Message::new(
             Ipv4Addr::UNSPECIFIED,
             Ipv4Addr::UNSPECIFIED,
             Ipv4Addr::UNSPECIFIED,
@@ -958,7 +954,7 @@ mod tests {
             meta,
             state,
         )?;
-        ctx.decoded_resp_msg = Some(v4::Message::new(
+        ctx.resp_msg = Some(v4::Message::new(
             Ipv4Addr::UNSPECIFIED,
             Ipv4Addr::UNSPECIFIED,
             Ipv4Addr::UNSPECIFIED,
