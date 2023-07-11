@@ -9,13 +9,13 @@ license = "MPL-2.0"
 [dependencies]
 rand = "0.8"
 socket2 = { workspace = true }
-tokio = { version = "1.17.0", features = ["time", "net", "sync", "macros"] }
+tokio = { workspace = true, features = ["time", "net", "sync", "macros"] }
 parking_lot = "0.12"
 pnet = { workspace = true }
 thiserror = { workspace = true }
 tracing ={ workspace = true }
  
 [dev-dependencies]
-tokio = { version = "1.17.0", features = ["full"] }
+tokio = { workspace = true }
 tracing-subscriber = "0.3"
 tracing-test = "0.2.4"

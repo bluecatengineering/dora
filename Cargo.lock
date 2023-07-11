@@ -1507,7 +1507,10 @@ dependencies = [
  "moka",
  "sqlx",
  "thiserror",
+ "tokio",
+ "tokio-test",
  "tracing",
+ "tracing-test",
 ]
 
 [[package]]
@@ -1740,6 +1743,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mach2"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d0d1830bcd151a6fc4aea1369af235b36c1528fe976b8ff678683c9995eade8"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "match_cfg"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1826,9 +1838,9 @@ dependencies = [
 
 [[package]]
 name = "moka"
-version = "0.10.0"
+version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b6446f16d504e3d575df79cabb11bfbe9f24b17e9562d964a815db7b28ae3ec"
+checksum = "713518e40360e799c7a0b991b63fcd59814b00901ad3acbe8ecfb5daa23723be"
 dependencies = [
  "async-io",
  "async-lock",
@@ -1839,7 +1851,7 @@ dependencies = [
  "num_cpus",
  "once_cell",
  "parking_lot 0.12.1",
- "quanta 0.10.1",
+ "quanta 0.11.1",
  "rustc_version",
  "scheduled-thread-pool",
  "skeptic",
@@ -2472,16 +2484,16 @@ dependencies = [
 
 [[package]]
 name = "quanta"
-version = "0.10.1"
+version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b7e31331286705f455e56cca62e0e717158474ff02b7936c1fa596d983f4ae27"
+checksum = "a17e662a7a8291a865152364c20c7abc5e60486ab2001e8ec10b24862de0b9ab"
 dependencies = [
  "crossbeam-utils",
  "libc",
- "mach",
+ "mach2",
  "once_cell",
  "raw-cpuid",
- "wasi 0.10.0+wasi-snapshot-preview1",
+ "wasi 0.11.0+wasi-snapshot-preview1",
  "web-sys",
  "winapi",
 ]
@@ -2774,9 +2786,9 @@ dependencies = [
 
 [[package]]
 name = "scheduled-thread-pool"
-version = "0.2.6"
+version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "977a7519bff143a44f842fd07e80ad1329295bd71686457f18e496736f4bf9bf"
+checksum = "3cbc66816425a074528352f5789333ecff06ca41b36b0b0efdfbb29edc391a19"
 dependencies = [
  "parking_lot 0.12.1",
 ]

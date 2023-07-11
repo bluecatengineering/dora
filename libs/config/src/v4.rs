@@ -318,6 +318,14 @@ pub struct Network {
 }
 
 impl Network {
+    pub fn set_subnet(&mut self, subnet: Ipv4Net) -> &mut Self {
+        self.subnet = subnet;
+        self
+    }
+    pub fn set_ranges(&mut self, ranges: Vec<NetRange>) -> &mut Self {
+        self.ranges = ranges;
+        self
+    }
     pub fn server_name(&self) -> Option<&str> {
         self.server_name.as_deref()
     }

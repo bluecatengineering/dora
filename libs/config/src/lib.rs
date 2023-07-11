@@ -139,6 +139,9 @@ pub struct LeaseTime {
 }
 
 impl LeaseTime {
+    pub fn new(default: Duration, min: Duration, max: Duration) -> Self {
+        Self { default, min, max }
+    }
     pub fn get_default(&self) -> Duration {
         self.default
     }
