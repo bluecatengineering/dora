@@ -25,3 +25,4 @@ tokio-test = "0.4.1"
 tracing = { workspace = true, features = ["log"] }
 tokio = { workspace = true }
 tracing-test = "0.2.4"
+rand = { workspace = true }

@@ -375,7 +375,7 @@ where
     async fn release(&self, ctx: &mut MsgContext<Message>, client_id: &[u8]) -> Result<Action> {
         let ip = ctx.msg().ciaddr().into();
         if let Some(info) = self.ip_mgr.release_ip(ip, client_id).await? {
-            self.cache_remove(ctx.msg().chaddr());
+            self.cache_remove(client_id);
             debug!(?info, "released ip");
         } else {
             debug!(?ip, ?client_id, "ip not found in storage");
