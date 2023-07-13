@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            UPDATE leases\n            SET\n                client_id = ?2, expires_at = ?3, leased = ?4, probation = ?5\n            WHERE \n                ip = ?1\n            RETURNING *\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "ip",
+        "ordinal": 0,
+        "type_info": "Int64"
+      },
+      {
+        "name": "client_id",
+        "ordinal": 1,
+        "type_info": "Blob"
+      },
+      {
+        "name": "leased",
+        "ordinal": 2,
+        "type_info": "Bool"
+      },
+      {
+        "name": "expires_at",
+        "ordinal": 3,
+        "type_info": "Int64"
+      },
+      {
+        "name": "network",
+        "ordinal": 4,
+        "type_info": "Int64"
+      },
+      {
+        "name": "probation",
+        "ordinal": 5,
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": [
+      true,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "d69709c14c3d5077d08ee45219811df9460eb5ba305097440d953a3c69edcdc0"
+}

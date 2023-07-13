@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT COUNT(ip) as count_ip FROM leases WHERE leased = ?1 AND probation = ?2 AND expires_at > ?3",
+  "describe": {
+    "columns": [
+      {
+        "name": "count_ip",
+        "ordinal": 0,
+        "type_info": "Int"
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "793f1692b36d96a6815c6bfb21d5de88c4f64c020af406405a2ed8c9535ffff3"
+}
