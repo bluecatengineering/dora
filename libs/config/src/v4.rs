@@ -326,6 +326,14 @@ impl Network {
         self.ranges = ranges;
         self
     }
+    pub fn set_ping_check(&mut self, ping_check: bool) -> &mut Self {
+        self.ping_check = ping_check;
+        self
+    }
+    pub fn set_authoritative(&mut self, authoritative: bool) -> &mut Self {
+        self.authoritative = authoritative;
+        self
+    }
     pub fn server_name(&self) -> Option<&str> {
         self.server_name.as_deref()
     }
