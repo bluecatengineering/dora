@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            UPDATE leases\n            SET\n                client_id = ?4, leased = ?5, expires_at = ?6, probation = FALSE\n            WHERE ip in\n               (\n                   SELECT ip\n                    FROM leases\n                    WHERE\n                        ((expires_at < ?1) AND (ip >= ?2 AND ip <= ?3)) OR (client_id = ?4)\n                    ORDER BY ip LIMIT 1\n                )\n            RETURNING ip\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "ip",
+        "ordinal": 0,
+        "type_info": "Int64"
+      }
+    ],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "882703a86e74138d6b6f7e58219890fbf40508e6212ba0aa6e507b1f1c9ad1f4"
+}

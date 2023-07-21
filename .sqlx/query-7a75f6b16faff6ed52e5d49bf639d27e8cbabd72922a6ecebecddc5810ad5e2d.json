@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO leases\n                    (ip, client_id, expires_at, network, leased, probation)\n                VALUES\n                    (?1, ?2, ?3, ?4, ?5, ?6)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "7a75f6b16faff6ed52e5d49bf639d27e8cbabd72922a6ecebecddc5810ad5e2d"
+}

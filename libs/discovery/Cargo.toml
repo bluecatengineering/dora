@@ -8,5 +8,5 @@ license = "MPL-2.0"
 
 [dependencies]
 anyhow = { workspace = true }
-trust-dns-resolver = "0.20.0"
+trust-dns-resolver = "0.22.0"
 

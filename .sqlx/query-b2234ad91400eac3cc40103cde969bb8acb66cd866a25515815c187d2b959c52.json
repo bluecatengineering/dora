@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT\n                *\n            FROM\n                leases\n            WHERE\n                ip >= ?1 AND ip <= ?2\n            ORDER BY\n                ip DESC\n            LIMIT 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "ip",
+        "ordinal": 0,
+        "type_info": "Int64"
+      },
+      {
+        "name": "client_id",
+        "ordinal": 1,
+        "type_info": "Blob"
+      },
+      {
+        "name": "leased",
+        "ordinal": 2,
+        "type_info": "Bool"
+      },
+      {
+        "name": "expires_at",
+        "ordinal": 3,
+        "type_info": "Int64"
+      },
+      {
+        "name": "network",
+        "ordinal": 4,
+        "type_info": "Int64"
+      },
+      {
+        "name": "probation",
+        "ordinal": 5,
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "b2234ad91400eac3cc40103cde969bb8acb66cd866a25515815c187d2b959c52"
+}

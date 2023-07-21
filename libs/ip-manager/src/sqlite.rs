@@ -30,11 +30,10 @@ impl Clone for SqliteDb {
 
 impl SqliteDb {
     pub async fn new(uri: impl AsRef<str>) -> Result<Self, sqlx::Error> {
-        let mut opts = SqliteConnectOptions::from_str(uri.as_ref())?
+        let opts = SqliteConnectOptions::from_str(uri.as_ref())?
             .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
-            .create_if_missing(true);
-        // make sqlite log queries at trace level so we don't get a bloated log on `info`
-        opts.log_statements(tracing::log::LevelFilter::Trace);
+            .create_if_missing(true)
+            .log_statements(tracing::log::LevelFilter::Trace);
 
         let inner = SqlitePool::connect_with(opts).await?;
         sqlx::migrate!("../../migrations").run(&inner).await?;
@@ -107,7 +106,7 @@ impl Storage for SqliteDb {
                 // TRANSACTION START
                 let mut conn = self.inner.begin().await?;
                 // we only use this IP to find what the next available should be
-                let ip = match util::max_in_range(&mut conn, start_ip, end_ip).await? {
+                let ip = match util::max_in_range(&mut *conn, start_ip, end_ip).await? {
                     Some(State::Leased(cur) | State::Reserved(cur) | State::Probated(cur)) => {
                         let start = cur.ip;
                         let end = *range.end();
@@ -122,7 +121,7 @@ impl Storage for SqliteDb {
                 };
                 if let Some(IpAddr::V4(v4_ip)) = ip {
                     util::insert(
-                        &mut conn,
+                        &mut *conn,
                         u32::from(v4_ip) as i64,
                         u32::from(network) as i64,
                         &id,
@@ -282,7 +281,7 @@ impl Storage for SqliteDb {
             IpAddr::V4(ip) => {
                 let ip = u32::from(ip) as i64;
                 let mut conn = self.inner.begin().await?;
-                util::delete(&mut conn, ip).await?;
+                util::delete(&mut *conn, ip).await?;
                 conn.commit().await?;
                 Ok(())
             }
@@ -343,7 +342,7 @@ mod util {
             ip,
             id
         )
-        .fetch_optional(&mut trans)
+        .fetch_optional(&mut *trans)
         .await?
         .map(|cur| ClientInfo {
             ip: IpAddr::V4(Ipv4Addr::from(cur.ip as u32)),
@@ -351,7 +350,7 @@ mod util {
             network: IpAddr::V4(Ipv4Addr::from(cur.network as u32)),
             expires_at: to_systime(cur.expires_at),
         });
-        util::delete(&mut trans, ip).await?;
+        util::delete(&mut *trans, ip).await?;
 
         trans.commit().await?;
         // instead of deleting:

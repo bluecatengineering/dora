@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT ip \n            FROM \n                leases \n            WHERE \n                client_id = ?1 AND expires_at > ?2 \n            LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "ip",
+        "ordinal": 0,
+        "type_info": "Int64"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "f142683f0ea01af776e17015553be7f6b0b49e030f954bd1a80a38a8de72147d"
+}
