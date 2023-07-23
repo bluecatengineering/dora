@@ -83,7 +83,7 @@ fn start_dhcp_server(config: &str, netns: &str, db: &str) -> Child {
     let workspace_root = env::var("WORKSPACE_ROOT").unwrap_or_else(|_| "..".to_owned());
     let config_path = format!("{workspace_root}/bin/tests/test_configs/{config}");
     let dora_debug = format!(
-        "./{workspace_root}/target/debug/dora -d={db} --config-path={config_path} --threads=2 --dora-log=debug --v4-addr=0.0.0.0:9900",
+        "./{workspace_root}/target/debug/dora -d={db} --config-path={config_path} --dora-log=debug --v4-addr=0.0.0.0:9900",
     );
     let cmd = format!("ip netns exec {netns} {dora_debug}");
 

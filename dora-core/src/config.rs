@@ -76,9 +76,6 @@ pub mod cli {
         /// channel size for various mpsc chans
         #[clap(long, env, value_parser, default_value_t = DEFAULT_CHANNEL_SIZE)]
         pub channel_size: usize,
-        /// How many threads are spawned, default is the # of logical CPU cores
-        #[clap(long, env, value_parser)]
-        pub threads: Option<usize>,
         /// Worker thread name
         #[clap(long, env, value_parser, default_value = DEFAULT_THREAD_NAME)]
         pub thread_name: String,

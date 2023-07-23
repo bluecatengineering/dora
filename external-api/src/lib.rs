@@ -114,7 +114,7 @@ impl ExternalApi {
         let state = self.state.clone();
         let addr = self.addr;
 
-        tokio::spawn(async move {
+        tokio::task::spawn(async move {
             if let Err(err) = tokio::try_join!(ExternalApi::run(state, addr), self.listen_status())
             {
                 error!(?err, "health task returning, this should not happen")

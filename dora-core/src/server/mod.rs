@@ -478,7 +478,7 @@ macro_rules! impl_server {
                         // TODO: when `JoinSet` is removed from unstable-- add handles
                         // here.
                         // Using JoinSet will likely mean that we no longer need `_shutdown_complete`
-                        tokio::spawn(task.run());
+                        tokio::task::spawn_local(task.run());
                     }
                 }
                 Ok(())

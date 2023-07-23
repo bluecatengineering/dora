@@ -10,7 +10,12 @@ use dora_core::{
         trace,
     },
     dhcproto::{v4, v6},
-    tokio::{self, runtime::Builder, signal, task::JoinHandle},
+    tokio::{
+        self,
+        runtime::Builder,
+        signal,
+        task::{JoinHandle, LocalSet},
+    },
     tracing::*,
     Register, Server,
 };
@@ -37,19 +42,14 @@ fn main() -> Result<()> {
         debug!(?err, ".env file not loaded");
     }
 
-    let mut builder = Builder::new_multi_thread();
+    let mut builder = Builder::new_current_thread();
     // configure thread name & enable IO/time
     builder.thread_name(&config.thread_name).enable_all();
-    // default num threads will be num logical CPUs
-    // if we have a configured value here, set it
-    if let Some(num) = config.threads {
-        builder.worker_threads(num);
-    }
+
     // build the runtime
     let rt = builder.build()?;
-
-    rt.block_on(async move {
-        match dora_core::tokio::spawn(async move { start(config).await }).await {
+    LocalSet::new().block_on(&rt, async move {
+        match dora_core::tokio::task::spawn_local(async move { start(config).await }).await {
             Err(err) => error!(?err, "failed to start server"),
             Ok(Err(err)) => error!(?err, "exited with error"),
             Ok(_) => debug!("exiting..."),
@@ -109,12 +109,12 @@ async fn start(config: cli::Config) -> Result<()> {
     match v6 {
         Some(v6) => {
             tokio::try_join!(
-                flatten(tokio::spawn(v4.start(shutdown_signal()))),
-                flatten(tokio::spawn(v6.start(shutdown_signal()))),
+                flatten(tokio::task::spawn_local(v4.start(shutdown_signal()))),
+                flatten(tokio::task::spawn_local(v6.start(shutdown_signal()))),
             )?;
         }
         None => {
-            tokio::spawn(v4.start(shutdown_signal())).await??;
+            tokio::task::spawn_local(v4.start(shutdown_signal())).await??;
         }
     };
     drop(api_guard);

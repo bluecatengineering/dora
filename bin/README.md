@@ -40,9 +40,6 @@ OPTIONS:
         --thread-name <THREAD_NAME>
             Worker thread name [env: THREAD_NAME=] [default: dora-dhcp-worker]
 
-        --threads <THREADS>
-            How many threads are spawned, default is the # of logical CPU cores [env: THREADS=]
-
         --timeout <TIMEOUT>
             default timeout, dora will respond within this window or drop [env: TIMEOUT=] [default:
             3]
