@@ -119,7 +119,7 @@ impl TryFrom<wire::Config> for Config {
             }),
             // error if threshold exists and > 100
             cache_threshold: {
-                let threshold: u32 = cfg.cache_threshold.get();
+                let threshold = cfg.cache_threshold;
                 if threshold > 100 {
                     Some(Err(anyhow::anyhow!(
                         "cache_threshold must be between 0 and 100"

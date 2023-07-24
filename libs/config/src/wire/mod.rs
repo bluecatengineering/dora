@@ -17,7 +17,7 @@ pub struct Config {
     pub chaddr_only: bool,
     pub flood_protection_threshold: Option<FloodThreshold>,
     #[serde(default = "default_cache_threshold")]
-    pub cache_threshold: NonZeroU32,
+    pub cache_threshold: u32,
     #[serde(default = "default_bootp_enable")]
     pub bootp_enable: bool,
     #[serde(default = "default_rapid_commit")]
@@ -65,8 +65,8 @@ pub const fn default_rapid_commit() -> bool {
     false
 }
 
-pub fn default_cache_threshold() -> NonZeroU32 {
-    NonZeroU32::new(25).expect("cant fail")
+pub fn default_cache_threshold() -> u32 {
+    25
 }
 
 impl From<MinMax> for LeaseTime {

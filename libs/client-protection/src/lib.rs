@@ -7,7 +7,7 @@ use config::v4::FloodThreshold;
 // (governor uses dashmap internally by default by we can turn off the "dashmap" feature)
 use dashmap::DashMap;
 use governor::{clock::DefaultClock, state::keyed::DefaultKeyedStateStore, Quota, RateLimiter};
-use tracing::debug;
+use tracing::{debug, trace};
 
 use std::{
     borrow::Borrow,
@@ -114,7 +114,7 @@ where
     pub fn is_allowed(&self, id: &K) -> bool {
         let res = self.rl.check_key(id);
         if let Err(not_until) = &res {
-            debug!(?not_until, ?id, "reached threshold for client")
+            trace!(?not_until, ?id, "reached threshold for client")
         }
         res.is_ok()
     }
