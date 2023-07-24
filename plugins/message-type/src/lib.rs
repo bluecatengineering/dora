@@ -9,6 +9,7 @@
 #![deny(rustdoc::broken_intra_doc_links)]
 #![allow(clippy::cognitive_complexity)]
 
+use client_protection::FloodCache;
 use dora_core::{
     dhcproto::{
         v4::{DhcpOption, Message, MessageType, Opcode, OptionCode},
@@ -18,21 +19,38 @@ use dora_core::{
     tracing::warn,
 };
 use register_derive::Register;
-use std::net::Ipv4Addr;
+use std::{fmt::Debug, net::Ipv4Addr};
 
 use config::DhcpConfig;
 
-#[derive(Debug, Register)]
+#[derive(Register)]
 #[register(msg(Message))]
 #[register(msg(v6::Message))]
 #[register(plugin())]
 pub struct MsgType {
     cfg: Arc<DhcpConfig>,
+    flood: Option<FloodCache<Vec<u8>>>,
+}
+
+impl Debug for MsgType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MsgType").field("cfg", &self.cfg).finish()
+    }
 }
 
 impl MsgType {
     pub fn new(cfg: Arc<DhcpConfig>) -> Result<Self> {
-        Ok(Self { cfg })
+        Ok(Self {
+            flood: cfg.v4().flood_threshold().map(FloodCache::new),
+            cfg,
+        })
+    }
+
+    pub fn flood_check(&self, id: &Vec<u8>) -> bool {
+        self.flood
+            .as_ref()
+            .map(|flood| flood.is_allowed(id))
+            .unwrap_or(true)
     }
 }
 
@@ -50,7 +68,7 @@ impl Plugin<Message> for MsgType {
             .context("interface message was received on does not exist?")?;
         ctx.set_interface(interface);
 
-        let req = ctx.decoded_msg();
+        let req = ctx.msg();
         let msg_type = req.opts().msg_type();
 
         let subnet = ctx.subnet()?;
@@ -59,8 +77,17 @@ impl Plugin<Message> for MsgType {
             msg_type = ?msg_type,
             src_addr = %ctx.src_addr(),
             ?subnet,
-            req = %ctx.decoded_msg(),
+            req = %ctx.msg(),
         );
+
+        let client_id = self.cfg.v4().client_id(req).to_vec(); // to_vec required b/c of borrowck error
+        if !self.flood_check(&client_id) {
+            debug!(
+                ?client_id,
+                "client is chatty, engaging rate limit and not responding"
+            );
+            return Ok(Action::NoResponse);
+        }
         // otherwise our interface IP as the id
         let server_id = self
             .cfg
@@ -90,7 +117,7 @@ impl Plugin<Message> for MsgType {
         // evaluate client classes
         let matched = util::client_classes(self.cfg.v4(), req);
         let addr = {
-            let ciaddr = ctx.decoded_msg().ciaddr();
+            let ciaddr = ctx.msg().ciaddr();
             if !ciaddr.is_unspecified() {
                 ciaddr
             } else {
@@ -98,12 +125,8 @@ impl Plugin<Message> for MsgType {
                 subnet
             }
         };
-        let rapid_commit = ctx
-            .decoded_msg()
-            .opts()
-            .get(OptionCode::RapidCommit)
-            .is_some()
-            && self.cfg.v4().rapid_commit();
+        let rapid_commit =
+            ctx.msg().opts().get(OptionCode::RapidCommit).is_some() && self.cfg.v4().rapid_commit();
 
         match msg_type {
             Some(MessageType::Discover) if rapid_commit => {
@@ -131,7 +154,7 @@ impl Plugin<Message> for MsgType {
                     .insert(DhcpOption::MessageType(MessageType::Ack));
 
                 if let Some(range) = self.cfg.v4().range(addr, addr, matched.as_deref()) {
-                    ctx.set_decoded_resp_msg(resp);
+                    ctx.set_resp_msg(resp);
                     ctx.populate_opts(
                         &self.cfg.v4().collect_opts(range.opts(), matched.as_deref()),
                     );
@@ -153,7 +176,7 @@ impl Plugin<Message> for MsgType {
             }
             None if req.opcode() == Opcode::BootRequest && self.cfg.v4().bootp_enabled() => {
                 // No message type but BOOTREQUEST, this is a BOOTP message
-                ctx.set_decoded_resp_msg(resp);
+                ctx.set_resp_msg(resp);
                 return Ok(Action::Continue);
             }
             _ => {
@@ -165,7 +188,7 @@ impl Plugin<Message> for MsgType {
         if let Some(classes) = matched {
             ctx.set_local(MatchedClasses(classes));
         }
-        ctx.set_decoded_resp_msg(resp);
+        ctx.set_resp_msg(resp);
         Ok(Action::Continue)
     }
 }
@@ -238,7 +261,7 @@ impl Plugin<v6::Message> for MsgType {
             ctx.set_global(global_unicast);
         }
 
-        let req = ctx.decoded_msg();
+        let req = ctx.msg();
         let msg_type = req.msg_type();
 
         debug!(
@@ -246,7 +269,7 @@ impl Plugin<v6::Message> for MsgType {
             %interface,
             global = ?ctx.global(),
             src_addr = %ctx.src_addr(),
-            req = %ctx.decoded_msg(),
+            req = %ctx.msg(),
         );
 
         // let network = self.cfg.v6().get_network(meta.ifindex);
@@ -275,7 +298,7 @@ impl Plugin<v6::Message> for MsgType {
             }
             InformationRequest => {
                 if let Some(opts) = self.cfg.v6().get_opts(meta.ifindex) {
-                    ctx.set_decoded_resp_msg(resp);
+                    ctx.set_resp_msg(resp);
                     ctx.populate_opts(opts);
                     return Ok(Action::Respond);
                 }
@@ -291,7 +314,7 @@ impl Plugin<v6::Message> for MsgType {
             }
         }
 
-        ctx.set_decoded_resp_msg(resp);
+        ctx.set_resp_msg(resp);
         Ok(Action::Continue)
     }
 }

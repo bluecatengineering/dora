@@ -10,3 +10,4 @@ license = "MPL-2.0"
 dora-core = { path = "../../dora-core" }
 register_derive = { path = "../../libs/register_derive" }
 config = { path = "../../libs/config" }
+client-protection = { path = "../../libs/client-protection" }

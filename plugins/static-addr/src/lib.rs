@@ -35,7 +35,7 @@ impl StaticAddr {
 impl Plugin<Message> for StaticAddr {
     #[instrument(level = "debug", skip_all)]
     async fn handle(&self, ctx: &mut MsgContext<Message>) -> Result<Action> {
-        let req = ctx.decoded_msg();
+        let req = ctx.msg();
         let chaddr = req.chaddr().to_vec();
 
         let subnet = ctx.subnet()?;
@@ -91,7 +91,7 @@ impl StaticAddr {
         let static_ip = res.ip();
         let (lease, t1, t2) = res.lease().determine_lease(ctx.requested_lease_time());
         debug!(?static_ip, ?chaddr, "use static requested ip");
-        ctx.decoded_resp_msg_mut()
+        ctx.resp_msg_mut()
             .context("response message must be set before static is run")?
             .set_yiaddr(static_ip);
         ctx.populate_opts_lease(
@@ -114,7 +114,7 @@ impl StaticAddr {
     ) -> Result<Action> {
         let static_ip = res.ip();
         debug!(?static_ip, ?chaddr, "BOOTREPLY using static ip");
-        ctx.decoded_resp_msg_mut()
+        ctx.resp_msg_mut()
             .context("response message must be set before static is run")?
             .set_yiaddr(static_ip);
         // populate opts with no lease time info
@@ -154,7 +154,7 @@ impl StaticAddr {
         }
 
         let (lease, t1, t2) = res.lease().determine_lease(ctx.requested_lease_time());
-        ctx.decoded_resp_msg_mut()
+        ctx.resp_msg_mut()
             .context("response message must be set before static plugin is run")?
             .set_yiaddr(ip);
         ctx.populate_opts_lease(

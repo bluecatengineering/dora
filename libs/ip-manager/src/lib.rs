@@ -198,6 +198,12 @@ where
         // ping succeeded, meaning addr is in use
     }
 
+    /// used for tests to insert into ping cache
+    #[cfg(test)]
+    pub(crate) async fn ping_insert(&self, ip: IpAddr, reply: Option<PingReply>) {
+        self.ping_cache.insert(ip, reply).await
+    }
+
     /// returns Ok(()) if ping failed or ping == false
     /// returns Err if ping succeeded
     pub async fn ping_check(&self, ip: IpAddr, network: &Network) -> Result<(), IpError<T::Error>> {
@@ -391,7 +397,7 @@ where
                 Ok(ip)
             }
             None => {
-                debug!(?id, ?id, "no IP found for this id");
+                debug!(?id, "no IP found for this id");
                 Err(IpError::Unreserved)
             }
         }
@@ -523,4 +529,523 @@ pub enum IpError<E> {
     AddrInUse(IpAddr),
     #[error("error getting next IP in range {range:?}")]
     RangeError { range: RangeInclusive<IpAddr> },
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::{SocketAddr, SocketAddrV4};
+
+    use super::*;
+    use crate::sqlite::SqliteDb;
+    use config::LeaseTime;
+    use icmp_ping::{EchoReply, DEFAULT_TOKEN_SIZE};
+    use rand::Rng;
+    use tracing_test::traced_test;
+
+    type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+
+    // get multiple first-available IPs in a range
+    // this mimics what happens when multiple clients simultaneously 'DISCOVER'
+    #[tokio::test]
+    #[traced_test]
+    async fn test_first_available() -> Result<()> {
+        let mgr = IpManager::new(SqliteDb::new("sqlite::memory:").await?)?;
+        let range = NetRange::new(
+            Ipv4Addr::new(192, 168, 1, 100)..=Ipv4Addr::new(192, 168, 1, 255),
+            LeaseTime::new(
+                Duration::from_secs(5),
+                Duration::from_secs(3),
+                Duration::from_secs(10),
+            ),
+        );
+        let mut network = Network::default();
+        network
+            .set_subnet("192.168.1.0/24".parse()?)
+            .set_ranges(vec![range.clone()]);
+        let client_id = &[1, 2, 3, 4, 5, 6];
+        let expires_at = SystemTime::now() + Duration::from_secs(60);
+        let ip = mgr
+            .reserve_first(&range, &network, client_id, expires_at, None)
+            .await?;
+        assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)));
+        assert_eq!(
+            mgr.lookup_id(client_id).await?,
+            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100))
+        );
+
+        let client_id = &[2, 2, 3, 4, 5, 6];
+        let ip = mgr
+            .reserve_first(&range, &network, client_id, expires_at, None)
+            .await?;
+        assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(192, 168, 1, 101)));
+        assert_eq!(
+            mgr.lookup_id(client_id).await?,
+            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 101))
+        );
+
+        let client_id = &[3, 2, 3, 4, 5, 6];
+        let ip = mgr
+            .reserve_first(&range, &network, client_id, expires_at, None)
+            .await?;
+        assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(192, 168, 1, 102)));
+        assert_eq!(
+            mgr.lookup_id(client_id).await?,
+            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 102))
+        );
+
+        let client_id = &[4, 2, 3, 4, 5, 6];
+        let ip = mgr
+            .reserve_first(&range, &network, client_id, expires_at, None)
+            .await?;
+        assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(192, 168, 1, 103)));
+        assert_eq!(
+            mgr.lookup_id(client_id).await?,
+            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 103))
+        );
+
+        Ok(())
+    }
+
+    // DISCOVER - ACK
+    // get lease on discover like in a rapid commit response
+    #[tokio::test]
+    #[traced_test]
+    async fn test_first_available_ack() -> Result<()> {
+        let mgr = IpManager::new(SqliteDb::new("sqlite::memory:").await?)?;
+        let range = NetRange::new(
+            Ipv4Addr::new(192, 168, 1, 100)..=Ipv4Addr::new(192, 168, 1, 255),
+            LeaseTime::new(
+                Duration::from_secs(5),
+                Duration::from_secs(3),
+                Duration::from_secs(10),
+            ),
+        );
+        let mut network = Network::default();
+        network
+            .set_subnet("192.168.1.0/24".parse()?)
+            .set_ranges(vec![range.clone()]);
+        let client_id = &[1, 2, 3, 4, 5, 6];
+        let expires_at = SystemTime::now() + Duration::from_secs(60);
+        // go straight to lease
+        let ip = mgr
+            .reserve_first(
+                &range,
+                &network,
+                client_id,
+                expires_at,
+                Some(IpState::Lease),
+            )
+            .await?;
+        assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)));
+        assert_eq!(
+            mgr.lookup_id(client_id).await?,
+            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100))
+        );
+
+        Ok(())
+    }
+
+    // do reserve and lease in 2 steps like usual
+    #[tokio::test]
+    #[traced_test]
+    async fn test_lease() -> Result<()> {
+        let mgr = IpManager::new(SqliteDb::new("sqlite::memory:").await?)?;
+        let range = NetRange::new(
+            Ipv4Addr::new(192, 168, 1, 100)..=Ipv4Addr::new(192, 168, 1, 255),
+            LeaseTime::new(
+                Duration::from_secs(5),
+                Duration::from_secs(3),
+                Duration::from_secs(10),
+            ),
+        );
+        let mut network = Network::default();
+        network
+            .set_subnet("192.168.1.0/24".parse()?)
+            .set_ranges(vec![range.clone()]);
+        let client_id = &[1, 2, 3, 4, 5, 6];
+        let expires_at = SystemTime::now() + Duration::from_secs(5);
+        // reserve from range
+        let ip = mgr
+            .reserve_first(&range, &network, client_id, expires_at, None)
+            .await?;
+        assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)));
+
+        // make lease
+        mgr.try_lease([192, 168, 1, 100].into(), client_id, expires_at, &network)
+            .await?;
+        let ip = mgr.lookup_id(client_id).await?;
+        assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)));
+
+        Ok(())
+    }
+
+    // do reserve and lease in 2 steps like usual
+    #[tokio::test]
+    #[traced_test]
+    async fn test_lease_authoritative() -> Result<()> {
+        let mgr = IpManager::new(SqliteDb::new("sqlite::memory:").await?)?;
+        let range = NetRange::new(
+            Ipv4Addr::new(192, 168, 1, 100)..=Ipv4Addr::new(192, 168, 1, 255),
+            LeaseTime::new(
+                Duration::from_secs(5),
+                Duration::from_secs(3),
+                Duration::from_secs(10),
+            ),
+        );
+        let mut network = Network::default();
+        network
+            .set_subnet("192.168.1.0/24".parse()?)
+            .set_ranges(vec![range.clone()])
+            .set_authoritative(true);
+        let client_id = &[1, 2, 3, 4, 5, 6];
+        let expires_at = SystemTime::now() + Duration::from_secs(1);
+        // reserve from range, expires in 1s
+        let ip = mgr
+            .reserve_first(&range, &network, client_id, expires_at, None)
+            .await?;
+        assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)));
+
+        // different client makes a lease using just a REQUEST
+        let client_id = &[1, 2, 3, 4, 5, 7];
+        mgr.try_lease(
+            [192, 168, 1, 101].into(),
+            client_id,
+            SystemTime::now() + Duration::from_secs(5),
+            &network,
+        )
+        .await?;
+        let ip = mgr.lookup_id(client_id).await?;
+        assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(192, 168, 1, 101)));
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        // client 1's reserve expired, reserve it again
+        let client_id = &[1, 2, 3, 4, 5, 8];
+        let ip = mgr
+            .reserve_first(&range, &network, client_id, expires_at, None)
+            .await?;
+        // ip 100 available now since client 1 never claimed it
+        assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)));
+
+        Ok(())
+    }
+
+    // reserve 2 ips then ack them both
+    #[tokio::test]
+    #[traced_test]
+    async fn test_multiple_ranges() -> Result<()> {
+        let mgr = IpManager::new(SqliteDb::new("sqlite::memory:").await?)?;
+        let range_a = NetRange::new(
+            Ipv4Addr::new(192, 168, 1, 100)..=Ipv4Addr::new(192, 168, 1, 255),
+            LeaseTime::new(
+                Duration::from_secs(5),
+                Duration::from_secs(3),
+                Duration::from_secs(10),
+            ),
+        );
+        let range_b = NetRange::new(
+            Ipv4Addr::new(10, 10, 1, 100)..=Ipv4Addr::new(10, 10, 1, 255),
+            LeaseTime::new(
+                Duration::from_secs(5),
+                Duration::from_secs(3),
+                Duration::from_secs(10),
+            ),
+        );
+        let mut network_a = Network::default();
+        network_a
+            .set_subnet("192.168.1.0/24".parse()?)
+            .set_ranges(vec![range_a.clone()]);
+        let mut network_b = Network::default();
+        network_b
+            .set_subnet("10.10.1.0/24".parse()?)
+            .set_ranges(vec![range_b.clone()]);
+        // reserve from range a
+        {
+            let client_id = &[1, 2, 3, 4, 5, 6];
+            let expires_at = SystemTime::now() + Duration::from_secs(5);
+            let ip = mgr
+                .reserve_first(&range_a, &network_a, client_id, expires_at, None)
+                .await?;
+            assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)));
+        }
+        // reserve from range b
+        {
+            let client_id = &[2, 2, 3, 4, 5, 6];
+            let expires_at = SystemTime::now() + Duration::from_secs(5);
+            let ip = mgr
+                .reserve_first(&range_b, &network_b, client_id, expires_at, None)
+                .await?;
+            assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(10, 10, 1, 100)));
+        }
+        mgr.try_lease(
+            [192, 168, 1, 100].into(),
+            &[1, 2, 3, 4, 5, 6],
+            SystemTime::now() + Duration::from_secs(60),
+            &network_a,
+        )
+        .await?;
+        assert_eq!(
+            mgr.lookup_id(&[1, 2, 3, 4, 5, 6]).await?,
+            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100))
+        );
+        // make other range lease
+        mgr.try_lease(
+            [10, 10, 1, 100].into(),
+            &[2, 2, 3, 4, 5, 6],
+            SystemTime::now() + Duration::from_secs(60),
+            &network_b,
+        )
+        .await?;
+        assert_eq!(
+            mgr.lookup_id(&[2, 2, 3, 4, 5, 6]).await?,
+            IpAddr::V4(Ipv4Addr::new(10, 10, 1, 100))
+        );
+
+        Ok(())
+    }
+
+    // programmatically fill a range
+    #[tokio::test]
+    #[traced_test]
+    async fn test_fill_range() -> Result<()> {
+        let mgr = IpManager::new(SqliteDb::new("sqlite::memory:").await?)?;
+        let range = NetRange::new(
+            Ipv4Addr::new(192, 168, 1, 100)..=Ipv4Addr::new(192, 168, 1, 255),
+            LeaseTime::new(
+                Duration::from_secs(5),
+                Duration::from_secs(3),
+                Duration::from_secs(10),
+            ),
+        );
+        let mut network = Network::default();
+        network
+            .set_subnet("192.168.1.0/24".parse()?)
+            .set_ranges(vec![range.clone()]);
+
+        // fill up range with new clients
+        for range_ip in range.iter() {
+            let client_id = (1..6)
+                .map(|_| rand::thread_rng().gen())
+                .collect::<Vec<u8>>();
+            let expires_at = SystemTime::now() + Duration::from_secs(60);
+            let ip = mgr
+                .reserve_first(&range, &network, &client_id, expires_at, None)
+                .await?;
+            assert_eq!(range_ip, ip);
+            assert_eq!(mgr.lookup_id(&client_id).await?, range_ip);
+        }
+
+        // range is empty, should error
+        let expires_at = SystemTime::now() + Duration::from_secs(60);
+        let ip = mgr
+            .reserve_first(&range, &network, &[2, 3, 4, 6, 6], expires_at, None)
+            .await;
+        assert!(ip.is_err());
+
+        Ok(())
+    }
+
+    // test RELEASE
+    #[tokio::test]
+    #[traced_test]
+    async fn test_release_ip() -> Result<()> {
+        let mgr = IpManager::new(SqliteDb::new("sqlite::memory:").await?)?;
+        let range = NetRange::new(
+            Ipv4Addr::new(192, 168, 1, 100)..=Ipv4Addr::new(192, 168, 1, 255),
+            LeaseTime::new(
+                Duration::from_secs(5),
+                Duration::from_secs(3),
+                Duration::from_secs(10),
+            ),
+        );
+        let mut network = Network::default();
+        network
+            .set_subnet("192.168.1.0/24".parse()?)
+            .set_ranges(vec![range.clone()]);
+
+        // lease an IP
+        let client_id = (1..6)
+            .map(|_| rand::thread_rng().gen())
+            .collect::<Vec<u8>>();
+        let expires_at = SystemTime::now() + Duration::from_secs(60);
+        let ip = mgr
+            .reserve_first(
+                &range,
+                &network,
+                &client_id,
+                expires_at,
+                Some(IpState::Lease),
+            )
+            .await?;
+        assert_eq!(mgr.lookup_id(&client_id).await?, ip);
+
+        // release IP
+        let info = mgr.release_ip(ip, &client_id).await?;
+        assert_eq!(
+            info.unwrap().ip,
+            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100))
+        );
+
+        // try a new client, should get the same IP
+        let client_id = (1..6)
+            .map(|_| rand::thread_rng().gen())
+            .collect::<Vec<u8>>();
+        let expires_at = SystemTime::now() + Duration::from_secs(60);
+        let _ip = mgr
+            .reserve_first(
+                &range,
+                &network,
+                &client_id,
+                expires_at,
+                Some(IpState::Lease),
+            )
+            .await?;
+        assert_eq!(
+            mgr.lookup_id(&client_id).await?,
+            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100))
+        );
+        Ok(())
+    }
+
+    // test DECLINE
+    #[tokio::test]
+    #[traced_test]
+    async fn test_probate_ip() -> Result<()> {
+        let mgr = IpManager::new(SqliteDb::new("sqlite::memory:").await?)?;
+        let range = NetRange::new(
+            Ipv4Addr::new(192, 168, 1, 100)..=Ipv4Addr::new(192, 168, 1, 255),
+            LeaseTime::new(
+                Duration::from_secs(5),
+                Duration::from_secs(3),
+                Duration::from_secs(10),
+            ),
+        );
+        let mut network = Network::default();
+        network
+            .set_subnet("192.168.1.0/24".parse()?)
+            .set_ranges(vec![range.clone()]);
+
+        // lease an IP
+        let client_id = (1..6)
+            .map(|_| rand::thread_rng().gen())
+            .collect::<Vec<u8>>();
+        let expires_at = SystemTime::now() + Duration::from_secs(60);
+        let ip = mgr
+            .reserve_first(
+                &range,
+                &network,
+                &client_id,
+                expires_at,
+                Some(IpState::Lease),
+            )
+            .await?;
+        assert_eq!(mgr.lookup_id(&client_id).await?, ip);
+
+        // probate IP
+        mgr.probate_ip(ip, &client_id, SystemTime::now() + Duration::from_secs(180))
+            .await?;
+        assert!(mgr.lookup_id(&client_id).await.is_err());
+
+        // try a new client, should skip probated IP
+        let client_id = (1..6)
+            .map(|_| rand::thread_rng().gen())
+            .collect::<Vec<u8>>();
+        let expires_at = SystemTime::now() + Duration::from_secs(60);
+        let _ip = mgr
+            .reserve_first(
+                &range,
+                &network,
+                &client_id,
+                expires_at,
+                Some(IpState::Lease),
+            )
+            .await?;
+        assert_eq!(
+            mgr.lookup_id(&client_id).await?,
+            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 101))
+        );
+        Ok(())
+    }
+
+    // test ping failure
+    #[tokio::test]
+    #[traced_test]
+    async fn test_ping_fail() -> Result<()> {
+        let mgr = IpManager::new(SqliteDb::new("sqlite::memory:").await?)?;
+        let range = NetRange::new(
+            Ipv4Addr::new(192, 168, 1, 100)..=Ipv4Addr::new(192, 168, 1, 255),
+            LeaseTime::new(
+                Duration::from_secs(5),
+                Duration::from_secs(3),
+                Duration::from_secs(10),
+            ),
+        );
+        let mut network = Network::default();
+        network
+            .set_subnet("192.168.1.0/24".parse()?)
+            .set_ranges(vec![range.clone()])
+            .set_ping_check(true);
+        // insert dummy entry into ping cache
+        let ip = Ipv4Addr::new(192, 168, 1, 100);
+        mgr.ping_insert(
+            ip.into(),
+            Some(PingReply {
+                reply: EchoReply {
+                    ident: 1,
+                    seq_cnt: 1,
+                    payload: [0; DEFAULT_TOKEN_SIZE],
+                },
+                addr: SocketAddr::V4(SocketAddrV4::new(ip, 100)),
+                time: Duration::from_secs(60),
+            }),
+        )
+        .await;
+        // lease an IP
+        let client_id = (1..6)
+            .map(|_| rand::thread_rng().gen())
+            .collect::<Vec<u8>>();
+        let expires_at = SystemTime::now() + Duration::from_secs(60);
+        let _ip = mgr
+            .reserve_first(
+                &range,
+                &network,
+                &client_id,
+                expires_at,
+                Some(IpState::Lease),
+            )
+            .await?;
+        assert_eq!(
+            mgr.lookup_id(&client_id).await?,
+            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 101))
+        );
+        Ok(())
+    }
+
+    // test bad lookup
+    #[tokio::test]
+    #[traced_test]
+    async fn test_bad_lookup() -> Result<()> {
+        let mgr = IpManager::new(SqliteDb::new("sqlite::memory:").await?)?;
+        let range = NetRange::new(
+            Ipv4Addr::new(192, 168, 1, 100)..=Ipv4Addr::new(192, 168, 1, 255),
+            LeaseTime::new(
+                Duration::from_secs(5),
+                Duration::from_secs(3),
+                Duration::from_secs(10),
+            ),
+        );
+        let mut network = Network::default();
+        network
+            .set_subnet("192.168.1.0/24".parse()?)
+            .set_ranges(vec![range.clone()])
+            .set_ping_check(true);
+
+        // lease an IP
+        let client_id = (1..6)
+            .map(|_| rand::thread_rng().gen())
+            .collect::<Vec<u8>>();
+
+        assert!(mgr.lookup_id(&client_id).await.is_err());
+        Ok(())
+    }
 }

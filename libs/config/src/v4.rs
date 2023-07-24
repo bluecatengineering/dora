@@ -33,6 +33,8 @@ pub struct Config {
     chaddr_only: bool,
     bootp_enable: bool,
     rapid_commit: bool,
+    flood_threshold: Option<FloodThreshold>,
+    cache_threshold: Option<u32>,
     /// used to make a selection on which network or subnet to use
     networks: HashMap<Ipv4Net, Network>,
     v6: Option<crate::v6::Config>,
@@ -111,6 +113,24 @@ impl TryFrom<wire::Config> for Config {
             chaddr_only: cfg.chaddr_only,
             bootp_enable: cfg.bootp_enable,
             rapid_commit: cfg.rapid_commit,
+            flood_threshold: cfg.flood_protection_threshold.map(|f| FloodThreshold {
+                packets: f.packets.get(),
+                period: Duration::from_secs(f.secs.get() as u64),
+            }),
+            // error if threshold exists and > 100
+            cache_threshold: {
+                let threshold = cfg.cache_threshold;
+                if threshold > 100 {
+                    Some(Err(anyhow::anyhow!(
+                        "cache_threshold must be between 0 and 100"
+                    )))
+                } else if threshold == 0 {
+                    None
+                } else {
+                    Some(Ok(threshold.clamp(0, 100)))
+                }
+            }
+            .transpose()?,
             v6: cfg
                 .v6
                 .map(crate::v6::Config::try_from)
@@ -128,6 +148,14 @@ impl TryFrom<wire::Config> for Config {
 impl Config {
     pub fn v6(&self) -> Option<&crate::v6::Config> {
         self.v6.as_ref()
+    }
+    /// return the flood threshold config
+    pub fn flood_threshold(&self) -> Option<FloodThreshold> {
+        self.flood_threshold.clone()
+    }
+    /// return the renew threshold config
+    pub fn cache_threshold(&self) -> Option<u32> {
+        self.cache_threshold
     }
     /// eval all client classes, return names of classes that evaluate to true
     pub fn eval_client_classes(&self, req: &dhcproto::v4::Message) -> Option<Result<Vec<String>>> {
@@ -290,6 +318,22 @@ pub struct Network {
 }
 
 impl Network {
+    pub fn set_subnet(&mut self, subnet: Ipv4Net) -> &mut Self {
+        self.subnet = subnet;
+        self
+    }
+    pub fn set_ranges(&mut self, ranges: Vec<NetRange>) -> &mut Self {
+        self.ranges = ranges;
+        self
+    }
+    pub fn set_ping_check(&mut self, ping_check: bool) -> &mut Self {
+        self.ping_check = ping_check;
+        self
+    }
+    pub fn set_authoritative(&mut self, authoritative: bool) -> &mut Self {
+        self.authoritative = authoritative;
+        self
+    }
     pub fn server_name(&self) -> Option<&str> {
         self.server_name.as_deref()
     }
@@ -577,6 +621,33 @@ fn merge_opts(mut a: DhcpOptions, b: Option<DhcpOptions>) -> DhcpOptions {
             }
             a
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FloodThreshold {
+    packets: u32,
+    period: Duration,
+}
+
+impl Default for FloodThreshold {
+    fn default() -> Self {
+        Self {
+            packets: 6,
+            period: Duration::from_secs(5),
+        }
+    }
+}
+
+impl FloodThreshold {
+    pub fn new(packets: u32, period: Duration) -> Self {
+        Self { packets, period }
+    }
+    pub fn packets(&self) -> u32 {
+        self.packets
+    }
+    pub fn period(&self) -> Duration {
+        self.period
     }
 }
 

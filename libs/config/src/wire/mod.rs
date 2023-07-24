@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, num::NonZeroU32, time::Duration};
 
 use ipnet::Ipv4Net;
 use serde::{Deserialize, Serialize};
@@ -15,6 +15,9 @@ pub struct Config {
     pub interfaces: Option<Vec<String>>,
     #[serde(default = "default_chaddr_only")]
     pub chaddr_only: bool,
+    pub flood_protection_threshold: Option<FloodThreshold>,
+    #[serde(default = "default_cache_threshold")]
+    pub cache_threshold: u32,
     #[serde(default = "default_bootp_enable")]
     pub bootp_enable: bool,
     #[serde(default = "default_rapid_commit")]
@@ -25,11 +28,17 @@ pub struct Config {
     pub client_classes: Option<ClientClasses>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct FloodThreshold {
+    pub packets: NonZeroU32,
+    pub secs: NonZeroU32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 pub struct MinMax {
-    pub default: u32,
-    pub min: Option<u32>,
-    pub max: Option<u32>,
+    pub default: NonZeroU32,
+    pub min: Option<NonZeroU32>,
+    pub max: Option<NonZeroU32>,
 }
 
 pub const fn default_ping_to() -> u64 {
@@ -56,18 +65,22 @@ pub const fn default_rapid_commit() -> bool {
     false
 }
 
+pub fn default_cache_threshold() -> u32 {
+    25
+}
+
 impl From<MinMax> for LeaseTime {
     fn from(lease_time: MinMax) -> Self {
-        let default = Duration::from_secs(lease_time.default as u64);
+        let default = Duration::from_secs(lease_time.default.get() as u64);
         let min = lease_time
             .min
-            .map(|n| Duration::from_secs(n as u64))
+            .map(|n| Duration::from_secs(n.get() as u64))
             .unwrap_or(default);
         let max = lease_time
             .max
-            .map(|n| Duration::from_secs(n as u64))
+            .map(|n| Duration::from_secs(n.get() as u64))
             .unwrap_or(default);
-        LeaseTime { default, min, max }
+        Self { default, min, max }
     }
 }
 

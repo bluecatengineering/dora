@@ -139,6 +139,9 @@ pub struct LeaseTime {
 }
 
 impl LeaseTime {
+    pub fn new(default: Duration, min: Duration, max: Duration) -> Self {
+        Self { default, min, max }
+    }
     pub fn get_default(&self) -> Duration {
         self.default
     }
@@ -162,10 +165,10 @@ impl LeaseTime {
     }
 }
 
-fn renew(t: Duration) -> Duration {
+pub fn renew(t: Duration) -> Duration {
     t / 2
 }
 
-fn rebind(t: Duration) -> Duration {
+pub fn rebind(t: Duration) -> Duration {
     t * 7 / 8
 }

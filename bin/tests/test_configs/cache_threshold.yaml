@@ -1,0 +1,24 @@
+cache_threshold: 25
+interfaces: 
+    - dhcpsrv
+networks:
+    192.168.2.0/24:
+        probation_period: 86400
+        ranges:
+            -
+                start: 192.168.2.100
+                end: 192.168.2.103
+                config:
+                    lease_time:
+                        default: 3600
+                options:
+                    values:
+                        subnet_mask:
+                            type: ip
+                            value: 192.168.1.1
+                        routers:
+                            type: ip
+                            value: [ 192.168.1.1 ]
+                        domain_name_servers:
+                            type: ip
+                            value: [ 1.1.1.1 ]

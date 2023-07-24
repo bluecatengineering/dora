@@ -78,13 +78,13 @@ async fn start(config: cli::Config) -> Result<()> {
 
     // perhaps with only one plugin chain we will just register deps here
     // in order? we could get rid of derive macros & topo sort
-    MsgType::new(dhcp_cfg.clone())?.register(&mut v4);
-    StaticAddr::new(dhcp_cfg.clone())?.register(&mut v4);
+    MsgType::new(Arc::clone(&dhcp_cfg))?.register(&mut v4);
+    StaticAddr::new(Arc::clone(&dhcp_cfg))?.register(&mut v4);
     // leases plugin
 
     let ip_mgr = IpManager::new(SqliteDb::new(database_url).await?)?;
 
-    Leases::new(dhcp_cfg.clone(), ip_mgr).register(&mut v4);
+    Leases::new(Arc::clone(&dhcp_cfg), ip_mgr).register(&mut v4);
 
     let v6 = if dhcp_cfg.has_v6() {
         // start v6 server
@@ -92,7 +92,7 @@ async fn start(config: cli::Config) -> Result<()> {
         let mut v6: Server<v6::Message> =
             Server::new(config.clone(), dhcp_cfg.v6().interfaces().to_owned())?;
         info!("starting v6 plugins");
-        MsgType::new(dhcp_cfg.clone())?.register(&mut v6);
+        MsgType::new(Arc::clone(&dhcp_cfg))?.register(&mut v6);
         Some(v6)
     } else {
         None

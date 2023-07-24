@@ -1,6 +1,9 @@
 mod common;
 
-use std::net::Ipv4Addr;
+use std::{
+    net::Ipv4Addr,
+    time::{Duration, Instant},
+};
 
 use anyhow::{bail, Result};
 use common::{builder::*, client::Client, env::DhcpServerEnv};
@@ -633,5 +636,121 @@ fn test_vendor_class_not_match() -> Result<()> {
     let resp = client.run(MsgType::Discover(msg_args));
     // iphone-dhcp-13 doesn't match the configured vendor id
     assert!(resp.is_err());
+    Ok(())
+}
+
+/// flood_protection_threshold set for 2 packets in 5 seconds
+#[test]
+#[traced_test]
+fn test_flood_threshold() -> Result<()> {
+    let _srv = DhcpServerEnv::start(
+        "threshold.yaml",
+        "threshold.db",
+        "dora_test",
+        "dhcpcli",
+        "dhcpsrv",
+        "192.168.2.1",
+    );
+    // use veth_cli created in start()
+    let settings = ClientSettingsBuilder::default()
+        .iface_name("dhcpcli")
+        .target("192.168.2.1".parse::<std::net::IpAddr>().unwrap())
+        .port(9900_u16)
+        .build()?;
+
+    // create a client that sends dhcpv4 messages
+    let mut client = Client::<v4::Message>::new(settings);
+    // create DISCOVER msg & send
+    let msg_args = DiscoverBuilder::default()
+        .giaddr([192, 168, 2, 1])
+        .build()?;
+    let resp = client.run(MsgType::Discover(msg_args))?;
+
+    assert_eq!(resp.opts().msg_type().unwrap(), v4::MessageType::Offer);
+
+    // create REQUEST & send
+    let msg_args = RequestBuilder::default()
+        .giaddr([192, 168, 2, 1])
+        .opt_req_addr(resp.yiaddr())
+        .build()?;
+    let resp = client.run(MsgType::Request(msg_args))?;
+    assert_eq!(resp.opts().msg_type().unwrap(), v4::MessageType::Ack);
+
+    // renew
+    let msg_args = RequestBuilder::default()
+        .giaddr([192, 168, 2, 1])
+        .opt_req_addr(resp.yiaddr())
+        .build()?;
+    let resp = client.run(MsgType::Request(msg_args));
+    assert!(resp.is_err());
+
+    // pedantic drop
+    drop(_srv);
+    Ok(())
+}
+
+/// test cache threshold
+#[test]
+#[traced_test]
+fn test_cache_threshold() -> Result<()> {
+    let _srv = DhcpServerEnv::start(
+        "cache_threshold.yaml",
+        "cache_threshold.db",
+        "dora_test",
+        "dhcpcli",
+        "dhcpsrv",
+        "192.168.2.1",
+    );
+    // use veth_cli created in start()
+    let settings = ClientSettingsBuilder::default()
+        .iface_name("dhcpcli")
+        .target("192.168.2.1".parse::<std::net::IpAddr>().unwrap())
+        .port(9900_u16)
+        .build()?;
+
+    // create a client that sends dhcpv4 messages
+    let mut client = Client::<v4::Message>::new(settings);
+    // create DISCOVER msg & send
+    let msg_args = DiscoverBuilder::default()
+        .giaddr([192, 168, 2, 1])
+        .build()?;
+    let resp = client.run(MsgType::Discover(msg_args))?;
+
+    assert_eq!(resp.opts().msg_type().unwrap(), v4::MessageType::Offer);
+
+    // create REQUEST & send
+    let msg_args = RequestBuilder::default()
+        .giaddr([192, 168, 2, 1])
+        .opt_req_addr(resp.yiaddr())
+        .build()?;
+    let now = Instant::now();
+
+    let resp = client.run(MsgType::Request(msg_args))?;
+    let Some(v4::DhcpOption::AddressLeaseTime(lease_time_a)) = resp.opts().get(v4::OptionCode::AddressLeaseTime) else {
+        bail!("invalid option")
+    };
+    assert_eq!(resp.opts().msg_type().unwrap(), v4::MessageType::Ack);
+
+    // sleep for 1s then get a renew, should use same lease
+    std::thread::sleep(Duration::from_secs(2));
+    // renew
+    let msg_args = RequestBuilder::default()
+        .giaddr([192, 168, 2, 1])
+        .opt_req_addr(resp.yiaddr())
+        .build()?;
+    let resp = client.run(MsgType::Request(msg_args))?;
+    let Some(v4::DhcpOption::AddressLeaseTime(lease_time_b)) = resp.opts().get(v4::OptionCode::AddressLeaseTime) else {
+        bail!("invalid option")
+    };
+    assert_eq!(resp.opts().msg_type().unwrap(), v4::MessageType::Ack);
+    // round off to the second and compare time left on lease, should equal the original lease
+    // i.e. we got the original lease back
+    assert_eq!(
+        *lease_time_b,
+        *lease_time_a - dbg!(now.elapsed().as_secs_f32()).round() as u32
+    );
+
+    // pedantic drop
+    drop(_srv);
     Ok(())
 }
