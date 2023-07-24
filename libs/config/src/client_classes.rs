@@ -186,6 +186,8 @@ fn merge_opts(a: &v4::DhcpOptions, b: Option<v4::DhcpOptions>) -> Option<v4::Dhc
 
 #[cfg(test)]
 mod tests {
+    use std::net::Ipv4Addr;
+
     use super::*;
 
     #[test]
@@ -254,5 +256,58 @@ mod tests {
             opts.insert(v4::DhcpOption::TimeOffset(50));
             opts
         });
+    }
+
+    #[test]
+    fn eval_bootp() {
+        use std::collections::HashSet;
+        let classes = ClientClasses {
+            original_order: ["foo"].iter().map(|&n| n.to_owned()).collect(),
+            topo_order: ["foo"].iter().map(|&n| n.to_owned()).collect(),
+            classes: [(
+                "foo".to_owned(),
+                ClientClass {
+                    name: "foo".to_owned(),
+                    assert: client_classification::Expr::Bool(true),
+                    options: {
+                        let mut opts = v4::DhcpOptions::new();
+                        opts.insert(v4::DhcpOption::Router(vec![[8, 8, 8, 8].into()]));
+                        opts.insert(v4::DhcpOption::AddressLeaseTime(10));
+                        opts
+                    },
+                },
+            )]
+            .into_iter()
+            .collect(),
+        };
+        let uns = Ipv4Addr::UNSPECIFIED;
+        let bootp = v4::Message::new(uns, uns, uns, uns, &[1, 2, 3, 4, 5, 6]);
+        // msg is a bootp message because it has empty opts
+        let res = classes.eval(&bootp, true).unwrap();
+        assert_eq!(
+            res.iter().collect::<HashSet<_>>(),
+            ["foo".to_owned(), "BOOTP".to_owned(), "ALL".to_owned()]
+                .iter()
+                .collect::<HashSet<_>>()
+        );
+
+        let uns = Ipv4Addr::UNSPECIFIED;
+        let mut msg = v4::Message::new(uns, uns, uns, uns, &[1, 2, 3, 4, 5, 6]);
+        msg.opts_mut()
+            .insert(v4::DhcpOption::MessageType(v4::MessageType::Discover));
+        msg.opts_mut()
+            .insert(v4::DhcpOption::ClassIdentifier(b"docsis3.0".to_vec()));
+        // msg is a bootp message because it has empty opts
+        let res = classes.eval(&msg, true).unwrap();
+        assert_eq!(
+            res.iter().collect::<HashSet<_>>(),
+            [
+                "foo".to_owned(),
+                "VENDOR_CLASS_docsis3.0".to_owned(),
+                "ALL".to_owned()
+            ]
+            .iter()
+            .collect::<HashSet<_>>()
+        );
     }
 }

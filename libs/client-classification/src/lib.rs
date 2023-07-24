@@ -746,4 +746,23 @@ mod tests {
             "docsis3.0"
         );
     }
+
+    #[test]
+    fn test_parse_fail() {
+        let args = Args {
+            chaddr: &hex::decode(hex::encode("foo")).unwrap(),
+            opts: HashMap::new(),
+            msg: &v4::Message::default(),
+            member: HashSet::new(),
+        };
+        let expr = ast::parse("hexsting(0x1234,':')"); // should fail
+        assert!(expr.is_err());
+        assert!(ast::parse("foobar").is_err()); // should fail)
+        assert!(ast::parse("option(60) ==").is_err());
+        // should fail to eval bool == string
+        match eval(&ast::parse("true == 'foo'").unwrap(), &args) {
+            Err(EvalErr::ExpectedBool(Val::String(s))) => assert_eq!(&s, &"foo"),
+            _ => panic!(),
+        }
+    }
 }
