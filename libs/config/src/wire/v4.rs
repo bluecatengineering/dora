@@ -101,7 +101,7 @@ pub struct NetworkConfig {
     pub lease_time: MinMax,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default)]
 pub struct Options {
     pub values: Opts,
 }
@@ -142,7 +142,7 @@ pub enum Condition {
     Options(Options),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Opts(pub DhcpOptions);
 
 /// this type is only used as an intermediate representation

@@ -33,4 +33,6 @@ client_classes:
                     vendor_extensions:
                         type: u32
                         value: [1, 2, 3, 4]
-
+        -
+            name: DROP
+            assert: "member('VENDOR_CLASS_foobar')"
