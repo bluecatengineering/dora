@@ -161,7 +161,7 @@ impl Config {
     pub fn eval_client_classes(&self, req: &dhcproto::v4::Message) -> Option<Result<Vec<String>>> {
         self.client_classes
             .as_ref()
-            .map(|classes| classes.eval(req))
+            .map(|classes| classes.eval(req, self.bootp_enabled()))
     }
     pub fn classes(&self) -> Option<&ClientClasses> {
         self.client_classes.as_ref()
@@ -731,7 +731,16 @@ mod tests {
         // get matching classes
         // TODO: what should we do if there is an error processing client classes?
         let matched = cfg.eval_client_classes(&msg).unwrap().ok();
-        assert_eq!(matched.as_deref().unwrap(), &["my_class".to_owned()]);
+        assert_eq!(
+            matched
+                .as_deref()
+                .unwrap()
+                .iter()
+                .collect::<std::collections::HashSet<_>>(),
+            ["my_class".to_owned(), "ALL".to_owned()]
+                .iter()
+                .collect::<std::collections::HashSet<_>>()
+        );
         let net = cfg
             .range([10, 0, 0, 1], [10, 0, 0, 100], matched.as_deref())
             .unwrap();
@@ -754,7 +763,7 @@ mod tests {
                 .unwrap()
                 .into_iter()
                 .collect::<std::collections::HashSet<_>>(),
-            ["my_class", "a_class", "d_class", "b_class", "c_class"]
+            ["my_class", "a_class", "d_class", "b_class", "c_class", "ALL"]
                 .into_iter()
                 .map(|s| s.to_owned())
                 .collect::<std::collections::HashSet<_>>()

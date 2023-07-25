@@ -1,0 +1,38 @@
+interfaces: 
+    - dhcpsrv
+networks:
+    192.168.2.0/24:
+        probation_period: 86400
+        ranges:
+            -
+                class: testclass
+                start: 192.168.2.100
+                end: 192.168.2.103
+                config:
+                    lease_time:
+                        default: 3600
+                options:
+                    values:
+                        subnet_mask:
+                            type: ip
+                            value: 192.168.1.1
+                        routers:
+                            type: ip
+                            value: [ 192.168.1.1 ]
+                        domain_name_servers:
+                            type: ip
+                            value: [ 1.1.1.1 ]
+
+client_classes:  
+    v4:
+        -
+            name: testclass
+            assert: "member('VENDOR_CLASS_docsis3.0')"
+            options:
+                values:
+                    vendor_extensions:
+                        type: u32
+                        value: [1, 2, 3, 4]
+        -
+            name: DROP
+            assert: "member('VENDOR_CLASS_foobar')"

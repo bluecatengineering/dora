@@ -13,5 +13,6 @@ pub struct ClientClasses {
 pub struct ClientClass {
     pub(crate) name: String,
     pub(crate) assert: String,
+    #[serde(default)]
     pub(crate) options: Options,
 }

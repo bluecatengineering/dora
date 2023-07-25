@@ -10,9 +10,10 @@ use dora_core::dhcproto::{
     Decodable, Decoder, Encodable,
 };
 use topo_sort::DependencyTree;
-use tracing::{error, trace};
+use tracing::{error, trace, warn};
 
 use crate::wire;
+pub use client_classification;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientClasses {
@@ -70,14 +71,41 @@ impl TryFrom<wire::client_classes::ClientClasses> for ClientClasses {
 
 impl ClientClasses {
     /// evaluate all client classes, returning a list of classes that match
-    pub fn eval(&self, req: &dhcproto::v4::Message) -> Result<Vec<String>> {
+    pub fn eval(&self, req: &dhcproto::v4::Message, bootp_enabled: bool) -> Result<Vec<String>> {
         let (chaddr, opts) = to_unknown_opts(req)?;
+        let vendor_builtin = client_classification::create_builtin_vendor(req);
+        // if msg-type is not Discover/Offer/Request/Inform/etc then the msg is BOOTP
+        let is_bootp = bootp_enabled
+            && req.opts().msg_type().is_none()
+            && req.opcode() == v4::Opcode::BootRequest;
+
+        if let Err(err) = vendor_builtin {
+            // log error but don't stop evaluation
+            warn!(
+                ?err,
+                "error converting opt 60 (vendor class) to string for VENDOR_CLASS_"
+            );
+        }
         let mut args = Args {
             chaddr,
-            deps: HashSet::new(),
+            member: {
+                // all packets are member of "ALL"
+                let mut set = HashSet::new();
+                set.insert(client_classification::ALL_CLASS.to_owned());
+                // add "VENDOR_CLASS_*" built-in
+                if let Ok(Some(vendor)) = vendor_builtin {
+                    set.insert(vendor);
+                }
+                // add "BOOTP"
+                if is_bootp {
+                    set.insert(client_classification::BOOTP_CLASS.to_owned());
+                }
+                set
+            },
             msg: req,
             opts,
         };
+        // eval all client classes in topological order
         for name in &self.topo_order {
             // this should never fail
             let class = self.classes.get(name).context("class not found")?;
@@ -86,11 +114,11 @@ impl ClientClasses {
                 // add class name to dependencies set, for future evals
                 // classes are always eval'd in topological order, so
                 // future evals know what prior evals were
-                args.deps.insert(class.name.to_owned());
+                args.member.insert(class.name.to_owned());
             }
         }
 
-        Ok(args.deps.into_iter().collect())
+        Ok(args.member.into_iter().collect())
     }
     /// take matched client classes, return merge DhcpOptions that contains all classes options merged
     /// together with precedence given based on original position in client_classes list (lower index == higher precedence)
@@ -158,6 +186,8 @@ fn merge_opts(a: &v4::DhcpOptions, b: Option<v4::DhcpOptions>) -> Option<v4::Dhc
 
 #[cfg(test)]
 mod tests {
+    use std::net::Ipv4Addr;
+
     use super::*;
 
     #[test]
@@ -226,5 +256,58 @@ mod tests {
             opts.insert(v4::DhcpOption::TimeOffset(50));
             opts
         });
+    }
+
+    #[test]
+    fn eval_bootp() {
+        use std::collections::HashSet;
+        let classes = ClientClasses {
+            original_order: ["foo"].iter().map(|&n| n.to_owned()).collect(),
+            topo_order: ["foo"].iter().map(|&n| n.to_owned()).collect(),
+            classes: [(
+                "foo".to_owned(),
+                ClientClass {
+                    name: "foo".to_owned(),
+                    assert: client_classification::Expr::Bool(true),
+                    options: {
+                        let mut opts = v4::DhcpOptions::new();
+                        opts.insert(v4::DhcpOption::Router(vec![[8, 8, 8, 8].into()]));
+                        opts.insert(v4::DhcpOption::AddressLeaseTime(10));
+                        opts
+                    },
+                },
+            )]
+            .into_iter()
+            .collect(),
+        };
+        let uns = Ipv4Addr::UNSPECIFIED;
+        let bootp = v4::Message::new(uns, uns, uns, uns, &[1, 2, 3, 4, 5, 6]);
+        // msg is a bootp message because it has empty opts
+        let res = classes.eval(&bootp, true).unwrap();
+        assert_eq!(
+            res.iter().collect::<HashSet<_>>(),
+            ["foo".to_owned(), "BOOTP".to_owned(), "ALL".to_owned()]
+                .iter()
+                .collect::<HashSet<_>>()
+        );
+
+        let uns = Ipv4Addr::UNSPECIFIED;
+        let mut msg = v4::Message::new(uns, uns, uns, uns, &[1, 2, 3, 4, 5, 6]);
+        msg.opts_mut()
+            .insert(v4::DhcpOption::MessageType(v4::MessageType::Discover));
+        msg.opts_mut()
+            .insert(v4::DhcpOption::ClassIdentifier(b"docsis3.0".to_vec()));
+        // msg is a bootp message because it has empty opts
+        let res = classes.eval(&msg, true).unwrap();
+        assert_eq!(
+            res.iter().collect::<HashSet<_>>(),
+            [
+                "foo".to_owned(),
+                "VENDOR_CLASS_docsis3.0".to_owned(),
+                "ALL".to_owned()
+            ]
+            .iter()
+            .collect::<HashSet<_>>()
+        );
     }
 }
