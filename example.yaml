@@ -5,13 +5,13 @@
 #
 # chaddr_only: false
 #
-# (default false) Enable BOOTP support. Dora supports only RFC1497. BOOTP clients
+# (default true) enable/disable BOOTP support. Dora supports only RFC1497. BOOTP clients
 # will be assigned an IP based on their chaddr, they don't have client-ids.
 # The `lease_time` property of a reservation will be ignored
 #
-# bootp_enable: false
+# bootp_enable: true
 #
-# (default false) Enable rapid commit RFC4093. If enabled, and a message is received with the
+# (default false) enable/disable rapid commit RFC4093. If enabled, and a message is received with the
 # rapid commit option, then dora will attempt a 1-step lease instead of 2.
 #
 # rapid_commit: false
