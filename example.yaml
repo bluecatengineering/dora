@@ -306,7 +306,9 @@ v6:
 #   infix: == != or and (`1 == 1 and 2 != 3 or true`)
 #
 #   options: option[12]
-#    option[xx].hex: gets the byte string data section of option[12] (`option[12].hex == 'hostname'`)
+#    option[xx].hex: gets the data as a byte string. 
+#       You can still compare with 'strings' as long as the byte representation matches (`option[12].hex == 'hostname'` or `option[244].hex == 0x1234`)
+#    option[xx].text: gets the data as a utf-8 encoded string (`option[12].text == 'hostname'`)
 #    option[xx].exists: returns true/false if the option exists (`option[12].exists`)
 #
 #   pkt header:
@@ -332,7 +334,8 @@ v6:
 #
 #  Vendor classes:
 #
-#   To match on the standard option 60 vendor class identifier, use `option[60].hex` in your assertion.
+#   To match on the standard option 60 vendor class identifier, use `option[60].hex` or `option[60].text` 
+#   in your assertion— depending if you want a byte string or utf-8 string representation.
 #   You can then specify options for the class providing option 43, for the encapsulated vendor options.
 #   example.
 #       name: my_vendor_class
@@ -357,7 +360,7 @@ client_classes:
           # class name
           name: my_class
           # assertion will be run for each class defined
-          assert: "option[61].hex == 'foobar'"
+          assert: "option[60].text == 'foobar'"
           # any options defined here will be provided to the message
           options:
                 values:
