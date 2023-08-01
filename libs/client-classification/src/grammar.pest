@@ -1,6 +1,9 @@
 // integer = @{ ASCII_DIGIT+ }
 integer    =  @{ (ASCII_NONZERO_DIGIT ~ ASCII_DIGIT+ | ASCII_DIGIT) }
 
+signed_int = @{ minus? ~ integer }
+minus = { "-" }
+
 string = @{ "'" ~ ( "''" | (!"'" ~ ANY) )* ~ "'" }
 
 ip = @{ ASCII_DIGIT{1,3} ~ "." ~ ASCII_DIGIT{1,3} ~ "." ~ ASCII_DIGIT{1,3} ~ "." ~ ASCII_DIGIT{1,3} }
@@ -8,6 +11,8 @@ ip = @{ ASCII_DIGIT{1,3} ~ "." ~ ASCII_DIGIT{1,3} ~ "." ~ ASCII_DIGIT{1,3} ~ "."
 hex = @{ "0x" ~ ASCII_HEX_DIGIT* }
 
 boolean = @{ "true" | "false" }
+
+all = @{ "all" }
 
 operation = _{ equal | neq | and | or }
 	equal = { "==" }
@@ -55,7 +60,12 @@ pkt = _{
     pkt_msgtype = @{ "pkt4.msgtype" }
     pkt_transid = @{ "pkt4.transid" }
 
-substring = { "substring(" ~ expr ~ "," ~ integer ~ "," ~ integer ~ ")" }
+end = _{
+    signed_int | all
+}
+
+
+substring = { "substring(" ~ expr ~ "," ~ signed_int ~ "," ~ end ~ ")" }
 concat = { "concat(" ~ expr ~ "," ~ expr ~ ")" }
 hexstring = { "hexstring(" ~ expr ~ "," ~ string ~ ")" }
 ifelse = { "ifelse(" ~ expr ~ "," ~ expr ~ "," ~ expr ~ ")" }

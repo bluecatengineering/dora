@@ -399,6 +399,31 @@ mod tests {
     }
 
     #[test]
+    fn test_substring_all() {
+        let args = Args {
+            chaddr: &hex::decode("010203040506").unwrap(),
+            opts: HashMap::new(),
+            msg: &v4::Message::default(),
+            member: HashSet::new(),
+        };
+        let expr = ast::parse("substring('foobar', 0, all) == 'foobar'").unwrap();
+        let val = eval(&expr, &args).unwrap();
+        assert_eq!(val, Val::Bool(true));
+
+        let expr = ast::parse("substring('foobar', -1, -3) == 'oba'").unwrap();
+        let val = eval(&expr, &args).unwrap();
+        assert_eq!(val, Val::Bool(true));
+
+        let expr = ast::parse("substring('foobar', 1, 3) == 'oob'").unwrap();
+        let val = eval(&expr, &args).unwrap();
+        assert_eq!(val, Val::Bool(true));
+
+        let expr = ast::parse("substring(0x123456, 1, 2) == 0x3456").unwrap();
+        let val = eval(&expr, &args).unwrap();
+        assert_eq!(val, Val::Bool(true));
+    }
+
+    #[test]
     fn test_substring_hex() {
         let mut opts = HashMap::new();
         opts.insert(
