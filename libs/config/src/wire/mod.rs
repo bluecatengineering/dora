@@ -58,7 +58,7 @@ pub const fn default_chaddr_only() -> bool {
 }
 
 pub const fn default_bootp_enable() -> bool {
-    false
+    true
 }
 
 pub const fn default_rapid_commit() -> bool {

@@ -728,6 +728,8 @@ mod tests {
         // test a range decoded properly
         let mut msg = v4::Message::default();
         msg.set_chaddr(&hex::decode("DEADBEEF").unwrap());
+        msg.opts_mut()
+            .insert(v4::DhcpOption::MessageType(v4::MessageType::Discover));
         // get matching classes
         // TODO: what should we do if there is an error processing client classes?
         let matched = cfg.eval_client_classes(&msg).unwrap().ok();
