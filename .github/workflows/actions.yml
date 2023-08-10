@@ -141,8 +141,10 @@ jobs:
         uses: actions-rs/grcov@v0.1.5
         env:
           SQLX_OFFLINE: true
+          NODE_COVERALLS_DEBUG: true
       - name: Coveralls upload
         uses: coverallsapp/github-action@master
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path-to-lcov: ${{ steps.coverage.outputs.report }}
+          debug: true
