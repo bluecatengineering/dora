@@ -1427,6 +1427,7 @@ dependencies = [
 name = "icmp-ping"
 version = "0.1.0"
 dependencies = [
+ "dora-core",
  "parking_lot 0.12.1",
  "pnet",
  "rand",
@@ -1655,7 +1656,9 @@ dependencies = [
  "ipnet",
  "message-type",
  "register_derive",
+ "serde_yaml",
  "static-addr",
+ "tracing-test",
 ]
 
 [[package]]

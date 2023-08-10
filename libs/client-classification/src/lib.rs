@@ -421,6 +421,10 @@ mod tests {
         let expr = ast::parse("substring(0x123456, 1, 2) == 0x3456").unwrap();
         let val = eval(&expr, &args).unwrap();
         assert_eq!(val, Val::Bool(true));
+
+        let expr = ast::parse("substring(0x4D53465420352E30, 0, 3) == 0x4D5346").unwrap();
+        let val = eval(&expr, &args).unwrap();
+        assert_eq!(val, Val::Bool(true));
     }
 
     #[test]

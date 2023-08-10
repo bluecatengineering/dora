@@ -14,7 +14,7 @@ client-protection = { path = "../client-protection" }
 async-trait = { workspace = true }
 ipnet = { workspace = true }
 thiserror = { workspace = true }
-tracing = { workspace = true }
+tracing = { workspace = true, features = ["log"] } # TODO: do we need the log feature?
 chrono = "0.4.19"
 moka = { version = "0.10.0", features = ["future"] }
 # TODO: hopefully the rustls feature can go away, the lib requires it

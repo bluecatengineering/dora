@@ -15,6 +15,7 @@ use dora_core::{
         v4::{DhcpOption, Message, MessageType, Opcode, OptionCode},
         v6,
     },
+    metrics,
     prelude::*,
     tracing::warn,
 };
@@ -82,6 +83,7 @@ impl Plugin<Message> for MsgType {
 
         let client_id = self.cfg.v4().client_id(req).to_vec(); // to_vec required b/c of borrowck error
         if !self.flood_check(&client_id) {
+            metrics::FLOOD_THRESHOLD_COUNT.inc();
             debug!(
                 ?client_id,
                 "client is chatty, engaging rate limit and not responding"

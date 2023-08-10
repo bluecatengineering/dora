@@ -14,7 +14,7 @@ use std::{
 };
 
 use crate::{
-    metrics::{RECV_TYPE_COUNT, SENT_TYPE_COUNT, V6_RECV_TYPE_COUNT, V6_SENT_TYPE_COUNT},
+    metrics::{self, RECV_TYPE_COUNT, SENT_TYPE_COUNT, V6_RECV_TYPE_COUNT, V6_SENT_TYPE_COUNT},
     server::{msg::SerialMsg, typemap::TypeMap, State},
 };
 
@@ -372,6 +372,7 @@ impl MsgContext<v4::Message> {
 
     /// records metrics for recvd DHCP message
     pub fn recv_metrics(&self) -> io::Result<()> {
+        metrics::DHCPV4_BYTES_RECV.inc_by(self.bytes().len() as u64);
         match self.msg().opts().msg_type() {
             Some(v4::MessageType::Discover) => {
                 RECV_TYPE_COUNT.discover.inc();
@@ -405,7 +406,8 @@ impl MsgContext<v4::Message> {
     }
 
     /// records metrics for sent DHCP message
-    pub fn sent_metrics(&self) -> io::Result<()> {
+    pub fn sent_metrics(&self, elapsed: Duration) -> io::Result<()> {
+        let elapsed = elapsed.as_secs_f64();
         match self
             .resp_msg()
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "v4 response not found"))?
@@ -426,17 +428,29 @@ impl MsgContext<v4::Message> {
             }
             Some(v4::MessageType::Offer) => {
                 SENT_TYPE_COUNT.offer.inc();
+                metrics::DHCPV4_REPLY_DURATION
+                    .with_label_values(&["offer"])
+                    .observe(elapsed);
             }
             Some(v4::MessageType::Ack) => {
                 SENT_TYPE_COUNT.ack.inc();
+                metrics::DHCPV4_REPLY_DURATION
+                    .with_label_values(&["ack"])
+                    .observe(elapsed);
             }
             Some(v4::MessageType::Nak) => {
                 SENT_TYPE_COUNT.nak.inc();
+                metrics::DHCPV4_REPLY_DURATION
+                    .with_label_values(&["nak"])
+                    .observe(elapsed);
             }
             Some(v4::MessageType::Inform) => {
                 SENT_TYPE_COUNT.inform.inc();
             }
             _ => {
+                metrics::DHCPV4_REPLY_DURATION
+                    .with_label_values(&["unknown"])
+                    .observe(elapsed);
                 SENT_TYPE_COUNT.unknown.inc();
             }
         }
@@ -736,6 +750,7 @@ impl MsgContext<v6::Message> {
 
     /// records metrics for recvd DHCP message
     pub fn recv_metrics(&self) -> io::Result<()> {
+        metrics::DHCPV6_BYTES_RECV.inc_by(self.bytes().len() as u64);
         match self.msg().msg_type() {
             v6::MessageType::Solicit => V6_RECV_TYPE_COUNT.solicit.inc(),
             v6::MessageType::Advertise => V6_RECV_TYPE_COUNT.advertise.inc(),
@@ -758,27 +773,51 @@ impl MsgContext<v6::Message> {
     }
 
     /// records metrics for sent DHCP message
-    pub fn sent_metrics(&self) -> io::Result<()> {
+    pub fn sent_metrics(&self, elapsed: Duration) -> io::Result<()> {
+        let elapsed = elapsed.as_secs_f64();
         match self
             .resp_msg()
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "v6 response not found"))?
             .msg_type()
         {
             v6::MessageType::Solicit => V6_SENT_TYPE_COUNT.solicit.inc(),
-            v6::MessageType::Advertise => V6_SENT_TYPE_COUNT.advertise.inc(),
+            v6::MessageType::Advertise => {
+                V6_SENT_TYPE_COUNT.advertise.inc();
+                metrics::DHCPV6_REPLY_DURATION
+                    .with_label_values(&["advertise"])
+                    .observe(elapsed);
+            }
             v6::MessageType::Request => V6_SENT_TYPE_COUNT.request.inc(),
-            v6::MessageType::Confirm => V6_SENT_TYPE_COUNT.confirm.inc(),
+            v6::MessageType::Confirm => {
+                V6_SENT_TYPE_COUNT.confirm.inc();
+                metrics::DHCPV6_REPLY_DURATION
+                    .with_label_values(&["confirm"])
+                    .observe(elapsed);
+            }
             v6::MessageType::Renew => V6_SENT_TYPE_COUNT.renew.inc(),
             v6::MessageType::Rebind => V6_SENT_TYPE_COUNT.rebind.inc(),
-            v6::MessageType::Reply => V6_SENT_TYPE_COUNT.reply.inc(),
+            v6::MessageType::Reply => {
+                V6_SENT_TYPE_COUNT.reply.inc();
+                metrics::DHCPV6_REPLY_DURATION
+                    .with_label_values(&["reply"])
+                    .observe(elapsed);
+            }
             v6::MessageType::Release => V6_SENT_TYPE_COUNT.release.inc(),
             v6::MessageType::Decline => V6_SENT_TYPE_COUNT.decline.inc(),
             v6::MessageType::Reconfigure => V6_SENT_TYPE_COUNT.reconf.inc(),
-            v6::MessageType::InformationRequest => V6_SENT_TYPE_COUNT.inforeq.inc(),
+            v6::MessageType::InformationRequest => {
+                V6_SENT_TYPE_COUNT.inforeq.inc();
+                metrics::DHCPV6_REPLY_DURATION
+                    .with_label_values(&["inforeq"])
+                    .observe(elapsed);
+            }
             v6::MessageType::RelayForw => V6_SENT_TYPE_COUNT.relayforw.inc(),
             v6::MessageType::RelayRepl => V6_SENT_TYPE_COUNT.relayrepl.inc(),
             _ => {
                 V6_SENT_TYPE_COUNT.unknown.inc();
+                metrics::DHCPV6_REPLY_DURATION
+                    .with_label_values(&["unknown"])
+                    .observe(elapsed);
             }
         }
         Ok(())

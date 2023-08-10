@@ -7,6 +7,7 @@ pub use crate::errors::Error;
 pub use crate::icmp::{Decode, EchoReply, EchoRequest, Encode, Icmpv4, Icmpv6, ICMP_HEADER_SIZE};
 use crate::{icmp::Proto, socket::Socket};
 
+use dora_core::metrics;
 use parking_lot::Mutex;
 use shutdown::Shutdown;
 use socket2::{Domain, Protocol, Type};
@@ -64,6 +65,11 @@ impl<P: Proto> IcmpEcho<P> {
             "encoded buffer with payload"
         );
         self.inner.send_to(&buf, &target).await?;
+        if target.is_ipv4() {
+            metrics::ICMPV4_REQUEST_COUNT.inc();
+        } else {
+            metrics::ICMPV6_REQUEST_COUNT.inc();
+        }
         Ok(())
     }
 
@@ -77,6 +83,11 @@ impl<P: Proto> IcmpEcho<P> {
             let (n, addr) = self.inner.recv(&mut buf).await?;
             trace!(buf = ?&buf[..n], ?addr, "received data on socket");
             if let Ok(payload) = <EchoReply as Decode<P>>::decode(&buf[..n], self.decode_header) {
+                if addr.is_ipv4() {
+                    metrics::ICMPV4_REPLY_COUNT.inc();
+                } else {
+                    metrics::ICMPV6_REPLY_COUNT.inc();
+                }
                 return Ok((payload, addr));
             }
         }
@@ -130,10 +141,13 @@ impl<P: Proto> Pinger<P> {
             seq_cnt,
             payload: &payload,
         };
+        let start = Instant::now();
+
         self.socket.request(self.host, &req).await?;
         debug!("sent echo request-- waiting for reply");
         match tokio::time::timeout(self.timeout, rx).await {
             Ok(Ok(reply)) => {
+                record_resp_metric(self.host.is_ipv4(), start);
                 drop(guard);
                 if reply.reply == req {
                     Ok(reply)
@@ -156,6 +170,19 @@ impl<P: Proto> Pinger<P> {
                 Err(errors::Error::Timeout { ident, seq_cnt })
             }
         }
+    }
+}
+
+fn record_resp_metric(is_ipv4: bool, start: Instant) {
+    let elapsed = start.elapsed().as_secs_f64();
+    if is_ipv4 {
+        metrics::ICMPV4_REPLY_DURATION
+            .with_label_values(&["reply"])
+            .observe(elapsed);
+    } else {
+        metrics::ICMPV6_REPLY_DURATION
+            .with_label_values(&["reply"])
+            .observe(elapsed);
     }
 }
 

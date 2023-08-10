@@ -13,8 +13,9 @@ tokio = { workspace = true, features = ["time", "net", "sync", "macros"] }
 parking_lot = "0.12"
 pnet = { workspace = true }
 thiserror = { workspace = true }
-tracing ={ workspace = true }
- 
+tracing = { workspace = true }
+dora-core = { path = "../../dora-core" }
+
 [dev-dependencies]
 tokio = { workspace = true }
 tracing-subscriber = "0.3"

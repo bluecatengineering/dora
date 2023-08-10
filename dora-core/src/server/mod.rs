@@ -18,7 +18,7 @@ use std::{
     marker::Send,
     os::unix::prelude::{FromRawFd, IntoRawFd},
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 pub mod context;
@@ -31,6 +31,7 @@ pub(crate) mod udp;
 use crate::{
     config::cli::{Config, ALL_DHCP_RELAY_AGENTS_AND_SERVERS},
     handler::*,
+    metrics,
     server::{context::MsgContext, msg::SerialMsg, udp::UdpStream},
 };
 use topo_sort::DependencyTree;
@@ -221,6 +222,7 @@ impl RunInner<v4::Message> {
     /// Process handlers
     #[instrument(name = "v4", level = "debug", skip_all)]
     async fn run(mut self) -> Result<()> {
+        let start = Instant::now();
         if let Err(err) = self.ctx.recv_metrics() {
             warn!(?err, "error counting recv metrics--continuing");
         }
@@ -252,6 +254,7 @@ impl RunInner<v4::Message> {
                         // otherwise use iface idx
                         let packet_src =
                             source.map(Source::Ip).unwrap_or(Source::Interface(ifindex));
+                        metrics::DHCPV4_BYTES_SENT.inc_by(msg.bytes().len() as u64);
                         let transmit = Transmit::new(dst_addr, msg.msg()).src_ip(packet_src);
 
                         debug!(
@@ -275,7 +278,7 @@ impl RunInner<v4::Message> {
             // drop timeouts
             Err(error) => Err(anyhow::anyhow!(error)),
         };
-        if let Err(err) = self.ctx.sent_metrics() {
+        if let Err(err) = self.ctx.sent_metrics(start.elapsed()) {
             warn!(?err, "error counting sent metrics");
         }
 
@@ -327,6 +330,7 @@ impl RunInner<v6::Message> {
     /// Process handlers
     #[instrument(name = "v6", level = "debug", skip_all)]
     async fn run(mut self) -> Result<()> {
+        let start = Instant::now();
         if let Err(err) = self.ctx.recv_metrics() {
             warn!(?err, "error counting recv metrics--continuing");
         }
@@ -355,6 +359,7 @@ impl RunInner<v6::Message> {
                             ?iname,
                             %resp,
                         );
+                        metrics::DHCPV6_BYTES_SENT.inc_by(msg.bytes().len() as u64);
                         self.ctx.set_dst_addr(dst_addr);
                         if let Err(err) = self.soc.send_to(msg.bytes(), dst_addr).await {
                             error!(?err);
@@ -368,7 +373,7 @@ impl RunInner<v6::Message> {
             // drop timeouts
             Err(error) => Err(anyhow::anyhow!(error)),
         };
-        if let Err(err) = self.ctx.sent_metrics() {
+        if let Err(err) = self.ctx.sent_metrics(start.elapsed()) {
             warn!(?err, "error counting sent metrics");
         }
         // run post-response handler, if any
