@@ -454,17 +454,12 @@ mod tests {
         let mgr = IpManager::new(SqliteDb::new("sqlite::memory:").await?)?;
         let leases = Leases::new(Arc::new(cfg.clone()), mgr);
         let mut ctx = blank_ctx(
-            "192.168.1.1:67".parse()?,
-            "192.168.1.1".parse()?,
+            "192.168.0.1:67".parse()?,
+            "192.168.0.1".parse()?,
+            "192.168.0.1".parse()?,
             v4::MessageType::Request,
         )?;
-        let network = cfg
-            .v4()
-            .network("192.168.1.100".parse::<std::net::Ipv4Addr>()?)
-            .unwrap();
-        leases
-            .request(&mut ctx, &[1, 2, 3, 4, 5, 6], network, None)
-            .await?;
+        leases.handle(&mut ctx).await?;
 
         // no requested IP put in message, NAK
         assert!(ctx
@@ -474,8 +469,9 @@ mod tests {
             .has_msg_type(v4::MessageType::Nak));
 
         let mut ctx = blank_ctx(
-            "192.168.1.1:67".parse()?,
-            "192.168.1.1".parse()?,
+            "192.168.0.1:67".parse()?,
+            "192.168.0.1".parse()?,
+            "192.168.0.1".parse()?,
             v4::MessageType::Discover,
         )?;
         ctx.msg_mut()
@@ -485,10 +481,8 @@ mod tests {
             .unwrap()
             .opts_mut()
             .insert(v4::DhcpOption::MessageType(v4::MessageType::Ack)); // ack is set in msg type plugin
-        leases
-            .request(&mut ctx, &[1, 2, 3, 4, 5, 6], network, None)
-            .await?;
 
+        leases.handle(&mut ctx).await?;
         debug!(?ctx);
         // requested IP, OFFER
         assert!(ctx
@@ -503,14 +497,25 @@ mod tests {
     fn blank_ctx(
         recv_addr: SocketAddr,
         siaddr: Ipv4Addr,
+        giaddr: Ipv4Addr,
         msg_type: v4::MessageType,
     ) -> Result<MsgContext<dhcproto::v4::Message>> {
         let uns = Ipv4Addr::UNSPECIFIED;
-        let mut msg = dhcproto::v4::Message::new(uns, uns, uns, uns, &[1, 2, 3, 4, 5, 6]);
+        let mut msg = dhcproto::v4::Message::new(uns, uns, siaddr, giaddr, &[1, 2, 3, 4, 5, 6]);
         msg.opts_mut().insert(v4::DhcpOption::MessageType(msg_type));
+        msg.opts_mut()
+            .insert(v4::DhcpOption::SubnetSelection(giaddr));
+        msg.opts_mut()
+            .insert(v4::DhcpOption::ParameterRequestList(vec![
+                v4::OptionCode::SubnetMask,
+                v4::OptionCode::Router,
+                v4::OptionCode::DomainNameServer,
+                v4::OptionCode::DomainName,
+            ]));
         let buf = msg.to_vec().unwrap();
         let meta = RecvMeta {
             addr: recv_addr,
+            len: buf.len(),
             ..RecvMeta::default()
         };
         let resp = message_type::util::new_msg(&msg, siaddr, None, None);

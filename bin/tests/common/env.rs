@@ -1,6 +1,7 @@
 use std::{
-    env,
+    env, fs,
     process::{Child, Command},
+    thread,
 };
 
 #[derive(Debug)]
@@ -41,13 +42,13 @@ impl Drop for DhcpServerEnv {
         stop_dhcp_server(&mut self.daemon);
         remove_test_veth_nics(&self.veth_cli);
         remove_test_net_namespace(&self.netns);
-        if let Err(err) = std::fs::remove_file(db) {
+        if let Err(err) = fs::remove_file(db) {
             eprintln!("{err:?}");
         }
-        if let Err(err) = std::fs::remove_file(format!("{db}-shm")) {
+        if let Err(err) = fs::remove_file(format!("{db}-shm")) {
             eprintln!("{err:?}");
         }
-        if let Err(err) = std::fs::remove_file(format!("{db}-wal")) {
+        if let Err(err) = fs::remove_file(format!("{db}-wal")) {
             eprintln!("{err:?}");
         }
     }
@@ -81,9 +82,10 @@ fn remove_test_veth_nics(veth_cli: &str) {
 
 fn start_dhcp_server(config: &str, netns: &str, db: &str) -> Child {
     let workspace_root = env::var("WORKSPACE_ROOT").unwrap_or_else(|_| "..".to_owned());
+    let bin_path = env!("CARGO_BIN_EXE_dora");
     let config_path = format!("{workspace_root}/bin/tests/test_configs/{config}");
     let dora_debug = format!(
-        "./{workspace_root}/target/debug/dora -d={db} --config-path={config_path} --threads=2 --dora-log=debug --v4-addr=0.0.0.0:9900",
+        "{bin_path} -d={db} --config-path={config_path} --threads=2 --dora-log=debug --v4-addr=0.0.0.0:9900",
     );
     let cmd = format!("ip netns exec {netns} {dora_debug}");
 
@@ -92,7 +94,7 @@ fn start_dhcp_server(config: &str, netns: &str, db: &str) -> Child {
         .args(&cmds[1..])
         .spawn()
         .expect("Failed to start DHCP server");
-    std::thread::sleep(std::time::Duration::from_secs(1));
+    thread::sleep(std::time::Duration::from_secs(1));
     if let Ok(Some(ret)) = child.try_wait() {
         panic!("Failed to start DHCP server {ret:?}");
     }

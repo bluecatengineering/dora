@@ -584,14 +584,14 @@ impl MsgContext<v4::Message> {
     /// and if there is no relay information, falls back on the IP of the interface
     /// the message was recv'd on
     pub fn subnet(&self) -> io::Result<Ipv4Addr> {
-        Ok(self
-            .relay_subnet()
-            .unwrap_or(self.interface().map(|int| int.ip()).ok_or_else(|| {
+        self.relay_subnet().or_else(|_| {
+            self.interface().map(|int| int.ip()).ok_or_else(|| {
                 io::Error::new(
                     io::ErrorKind::InvalidInput,
                     "no interface set for MsgContext",
                 )
-            })?))
+            })
+        })
     }
 
     /// looks in `decoded_msg` for `DhcpOption::ParameterRequestList` and provides any options
