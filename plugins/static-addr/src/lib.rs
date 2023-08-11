@@ -154,6 +154,7 @@ impl StaticAddr {
         }
 
         let (lease, t1, t2) = res.lease().determine_lease(ctx.requested_lease_time());
+        dbg!(ip);
         ctx.resp_msg_mut()
             .context("response message must be set before static plugin is run")?
             .set_yiaddr(ip);
@@ -166,5 +167,65 @@ impl StaticAddr {
         trace!(?ip, "populating response with static ip");
 
         Ok(Action::Continue)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::Ipv4Addr;
+
+    use dora_core::dhcproto::v4;
+    use tracing_test::traced_test;
+
+    use super::*;
+    use message_type::util;
+
+    static SAMPLE_YAML: &str = include_str!("../../../libs/config/sample/config.yaml");
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_discover() -> Result<()> {
+        let cfg = DhcpConfig::parse_str(SAMPLE_YAML).unwrap();
+        let plugin = StaticAddr::new(Arc::new(cfg.clone()))?;
+        let mut ctx = util::blank_ctx(
+            "192.168.0.1:67".parse()?,
+            "192.168.0.1".parse()?,
+            "192.168.0.1".parse()?,
+            v4::MessageType::Discover,
+        )?;
+        ctx.msg_mut().set_chaddr(&hex::decode(b"aabbccddeeff")?);
+        plugin.handle(&mut ctx).await?;
+
+        assert_eq!(
+            ctx.resp_msg().unwrap().yiaddr(),
+            Ipv4Addr::new(192, 168, 0, 170)
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_request() -> Result<()> {
+        let cfg = DhcpConfig::parse_str(SAMPLE_YAML).unwrap();
+        let plugin = StaticAddr::new(Arc::new(cfg.clone()))?;
+        let mut ctx = util::blank_ctx(
+            "192.168.0.1:67".parse()?,
+            "192.168.0.1".parse()?,
+            "192.168.0.1".parse()?,
+            v4::MessageType::Request,
+        )?;
+        ctx.msg_mut().set_chaddr(&hex::decode(b"aabbccddeeff")?);
+        ctx.msg_mut()
+            .opts_mut()
+            .insert(v4::DhcpOption::RequestedIpAddress(Ipv4Addr::new(
+                192, 168, 0, 170,
+            )));
+        plugin.handle(&mut ctx).await?;
+
+        assert_eq!(
+            ctx.resp_msg().unwrap().yiaddr(),
+            Ipv4Addr::new(192, 168, 0, 170)
+        );
+        Ok(())
     }
 }

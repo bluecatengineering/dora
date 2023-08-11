@@ -13,3 +13,7 @@ config = { path = "../../libs/config" }
 register_derive = { path = "../../libs/register_derive" }
 message-type = { path = "../message-type" }
 
+[dev-dependencies]
+serde_yaml = { workspace = true }
+tracing-test = "0.2.4"
+hex = "0.4"

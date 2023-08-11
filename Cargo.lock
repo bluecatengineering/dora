@@ -1805,6 +1805,8 @@ dependencies = [
  "config",
  "dora-core",
  "register_derive",
+ "serde_yaml",
+ "tracing-test",
 ]
 
 [[package]]
@@ -3110,8 +3112,11 @@ version = "0.1.0"
 dependencies = [
  "config",
  "dora-core",
+ "hex",
  "message-type",
  "register_derive",
+ "serde_yaml",
+ "tracing-test",
 ]
 
 [[package]]
