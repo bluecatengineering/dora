@@ -141,7 +141,8 @@ We _could_ go much faster by keeping leases in memory and appending to the db li
 ## Troubleshooting/Testing
 
 ### Using dhcpm
-[dhcpm](https://github.com/leshow/dhcpm) is a tool built in rust that that will mock dhcp requests and is highly useful for testing dhcp in an isolated manner. 
+
+[dhcpm](https://github.com/leshow/dhcpm) is a tool built in rust that that will mock dhcp requests and is highly useful for testing dhcp in an isolated manner.
 
 ### Using perfdhcp
 

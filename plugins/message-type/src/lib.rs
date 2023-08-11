@@ -20,7 +20,7 @@ use dora_core::{
     tracing::warn,
 };
 use register_derive::Register;
-use std::{fmt::Debug, net::Ipv4Addr};
+use std::fmt::Debug;
 
 use config::{client_classes, DhcpConfig};
 
@@ -252,6 +252,49 @@ pub mod util {
                 }
             })
     }
+
+    use std::net::{Ipv4Addr, SocketAddr};
+
+    use anyhow::Result;
+    use dhcproto::{v4, Encodable};
+    use dora_core::server::msg::SerialMsg;
+    use unix_udp_sock::RecvMeta;
+
+    /// for testing
+    pub fn blank_ctx(
+        recv_addr: SocketAddr,
+        siaddr: Ipv4Addr,
+        giaddr: Ipv4Addr,
+        msg_type: v4::MessageType,
+    ) -> Result<MsgContext<dhcproto::v4::Message>> {
+        let uns = Ipv4Addr::UNSPECIFIED;
+        let mut msg = dhcproto::v4::Message::new(uns, uns, siaddr, giaddr, &[1, 2, 3, 4, 5, 6]);
+        msg.opts_mut().insert(v4::DhcpOption::MessageType(msg_type));
+        msg.opts_mut()
+            .insert(v4::DhcpOption::SubnetSelection(giaddr));
+        msg.opts_mut()
+            .insert(v4::DhcpOption::ParameterRequestList(vec![
+                v4::OptionCode::SubnetMask,
+                v4::OptionCode::Router,
+                v4::OptionCode::DomainNameServer,
+                v4::OptionCode::DomainName,
+            ]));
+        let buf = msg.to_vec().unwrap();
+        let meta = RecvMeta {
+            addr: recv_addr,
+            len: buf.len(),
+            ifindex: 1,
+            ..RecvMeta::default()
+        };
+        let resp = crate::util::new_msg(&msg, siaddr, None, None);
+        let mut ctx: MsgContext<dhcproto::v4::Message> = MsgContext::new(
+            SerialMsg::new(buf.into(), recv_addr),
+            meta,
+            Arc::new(State::new(10)),
+        )?;
+        ctx.set_resp_msg(resp);
+        Ok(ctx)
+    }
 }
 
 #[async_trait]
@@ -335,3 +378,74 @@ impl Plugin<v6::Message> for MsgType {
 /// a list of matching client classes for this message
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MatchedClasses(pub Vec<String>);
+
+#[cfg(test)]
+mod tests {
+    use dora_core::dhcproto::v4;
+    use tracing_test::traced_test;
+
+    use super::*;
+
+    static SAMPLE_YAML: &str = include_str!("../../../libs/config/sample/config.yaml");
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_request() -> Result<()> {
+        let cfg = DhcpConfig::parse_str(SAMPLE_YAML).unwrap();
+        let plugin = MsgType::new(Arc::new(cfg.clone()))?;
+        let mut ctx = util::blank_ctx(
+            "192.168.0.1:67".parse()?,
+            "192.168.0.1".parse()?,
+            "192.168.0.1".parse()?,
+            v4::MessageType::Request,
+        )?;
+        plugin.handle(&mut ctx).await?;
+
+        assert!(ctx
+            .resp_msg()
+            .unwrap()
+            .opts()
+            .has_msg_type(v4::MessageType::Ack));
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_discover() -> Result<()> {
+        let cfg = DhcpConfig::parse_str(SAMPLE_YAML).unwrap();
+        let plugin = MsgType::new(Arc::new(cfg.clone()))?;
+        let mut ctx = util::blank_ctx(
+            "192.168.0.1:67".parse()?,
+            "192.168.0.1".parse()?,
+            "192.168.0.1".parse()?,
+            v4::MessageType::Discover,
+        )?;
+        plugin.handle(&mut ctx).await?;
+
+        assert!(ctx
+            .resp_msg()
+            .unwrap()
+            .opts()
+            .has_msg_type(v4::MessageType::Offer));
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_bootp() -> Result<()> {
+        let cfg = DhcpConfig::parse_str(SAMPLE_YAML).unwrap();
+        let plugin = MsgType::new(Arc::new(cfg.clone()))?;
+        let mut ctx = util::blank_ctx(
+            "192.168.0.1:67".parse()?,
+            "192.168.0.1".parse()?,
+            "192.168.0.1".parse()?,
+            v4::MessageType::Request,
+        )?;
+        // remove msg type so we're bootp
+        ctx.msg_mut().opts_mut().remove(v4::OptionCode::MessageType);
+        plugin.handle(&mut ctx).await?;
+
+        assert!(ctx.resp_msg().unwrap().opts().msg_type().is_none());
+        Ok(())
+    }
+}

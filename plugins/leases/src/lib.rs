@@ -424,13 +424,8 @@ fn print_time(expires_at: SystemTime) -> String {
 
 #[cfg(test)]
 mod tests {
-    use dora_core::{
-        dhcproto::{v4, Encodable},
-        server::msg::SerialMsg,
-        unix_udp_sock::RecvMeta,
-    };
+    use dora_core::dhcproto::v4;
     use ip_manager::sqlite::SqliteDb;
-    use std::net::SocketAddr;
     use tracing_test::traced_test;
 
     use super::*;
@@ -444,7 +439,6 @@ mod tests {
     }
 
     static SAMPLE_YAML: &str = include_str!("../../../libs/config/sample/config.yaml");
-    // static LONG_OPTS: &str = include_str!("../../../libs/config/sample/long_opts.yaml");
 
     #[tokio::test]
     #[traced_test]
@@ -453,18 +447,13 @@ mod tests {
         // println!("{cfg:#?}");
         let mgr = IpManager::new(SqliteDb::new("sqlite::memory:").await?)?;
         let leases = Leases::new(Arc::new(cfg.clone()), mgr);
-        let mut ctx = blank_ctx(
-            "192.168.1.1:67".parse()?,
-            "192.168.1.1".parse()?,
+        let mut ctx = message_type::util::blank_ctx(
+            "192.168.0.1:67".parse()?,
+            "192.168.0.1".parse()?,
+            "192.168.0.1".parse()?,
             v4::MessageType::Request,
         )?;
-        let network = cfg
-            .v4()
-            .network("192.168.1.100".parse::<std::net::Ipv4Addr>()?)
-            .unwrap();
-        leases
-            .request(&mut ctx, &[1, 2, 3, 4, 5, 6], network, None)
-            .await?;
+        leases.handle(&mut ctx).await?;
 
         // no requested IP put in message, NAK
         assert!(ctx
@@ -472,25 +461,115 @@ mod tests {
             .unwrap()
             .opts()
             .has_msg_type(v4::MessageType::Nak));
+        Ok(())
+    }
 
-        let mut ctx = blank_ctx(
-            "192.168.1.1:67".parse()?,
-            "192.168.1.1".parse()?,
+    #[tokio::test]
+    #[traced_test]
+    async fn test_discover() -> Result<()> {
+        let cfg = DhcpConfig::parse_str(SAMPLE_YAML).unwrap();
+        let mgr = IpManager::new(SqliteDb::new("sqlite::memory:").await?)?;
+        let leases = Leases::new(Arc::new(cfg.clone()), mgr);
+        let mut ctx = message_type::util::blank_ctx(
+            "192.168.0.1:67".parse()?,
+            "192.168.0.1".parse()?,
+            "192.168.0.1".parse()?,
             v4::MessageType::Discover,
         )?;
         ctx.msg_mut()
             .opts_mut()
-            .insert(v4::DhcpOption::RequestedIpAddress("192.168.1.100".parse()?));
+            .insert(v4::DhcpOption::RequestedIpAddress("192.168.0.100".parse()?));
+        ctx.resp_msg_mut()
+            .unwrap()
+            .opts_mut()
+            .insert(v4::DhcpOption::MessageType(v4::MessageType::Offer)); // ack is set in msg type plugin
+
+        leases.handle(&mut ctx).await?;
+        debug!(?ctx);
+        // requested IP, OFFER
+        assert!(ctx
+            .resp_msg()
+            .unwrap()
+            .opts()
+            .has_msg_type(v4::MessageType::Offer));
+        assert_eq!(
+            ctx.resp_msg().unwrap().yiaddr(),
+            Ipv4Addr::new(192, 168, 0, 100)
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_release() -> Result<()> {
+        let cfg = DhcpConfig::parse_str(SAMPLE_YAML).unwrap();
+        let mgr = IpManager::new(SqliteDb::new("sqlite::memory:").await?)?;
+        let leases = Leases::new(Arc::new(cfg.clone()), mgr);
+        let mut ctx = message_type::util::blank_ctx(
+            "192.168.0.1:67".parse()?,
+            "192.168.0.1".parse()?,
+            "192.168.0.1".parse()?,
+            v4::MessageType::Discover,
+        )?;
+        ctx.msg_mut()
+            .opts_mut()
+            .insert(v4::DhcpOption::RequestedIpAddress("192.168.0.100".parse()?));
+        ctx.resp_msg_mut()
+            .unwrap()
+            .opts_mut()
+            .insert(v4::DhcpOption::MessageType(v4::MessageType::Offer)); // ack is set in msg type plugin
+
+        leases.handle(&mut ctx).await?;
+        debug!(?ctx);
+        // requested IP, OFFER
+        assert!(ctx
+            .resp_msg()
+            .unwrap()
+            .opts()
+            .has_msg_type(v4::MessageType::Offer));
+        assert_eq!(
+            ctx.resp_msg().unwrap().yiaddr(),
+            Ipv4Addr::new(192, 168, 0, 100)
+        );
+
+        let mut ctx = message_type::util::blank_ctx(
+            "192.168.0.1:67".parse()?,
+            "192.168.0.1".parse()?,
+            "192.168.0.1".parse()?,
+            v4::MessageType::Request,
+        )?;
+        ctx.msg_mut()
+            .opts_mut()
+            .insert(v4::DhcpOption::RequestedIpAddress("192.168.0.100".parse()?));
         ctx.resp_msg_mut()
             .unwrap()
             .opts_mut()
             .insert(v4::DhcpOption::MessageType(v4::MessageType::Ack)); // ack is set in msg type plugin
-        leases
-            .request(&mut ctx, &[1, 2, 3, 4, 5, 6], network, None)
-            .await?;
 
-        debug!(?ctx);
-        // requested IP, OFFER
+        leases.handle(&mut ctx).await?;
+        assert!(ctx
+            .resp_msg()
+            .unwrap()
+            .opts()
+            .has_msg_type(v4::MessageType::Ack));
+        assert_eq!(
+            ctx.resp_msg().unwrap().yiaddr(),
+            Ipv4Addr::new(192, 168, 0, 100)
+        );
+
+        let mut ctx = message_type::util::blank_ctx(
+            "192.168.0.1:67".parse()?,
+            "192.168.0.1".parse()?,
+            "192.168.0.1".parse()?,
+            v4::MessageType::Release, // set release
+        )?;
+        ctx.msg_mut().set_ciaddr(Ipv4Addr::new(192, 168, 0, 100));
+        ctx.resp_msg_mut()
+            .unwrap()
+            .opts_mut()
+            .insert(v4::DhcpOption::MessageType(v4::MessageType::Ack)); // ack is set in msg type plugin
+
+        leases.handle(&mut ctx).await?;
         assert!(ctx
             .resp_msg()
             .unwrap()
@@ -498,28 +577,5 @@ mod tests {
             .has_msg_type(v4::MessageType::Ack));
 
         Ok(())
-    }
-
-    fn blank_ctx(
-        recv_addr: SocketAddr,
-        siaddr: Ipv4Addr,
-        msg_type: v4::MessageType,
-    ) -> Result<MsgContext<dhcproto::v4::Message>> {
-        let uns = Ipv4Addr::UNSPECIFIED;
-        let mut msg = dhcproto::v4::Message::new(uns, uns, uns, uns, &[1, 2, 3, 4, 5, 6]);
-        msg.opts_mut().insert(v4::DhcpOption::MessageType(msg_type));
-        let buf = msg.to_vec().unwrap();
-        let meta = RecvMeta {
-            addr: recv_addr,
-            ..RecvMeta::default()
-        };
-        let resp = message_type::util::new_msg(&msg, siaddr, None, None);
-        let mut ctx: MsgContext<dhcproto::v4::Message> = MsgContext::new(
-            SerialMsg::new(buf.into(), recv_addr),
-            meta,
-            Arc::new(State::new(10)),
-        )?;
-        ctx.set_resp_msg(resp);
-        Ok(ctx)
     }
 }

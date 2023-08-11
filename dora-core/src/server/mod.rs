@@ -358,6 +358,7 @@ impl RunInner<v6::Message> {
                             ?dst_addr,
                             ?iname,
                             %resp,
+                            "message created"
                         );
                         metrics::DHCPV6_BYTES_SENT.inc_by(msg.bytes().len() as u64);
                         self.ctx.set_dst_addr(dst_addr);
