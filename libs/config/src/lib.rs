@@ -63,6 +63,13 @@ impl DhcpConfig {
 
         Ok(Self { v4: config })
     }
+    /// attempts to decode the config first as JSON, then YAML, finally erroring if neither work
+    pub fn parse_str<S: AsRef<str>>(s: S) -> Result<Self> {
+        let config = v4::Config::new(s.as_ref())?;
+        debug!(?config);
+
+        Ok(Self { v4: config })
+    }
 }
 
 /// find the first up non-loopback interface, if a name is provided it must also match

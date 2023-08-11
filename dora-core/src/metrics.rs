@@ -6,7 +6,10 @@
 use std::time::Instant;
 
 use lazy_static::lazy_static;
-use prometheus::{register_int_counter_vec, register_int_gauge, IntCounterVec, IntGauge};
+use prometheus::{
+    register_int_counter, register_int_counter_vec, register_int_gauge, HistogramOpts,
+    HistogramVec, IntCounter, IntCounterVec, IntGauge,
+};
 use prometheus_static_metric::make_static_metric;
 
 make_static_metric! {
@@ -54,6 +57,30 @@ make_static_metric! {
 lazy_static! {
     /// When the server started
     pub static ref START_TIME: Instant = Instant::now();
+
+    /// bytes sent DHCPv4
+    pub static ref DHCPV4_BYTES_SENT: IntCounter = register_int_counter!("dhcpv4_bytes_sent", "DHCPv4 bytes sent").unwrap();
+    /// bytes sent DHCPv6
+    pub static ref DHCPV6_BYTES_SENT: IntCounter = register_int_counter!("dhcpv6_bytes_sent", "DHCPv4 bytes sent").unwrap();
+
+    /// bytes recv DHCPv4
+    pub static ref DHCPV4_BYTES_RECV: IntCounter = register_int_counter!("dhcpv6_bytes_recv", "DHCPv6 bytes recv").unwrap();
+    /// bytes recv DHCPv6
+    pub static ref DHCPV6_BYTES_RECV: IntCounter = register_int_counter!("dhcpv6_bytes_recv", "DHCPv6 bytes recv").unwrap();
+
+    /// histogram of response times for DHCPv4 reply
+    pub static ref DHCPV4_REPLY_DURATION: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("dhpcv4_duration", "dhcpv4 duration (seconds)"),
+        &["type"]
+    )
+    .unwrap();
+
+    /// histogram of response times for DHCPv6 reply
+    pub static ref DHCPV6_REPLY_DURATION: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("dhcpv6_duration", "dhcpv6 duration (seconds)"),
+        &["type"]
+    )
+    .unwrap();
 
     pub static ref RECV_COUNT_VEC: IntCounterVec = register_int_counter_vec!(
         "recv_type_counts",
@@ -110,7 +137,41 @@ lazy_static! {
     /// # of total addrs available
     pub static ref TOTAL_AVAILABLE_ADDRS: IntGauge =
         register_int_gauge!("total_available_addrs", "count of addresses currently leased").unwrap();
-
     /// server uptime
     pub static ref UPTIME: IntGauge = register_int_gauge!("uptime", "server uptime (seconds)").unwrap();
+
+    // ICMP metrics
+
+    /// ping request count
+    pub static ref ICMPV4_REQUEST_COUNT: IntCounter = register_int_counter!("icmpv4_request_count", "count of ICMPv4 echo request").unwrap();
+    /// ping reply count
+    pub static ref ICMPV4_REPLY_COUNT: IntCounter = register_int_counter!("icmpv4_reply_count", "count of ICMPv4 echo reply").unwrap();
+
+
+    /// ping request count
+    pub static ref ICMPV6_REQUEST_COUNT: IntCounter = register_int_counter!("icmpv6_request_count", "count of ICMPv6 echo request").unwrap();
+    /// ping reply count
+    pub static ref ICMPV6_REPLY_COUNT: IntCounter = register_int_counter!("icmpv6_reply_count", "count of ICMPv6 echo reply").unwrap();
+
+
+    /// histogram of response times for ping reply
+    pub static ref ICMPV4_REPLY_DURATION: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("icmpv4_duration", "icmpv4 response time in seconds, only counts received pings"),
+        &["reply"]
+    )
+    .unwrap();
+
+  /// histogram of response times for ping reply v6
+    pub static ref ICMPV6_REPLY_DURATION: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("icmpv6_duration", "icmpv6 response time in seconds, only counts received pings"),
+        &["reply"]
+    )
+    .unwrap();
+
+    // client protection metrics
+
+    /// renew cached hit
+    pub static ref RENEW_CACHE_HIT: IntCounter = register_int_counter!("renew_cache_hit_count", "count of renew cache hits inside of renewal time").unwrap();
+    /// flood threshold reached
+    pub static ref FLOOD_THRESHOLD_COUNT: IntCounter = register_int_counter!("flood_threshold_count", "count of times flood threshold has been reached").unwrap();
 }

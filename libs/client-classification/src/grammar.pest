@@ -73,13 +73,13 @@ ifelse = { "ifelse(" ~ expr ~ "," ~ expr ~ "," ~ expr ~ ")" }
 expr = { prefix* ~ primary ~ postfix* ~ (operation ~ prefix* ~ primary ~ postfix* )* }
 
 prefix = _{ not }
-    not = { "not" } 
+    not = { "not" }
 
 postfix  =  _{ to_hex | to_text | exists | sub_opt }
-    to_hex    =   { ".hex" } 
-    to_text   =   { ".text" } 
-    exists    =   { ".exists" } 
-    sub_opt   =   { "." ~ option } 
+    to_hex    =   { ".hex" }
+    to_text   =   { ".text" }
+    exists    =   { ".exists" }
+    sub_opt   =   { "." ~ option }
 
 primary = _{ hex | ip | integer | string | boolean | option | relay | pkt | substring | concat | ifelse | hexstring | member | "(" ~ expr ~ ")" }
 predicate = _{ SOI ~ expr ~ EOI }
