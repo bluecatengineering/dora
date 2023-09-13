@@ -42,6 +42,7 @@ pub enum Expr {
     Concat(Box<Expr>, Box<Expr>),
     IfElse(Box<Expr>, Box<Expr>, Box<Expr>),
     Hexstring(Box<Expr>, String),
+    Split(Box<Expr>, Box<Expr>, usize),
     // prefix
     Not(Box<Expr>),
     // postfix
@@ -82,6 +83,8 @@ pub enum ParseErr {
     IfElse(String),
     #[error("'concat parse error with: {0}")]
     Concat(String),
+    #[error("'split parse error with: {0}")]
+    Split(String),
     #[error("expected option but found: {0}")]
     Option(Expr),
     #[error("bool parse error with: {0}")]
@@ -175,6 +178,23 @@ fn parse_expr(pairs: Pairs<Rule>, pratt: &PrattParser<Rule>) -> ParseResult<Expr
                     Expr::Concat(
                         Box::new(parse_expr(a.into_inner(), pratt)?),
                         Box::new(parse_expr(b.into_inner(), pratt)?),
+                    )
+                }
+                Rule::split => {
+                    let mut inner = primary.into_inner();
+                    let n = inner
+                        .next_back()
+                        .ok_or_else(|| ParseErr::Split(inner.to_string()))?;
+                    let del = inner
+                        .next_back()
+                        .ok_or_else(|| ParseErr::Split(inner.to_string()))?;
+                    let s = inner
+                        .next_back()
+                        .ok_or_else(|| ParseErr::Split(inner.to_string()))?;
+                    Expr::Split(
+                        Box::new(parse_expr(s.into_inner(), pratt)?),
+                        Box::new(parse_expr(del.into_inner(), pratt)?),
+                        n.as_str().parse()?,
                     )
                 }
                 Rule::hexstring => {
