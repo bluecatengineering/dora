@@ -429,6 +429,46 @@ mod tests {
     }
 
     #[test]
+    fn test_pkt_base() {
+        let args = Args {
+            chaddr: &hex::decode("010203040506").unwrap(),
+            opts: HashMap::new(),
+            msg: &v4::Message::default(),
+            member: HashSet::new(),
+            pkt: PacketDetails::default(),
+        };
+        assert_eq!(
+            eval(&ast::parse("pkt.iface == 'eth0'").unwrap(), &args).unwrap(),
+            Val::Bool(true)
+        );
+
+        assert_eq!(
+            eval(&ast::parse("pkt.src == 192.168.0.1").unwrap(), &args).unwrap(),
+            Val::Bool(true)
+        );
+
+        assert_eq!(
+            eval(&ast::parse("pkt.src != 192.168.1.2").unwrap(), &args).unwrap(),
+            Val::Bool(true)
+        );
+
+        assert_eq!(
+            eval(&ast::parse("pkt.src == 192.168.1.2").unwrap(), &args).unwrap(),
+            Val::Bool(false)
+        );
+
+        assert_eq!(
+            eval(&ast::parse("pkt.dst == 192.168.0.1").unwrap(), &args).unwrap(),
+            Val::Bool(true)
+        );
+
+        assert_eq!(
+            eval(&ast::parse("pkt.len == 513").unwrap(), &args).unwrap(),
+            Val::Bool(true)
+        );
+    }
+
+    #[test]
     fn test_substring_all() {
         let args = Args {
             chaddr: &hex::decode("010203040506").unwrap(),

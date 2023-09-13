@@ -596,7 +596,9 @@ fn test_vendor_class() -> Result<()> {
     let resp = client.run(MsgType::Discover(msg_args))?;
 
     assert_eq!(resp.opts().msg_type().unwrap(), v4::MessageType::Offer);
-    let v4::DhcpOption::VendorExtensions(vendor_ext) = resp.opts().get(v4::OptionCode::VendorExtensions).unwrap() else {
+    let v4::DhcpOption::VendorExtensions(vendor_ext) =
+        resp.opts().get(v4::OptionCode::VendorExtensions).unwrap()
+    else {
         bail!("vendor extensions not present");
     };
     // classes.yaml adds [1,2,3,4] as a Vec<u32>, translated into
@@ -635,7 +637,9 @@ fn test_vendor_class_builtin() -> Result<()> {
     let resp = client.run(MsgType::Discover(msg_args))?;
 
     assert_eq!(resp.opts().msg_type().unwrap(), v4::MessageType::Offer);
-    let v4::DhcpOption::VendorExtensions(vendor_ext) = resp.opts().get(v4::OptionCode::VendorExtensions).unwrap() else {
+    let v4::DhcpOption::VendorExtensions(vendor_ext) =
+        resp.opts().get(v4::OptionCode::VendorExtensions).unwrap()
+    else {
         bail!("vendor extensions not present");
     };
     // classes.yaml adds [1,2,3,4] as a Vec<u32>, translated into
@@ -798,7 +802,9 @@ fn test_cache_threshold() -> Result<()> {
     let now = Instant::now();
 
     let resp = client.run(MsgType::Request(msg_args))?;
-    let Some(v4::DhcpOption::AddressLeaseTime(lease_time_a)) = resp.opts().get(v4::OptionCode::AddressLeaseTime) else {
+    let Some(v4::DhcpOption::AddressLeaseTime(lease_time_a)) =
+        resp.opts().get(v4::OptionCode::AddressLeaseTime)
+    else {
         bail!("invalid option")
     };
     assert_eq!(resp.opts().msg_type().unwrap(), v4::MessageType::Ack);
@@ -811,7 +817,9 @@ fn test_cache_threshold() -> Result<()> {
         .opt_req_addr(resp.yiaddr())
         .build()?;
     let resp = client.run(MsgType::Request(msg_args))?;
-    let Some(v4::DhcpOption::AddressLeaseTime(lease_time_b)) = resp.opts().get(v4::OptionCode::AddressLeaseTime) else {
+    let Some(v4::DhcpOption::AddressLeaseTime(lease_time_b)) =
+        resp.opts().get(v4::OptionCode::AddressLeaseTime)
+    else {
         bail!("invalid option")
     };
     assert_eq!(resp.opts().msg_type().unwrap(), v4::MessageType::Ack);
