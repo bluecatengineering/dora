@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 
 use anyhow::{Context, Result};
-use client_classification::{ast, Args, Expr, Val};
+use client_classification::{ast, Args, Expr, PacketDetails, Val};
 use dora_core::dhcproto::{
     self,
     v4::{self, OptionCode, UnknownOption},
@@ -71,7 +71,12 @@ impl TryFrom<wire::client_classes::ClientClasses> for ClientClasses {
 
 impl ClientClasses {
     /// evaluate all client classes, returning a list of classes that match
-    pub fn eval(&self, req: &dhcproto::v4::Message, bootp_enabled: bool) -> Result<Vec<String>> {
+    pub fn eval(
+        &self,
+        req: &dhcproto::v4::Message,
+        pkt: PacketDetails,
+        bootp_enabled: bool,
+    ) -> Result<Vec<String>> {
         let (chaddr, opts) = to_unknown_opts(req)?;
         let vendor_builtin = client_classification::create_builtin_vendor(req);
         // if msg-type is not Discover/Offer/Request/Inform/etc then the msg is BOOTP
@@ -104,6 +109,7 @@ impl ClientClasses {
             },
             msg: req,
             opts,
+            pkt,
         };
         // eval all client classes in topological order
         for name in &self.topo_order {
@@ -283,7 +289,9 @@ mod tests {
         let uns = Ipv4Addr::UNSPECIFIED;
         let bootp = v4::Message::new(uns, uns, uns, uns, &[1, 2, 3, 4, 5, 6]);
         // msg is a bootp message because it has empty opts
-        let res = classes.eval(&bootp, true).unwrap();
+        let res = classes
+            .eval(&bootp, PacketDetails::default(), true)
+            .unwrap();
         assert_eq!(
             res.iter().collect::<HashSet<_>>(),
             ["foo".to_owned(), "BOOTP".to_owned(), "ALL".to_owned()]
@@ -298,7 +306,7 @@ mod tests {
         msg.opts_mut()
             .insert(v4::DhcpOption::ClassIdentifier(b"docsis3.0".to_vec()));
         // msg is a bootp message because it has empty opts
-        let res = classes.eval(&msg, true).unwrap();
+        let res = classes.eval(&msg, PacketDetails::default(), true).unwrap();
         assert_eq!(
             res.iter().collect::<HashSet<_>>(),
             [

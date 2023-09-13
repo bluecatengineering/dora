@@ -6,6 +6,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
+use client_classification::PacketDetails;
 use dora_core::{
     dhcproto::{
         self,
@@ -158,10 +159,14 @@ impl Config {
         self.cache_threshold
     }
     /// eval all client classes, return names of classes that evaluate to true
-    pub fn eval_client_classes(&self, req: &dhcproto::v4::Message) -> Option<Result<Vec<String>>> {
+    pub fn eval_client_classes(
+        &self,
+        req: &dhcproto::v4::Message,
+        pkt: PacketDetails,
+    ) -> Option<Result<Vec<String>>> {
         self.client_classes
             .as_ref()
-            .map(|classes| classes.eval(req, self.bootp_enabled()))
+            .map(|classes| classes.eval(req, pkt, self.bootp_enabled()))
     }
     pub fn classes(&self) -> Option<&ClientClasses> {
         self.client_classes.as_ref()
@@ -172,7 +177,7 @@ impl Config {
     pub fn server_id(&self, iface: u32, ip: Ipv4Addr) -> Option<Ipv4Addr> {
         self.network(ip)
             .and_then(|net| net.server_id)
-            .or_else(|| self.get_interface(iface).map(|i| i.ip()))
+            .or_else(|| self.find_network(iface).map(|i| i.ip()))
     }
 
     /// return the optional explicitly bound interfaces if there are any
@@ -183,7 +188,7 @@ impl Config {
     ///     - if the config has an interface, return that
     ///     - OR find iface_index and return that
     ///     - OR use default interface
-    pub fn get_interface(&self, iface_index: u32) -> Option<Ipv4Network> {
+    pub fn find_network(&self, iface_index: u32) -> Option<Ipv4Network> {
         self.find_interface(iface_index).and_then(|int| {
             int.ips.iter().find_map(|ip| match ip {
                 IpNetwork::V4(ip) => Some(*ip),
@@ -193,7 +198,7 @@ impl Config {
     }
 
     /// find the interface at the index `iface_index`
-    fn find_interface(&self, iface_index: u32) -> Option<&NetworkInterface> {
+    pub fn find_interface(&self, iface_index: u32) -> Option<&NetworkInterface> {
         self.interfaces.iter().find(|e| e.index == iface_index)
     }
 
@@ -732,7 +737,10 @@ mod tests {
             .insert(v4::DhcpOption::MessageType(v4::MessageType::Discover));
         // get matching classes
         // TODO: what should we do if there is an error processing client classes?
-        let matched = cfg.eval_client_classes(&msg).unwrap().ok();
+        let matched = cfg
+            .eval_client_classes(&msg, PacketDetails::default())
+            .unwrap()
+            .ok();
         assert_eq!(
             matched
                 .as_deref()
@@ -758,7 +766,10 @@ mod tests {
         msg.opts_mut()
             .insert(DhcpOption::Hostname("hostname".to_owned()));
 
-        let matched = cfg.eval_client_classes(&msg).unwrap().ok();
+        let matched = cfg
+            .eval_client_classes(&msg, PacketDetails::default())
+            .unwrap()
+            .ok();
         // if a_class matches, other classes using `member` will eval to true also
         assert_eq!(
             matched

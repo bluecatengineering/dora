@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    net::Ipv4Addr,
     ops::{Range, RangeFrom, RangeTo},
     str,
 };
@@ -154,18 +155,39 @@ pub struct Args<'a> {
     pub msg: &'a v4::Message,
     /// all classes that eval'd to true for this packet
     pub member: HashSet<String>,
+    // details about pkt
+    pub pkt: PacketDetails<'a>,
+}
+
+pub struct PacketDetails<'a> {
+    pub iface: &'a str,
+    pub src: Ipv4Addr,
+    pub dst: Ipv4Addr,
+    pub len: usize,
+}
+
+// useful for testing
+impl<'a> Default for PacketDetails<'a> {
+    fn default() -> Self {
+        Self {
+            iface: "eth0",
+            src: Ipv4Addr::new(192, 168, 0, 1),
+            dst: Ipv4Addr::new(192, 168, 0, 1),
+            len: 513,
+        }
+    }
 }
 
 /// evaluate the AST, using values from this DHCP message
 pub fn eval(expr: &Expr, args: &Args) -> Result<Val, EvalErr> {
     // TODO: should this fn impl Expr and take &self?
-    use Expr::*;
+    use Expr as E;
     Ok(match expr {
-        Bool(b) => Val::Bool(*b),
-        String(s) => Val::String(s.clone()),
-        Int(i) => Val::Int(*i),
-        Hex(h) => Val::Bytes(h.to_vec()),
-        Relay(o) => match args
+        E::Bool(b) => Val::Bool(*b),
+        E::String(s) => Val::String(s.clone()),
+        E::Int(i) => Val::Int(*i),
+        E::Hex(h) => Val::Bytes(h.to_vec()),
+        E::Relay(o) => match args
             .opts
             .get(&v4::OptionCode::RelayAgentInformation)
             .and_then(|info| parse_sub_opts(info.data(), *o).transpose())
@@ -173,41 +195,46 @@ pub fn eval(expr: &Expr, args: &Args) -> Result<Val, EvalErr> {
             Some(v) => Val::Bytes(v?),
             None => Val::Empty,
         },
-        Option(o) => match args.opts.get(&(*o).into()) {
+        E::Option(o) => match args.opts.get(&(*o).into()) {
             Some(v) => Val::Bytes(v.data().to_owned()),
             None => Val::Empty,
         },
+        // pkt_base
+        E::Iface => Val::String(args.pkt.iface.to_owned()),
+        E::Dst => Val::Int(u32::from(args.pkt.dst)),
+        E::Src => Val::Int(u32::from(args.pkt.src)),
+        E::Len => Val::Int(args.pkt.len as u32),
         // TODO: can probably use msg.chaddr() instead of an explicit param here
-        Mac() => Val::Bytes(args.chaddr.to_vec()),
-        Hlen() => Val::Int(args.msg.hlen() as u32),
-        HType() => Val::Int(u8::from(args.msg.htype()) as u32),
-        CiAddr() => Val::Int(u32::from(args.msg.ciaddr())),
-        GiAddr() => Val::Int(u32::from(args.msg.giaddr())),
-        YiAddr() => Val::Int(u32::from(args.msg.yiaddr())),
-        SiAddr() => Val::Int(u32::from(args.msg.siaddr())),
-        MsgType() => match args.msg.opts().msg_type() {
+        E::Mac => Val::Bytes(args.chaddr.to_vec()),
+        E::Hlen => Val::Int(args.msg.hlen() as u32),
+        E::HType => Val::Int(u8::from(args.msg.htype()) as u32),
+        E::CiAddr => Val::Int(u32::from(args.msg.ciaddr())),
+        E::GiAddr => Val::Int(u32::from(args.msg.giaddr())),
+        E::YiAddr => Val::Int(u32::from(args.msg.yiaddr())),
+        E::SiAddr => Val::Int(u32::from(args.msg.siaddr())),
+        E::MsgType => match args.msg.opts().msg_type() {
             Some(ty) => Val::Int(u8::from(ty) as u32),
             None => Val::Empty,
         },
-        TransId() => Val::Int(args.msg.xid()),
-        Ip(ip) => Val::Int(u32::from_be_bytes(ip.octets())),
+        E::TransId => Val::Int(args.msg.xid()),
+        E::Ip(ip) => Val::Int(u32::from_be_bytes(ip.octets())),
         // prefix
-        Not(rhs) => Val::Bool(!is_bool(eval(rhs, args)?)?),
+        E::Not(rhs) => Val::Bool(!is_bool(eval(rhs, args)?)?),
         // postfix
-        Exists(lhs) => Val::Bool(is_empty(eval(lhs, args)?).is_err()),
-        ToHex(lhs) => match eval(lhs, args)? {
+        E::Exists(lhs) => Val::Bool(is_empty(eval(lhs, args)?).is_err()),
+        E::ToHex(lhs) => match eval(lhs, args)? {
             Val::String(s) => Val::Bytes(s.as_bytes().to_vec()),
             Val::Bytes(b) => Val::Bytes(b),
             Val::Int(i) => Val::Bytes(i.to_be_bytes().to_vec()),
             err => return Err(EvalErr::ExpectedBytes(err)),
         },
-        ToText(lhs) => match eval(lhs, args)? {
+        E::ToText(lhs) => match eval(lhs, args)? {
             Val::String(s) => Val::String(s),
             Val::Bytes(b) => Val::String(std::str::from_utf8(&b)?.to_owned()),
             Val::Int(i) => Val::String(i.to_string()),
             err => return Err(EvalErr::ExpectedString(err)),
         },
-        SubOpt(lhs, o) => {
+        E::SubOpt(lhs, o) => {
             let bytes = match eval(lhs, args)? {
                 Val::String(s) => s.as_bytes().to_vec(),
                 Val::Bytes(b) => b,
@@ -219,16 +246,16 @@ pub fn eval(expr: &Expr, args: &Args) -> Result<Val, EvalErr> {
             }
         }
         // infix
-        And(lhs, rhs) => Val::Bool(is_bool(eval(lhs, args)?)? && is_bool(eval(rhs, args)?)?),
-        Or(lhs, rhs) => Val::Bool(is_bool(eval(lhs, args)?)? || is_bool(eval(rhs, args)?)?),
-        Equal(lhs, rhs) => Val::Bool(eval_bool(lhs, rhs, args)?),
-        NEqual(lhs, rhs) => Val::Bool(!eval_bool(lhs, rhs, args)?),
-        Substring(lhs, start, len) => match eval(lhs, args)? {
+        E::And(lhs, rhs) => Val::Bool(is_bool(eval(lhs, args)?)? && is_bool(eval(rhs, args)?)?),
+        E::Or(lhs, rhs) => Val::Bool(is_bool(eval(lhs, args)?)? || is_bool(eval(rhs, args)?)?),
+        E::Equal(lhs, rhs) => Val::Bool(eval_bool(lhs, rhs, args)?),
+        E::NEqual(lhs, rhs) => Val::Bool(!eval_bool(lhs, rhs, args)?),
+        E::Substring(lhs, start, len) => match eval(lhs, args)? {
             Val::Bytes(b) => Val::Bytes(slice(b, *start, *len)),
             Val::String(s) => Val::String(substring(&s, *start, *len)),
             err => return Err(EvalErr::ExpectedString(err)),
         },
-        Concat(lhs, rhs) => match (eval(lhs, args)?, eval(rhs, args)?) {
+        E::Concat(lhs, rhs) => match (eval(lhs, args)?, eval(rhs, args)?) {
             (Val::String(mut a), Val::String(b)) => {
                 a.push_str(&b);
                 Val::String(a)
@@ -247,14 +274,14 @@ pub fn eval(expr: &Expr, args: &Args) -> Result<Val, EvalErr> {
             }
             (a, _b) => return Err(EvalErr::ExpectedString(a)),
         },
-        IfElse(expr, a, b) => {
+        E::IfElse(expr, a, b) => {
             if is_bool(eval(expr, args)?)? {
                 eval(a, args)?
             } else {
                 eval(b, args)?
             }
         }
-        Hexstring(expr, sep) => Val::String(
+        E::Hexstring(expr, sep) => Val::String(
             hex::encode(is_bytes(eval(expr, args)?)?)
                 .as_bytes()
                 .chunks_exact(2)
@@ -262,7 +289,7 @@ pub fn eval(expr: &Expr, args: &Args) -> Result<Val, EvalErr> {
                 .collect::<Result<Vec<_>, _>>()?
                 .join(sep),
         ),
-        Member(s) => Val::Bool(args.member.contains(s)),
+        E::Member(s) => Val::Bool(args.member.contains(s)),
     })
 }
 
@@ -368,6 +395,7 @@ mod tests {
             opts: HashMap::new(),
             msg: &v4::Message::default(),
             member: HashSet::new(),
+            pkt: PacketDetails::default(),
         };
 
         let val = eval(&dbg!(build_ast(tokens).unwrap()), &args).unwrap();
@@ -381,6 +409,7 @@ mod tests {
             opts: HashMap::new(),
             msg: &v4::Message::default(),
             member: HashSet::new(),
+            pkt: PacketDetails::default(),
         };
         let val = eval(&build_ast(tokens).unwrap(), &args).unwrap();
         assert_eq!(val, Val::Bool(true));
@@ -392,6 +421,7 @@ mod tests {
             opts: HashMap::new(),
             msg: &v4::Message::default(),
             member: HashSet::new(),
+            pkt: PacketDetails::default(),
         };
         let expr = ast::parse("pkt4.mac == 0x010203040506").unwrap();
         let val = eval(&expr, &args).unwrap();
@@ -405,6 +435,7 @@ mod tests {
             opts: HashMap::new(),
             msg: &v4::Message::default(),
             member: HashSet::new(),
+            pkt: PacketDetails::default(),
         };
         let expr = ast::parse("substring('foobar', 0, all) == 'foobar'").unwrap();
         let val = eval(&expr, &args).unwrap();
@@ -443,6 +474,7 @@ mod tests {
             opts: opts.clone(),
             msg: &v4::Message::default(),
             member: HashSet::new(),
+            pkt: PacketDetails::default(),
         };
         let val = eval(&tokens, &args).unwrap();
         assert_eq!(val, Val::Bool(true));
@@ -457,6 +489,7 @@ mod tests {
             opts,
             msg: &v4::Message::default(),
             member: HashSet::new(),
+            pkt: PacketDetails::default(),
         };
         let val = eval(&tokens, &args).unwrap();
         assert_eq!(val, Val::Bool(true));
@@ -476,6 +509,7 @@ mod tests {
             opts,
             msg: &v4::Message::default(),
             member: HashSet::new(),
+            pkt: PacketDetails::default(),
         };
         assert_eq!(eval(&tokens, &args).unwrap(), Val::Bool(true));
     }
@@ -497,6 +531,7 @@ mod tests {
             opts,
             msg: &v4::Message::default(),
             member: HashSet::new(),
+            pkt: PacketDetails::default(),
         };
         let val = eval(&tokens, &args).unwrap();
         assert_eq!(val, Val::Bool(true));
@@ -525,6 +560,7 @@ mod tests {
             opts,
             msg: &v4::Message::default(),
             member: HashSet::new(),
+            pkt: PacketDetails::default(),
         };
 
         let expr = ast::parse("relay4[12].exists").unwrap();
@@ -560,6 +596,7 @@ mod tests {
             opts,
             msg: &v4::Message::default(),
             member: HashSet::new(),
+            pkt: PacketDetails::default(),
         };
         // test that we can address sub options through the sub-opt postfix
         let expr = ast::parse("option[82].option[12] == 'foo'").unwrap();
@@ -640,6 +677,7 @@ mod tests {
             opts: options,
             msg: &msg,
             member: HashSet::new(),
+            pkt: PacketDetails::default(),
         };
 
         let expr = ast::parse("pkt4.hlen == 6").unwrap();
@@ -704,6 +742,7 @@ mod tests {
                 .into_iter()
                 .map(|s| s.to_owned())
                 .collect(),
+            pkt: PacketDetails::default(),
         };
         let val = eval(&expr, &args).unwrap();
         assert_eq!(val, Val::Bool(true));
@@ -717,6 +756,7 @@ mod tests {
                 .into_iter()
                 .map(|s| s.to_owned())
                 .collect(),
+            pkt: PacketDetails::default(),
         };
         let val = eval(&expr, &args).unwrap();
         assert_eq!(val, Val::Bool(true));
@@ -730,6 +770,7 @@ mod tests {
                 .into_iter()
                 .map(|s| s.to_owned())
                 .collect(),
+            pkt: PacketDetails::default(),
         };
         let val = eval(&expr, &args).unwrap();
         assert_eq!(val, Val::Bool(false));
@@ -757,6 +798,7 @@ mod tests {
             opts: HashMap::new(),
             msg: &v4::Message::default(),
             member: HashSet::new(),
+            pkt: PacketDetails::default(),
         };
 
         let expr = ast::parse("concat('foo', 'bar')").unwrap();
@@ -771,6 +813,7 @@ mod tests {
             opts: HashMap::new(),
             msg: &v4::Message::default(),
             member: HashSet::new(),
+            pkt: PacketDetails::default(),
         };
 
         let expr = ast::parse("ifelse(true, 'foo', 'bar')").unwrap();
@@ -797,6 +840,7 @@ mod tests {
             opts: HashMap::new(),
             msg: &v4::Message::default(),
             member: HashSet::new(),
+            pkt: PacketDetails::default(),
         };
 
         let expr = ast::parse("hexstring(0x1234,':')").unwrap();
@@ -849,6 +893,7 @@ mod tests {
             opts: HashMap::new(),
             msg: &v4::Message::default(),
             member: HashSet::new(),
+            pkt: PacketDetails::default(),
         };
         let expr = ast::parse("hexsting(0x1234,':')"); // should fail
         assert!(expr.is_err());
