@@ -313,6 +313,8 @@ pub mod util {
             addr: recv_addr,
             len: buf.len(),
             ifindex: 1,
+            // recv addr copied here
+            dst_ip: Some(recv_addr.ip()),
             ..RecvMeta::default()
         };
         let resp = crate::util::new_msg(&msg, siaddr, None, None);
