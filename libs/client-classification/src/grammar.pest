@@ -25,20 +25,6 @@ option = { "option[" ~ integer ~ "]" }
 relay = { "relay4[" ~ integer ~ "]" }
 member = { "member(" ~ string ~ ")" }
 
-// builtin = _{
-//     builtin_bootp
-//     | builtin_known
-//     | builtin_unknown
-//     | builtin_all
-//     | builtin_drop
-//     | builtin_vendor
-// }
-//     builtin_bootp = @{ "BOOTP" }
-//     builtin_known = @{ "KNOWN" }
-//     builtin_unknown = @{ "UNKNOWN" }
-//     builtin_all = @{ "ALL" }
-//     builtin_vendor = @{ "VENDOR_CLASS_" ~ ANY }
-
 pkt = _{
     pkt_mac
     | pkt_hlen
@@ -77,6 +63,7 @@ end = _{
 
 
 substring = { "substring(" ~ expr ~ "," ~ signed_int ~ "," ~ end ~ ")" }
+split = { "split(" ~ expr ~ "," ~ expr ~ "," ~ integer ~ ")" }
 concat = { "concat(" ~ expr ~ "," ~ expr ~ ")" }
 hexstring = { "hexstring(" ~ expr ~ "," ~ string ~ ")" }
 ifelse = { "ifelse(" ~ expr ~ "," ~ expr ~ "," ~ expr ~ ")" }
@@ -92,7 +79,24 @@ postfix  =  _{ to_hex | to_text | exists | sub_opt }
     exists    =   { ".exists" }
     sub_opt   =   { "." ~ option }
 
-primary = _{ hex | ip | integer | string | boolean | option | relay | pkt | pkt_base | substring | concat | ifelse | hexstring | member | "(" ~ expr ~ ")" }
+primary = _{ hex
+    | ip
+    | integer
+    | string
+    | boolean
+    | option
+    | relay
+    | pkt
+    | pkt_base
+    | substring
+    | concat
+    | split
+    | ifelse
+    | hexstring
+    | member
+    | "(" ~ expr ~ ")"
+}
+
 predicate = _{ SOI ~ expr ~ EOI }
 
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }

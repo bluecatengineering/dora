@@ -274,6 +274,12 @@ pub fn eval(expr: &Expr, args: &Args) -> Result<Val, EvalErr> {
             }
             (a, _b) => return Err(EvalErr::ExpectedString(a)),
         },
+        E::Split(lhs, del, n) => match (eval(lhs, args)?, eval(del, args)?) {
+            (Val::String(a), Val::String(del)) => split(a, &del, *n),
+            (Val::String(a), Val::Bytes(b)) => split(a, str::from_utf8(&b)?, *n),
+            // TODO: split() handling bytes?
+            (a, _b) => return Err(EvalErr::ExpectedString(a)),
+        },
         E::IfElse(expr, a, b) => {
             if is_bool(eval(expr, args)?)? {
                 eval(a, args)?
@@ -291,6 +297,16 @@ pub fn eval(expr: &Expr, args: &Args) -> Result<Val, EvalErr> {
         ),
         E::Member(s) => Val::Bool(args.member.contains(s)),
     })
+}
+
+// expects `n` to start at 1
+fn split(a: String, del: &str, n: usize) -> Val {
+    Val::String(
+        a.split(del)
+            .nth(n - 1)
+            .map(ToString::to_string)
+            .unwrap_or(String::new()),
+    )
 }
 
 fn substring(s: &str, start: isize, j: Option<isize>) -> String {
@@ -829,6 +845,75 @@ mod tests {
         assert_eq!(substring("foobar", 10, Some(2)), "");
         assert_eq!(substring("foobar", -1, None), "fooba");
         assert_eq!(substring("foobar", 0, Some(10)), "foobar");
+    }
+
+    #[test]
+    fn test_split() {
+        // from kea docs:
+        // split ('one.two..four', '.', 1) == 'one'
+        // split ('one.two..four', '.', 2) == 'two'
+        // split ('one.two..four', '.', 3) == ''
+        // split ('one.two..four', '.', 4) == 'four'
+        // split ('one.two..four', '.', 5) == ''
+        //
+        assert_eq!(
+            split("one.two..four".to_string(), ".", 1),
+            Val::String("one".to_string())
+        );
+        assert_eq!(
+            split("one.two..four".to_string(), ".", 2),
+            Val::String("two".to_string())
+        );
+        assert_eq!(
+            split("one.two..four".to_string(), ".", 3),
+            Val::String("".to_string())
+        );
+        assert_eq!(
+            split("one.two..four".to_string(), ".", 4),
+            Val::String("four".to_string())
+        );
+        assert_eq!(
+            split("one.two..four".to_string(), ".", 5),
+            Val::String("".to_string())
+        );
+    }
+
+    #[test]
+    fn test_split_expr() {
+        let args = Args {
+            chaddr: &hex::decode("DEADBEEF").unwrap(),
+            opts: HashMap::new(),
+            msg: &v4::Message::default(),
+            member: HashSet::new(),
+            pkt: PacketDetails::default(),
+        };
+
+        assert_eq!(
+            eval(
+                &ast::parse("split('one.two..four', '.', 1) == 'one'").unwrap(),
+                &args,
+            )
+            .unwrap(),
+            Val::Bool(true)
+        );
+
+        assert_eq!(
+            eval(
+                &ast::parse("split('one.two..four', '.', 2) == 'two'").unwrap(),
+                &args,
+            )
+            .unwrap(),
+            Val::Bool(true)
+        );
+
+        assert_eq!(
+            eval(
+                &ast::parse("split('one.two..four', '.', 3) == ''").unwrap(),
+                &args,
+            )
+            .unwrap(),
+            Val::Bool(true)
+        );
     }
 
     #[test]
