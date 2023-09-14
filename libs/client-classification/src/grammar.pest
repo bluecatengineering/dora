@@ -39,7 +39,7 @@ member = { "member(" ~ string ~ ")" }
 //     builtin_all = @{ "ALL" }
 //     builtin_vendor = @{ "VENDOR_CLASS_" ~ ANY }
 
-pkt = _{ 
+pkt = _{
     pkt_mac
     | pkt_hlen
     | pkt_htype
@@ -59,6 +59,17 @@ pkt = _{
     pkt_siaddr = @{ "pkt4.siaddr" }
     pkt_msgtype = @{ "pkt4.msgtype" }
     pkt_transid = @{ "pkt4.transid" }
+
+pkt_base = _{
+    pkt_base_iface
+    | pkt_base_src
+    | pkt_base_dst
+    | pkt_base_len
+}
+    pkt_base_iface = @{ "pkt.iface" }
+    pkt_base_src = @{ "pkt.src" }
+    pkt_base_dst = @{ "pkt.dst" }
+    pkt_base_len = @{ "pkt.len" }
 
 end = _{
     signed_int | all
@@ -81,7 +92,7 @@ postfix  =  _{ to_hex | to_text | exists | sub_opt }
     exists    =   { ".exists" }
     sub_opt   =   { "." ~ option }
 
-primary = _{ hex | ip | integer | string | boolean | option | relay | pkt | substring | concat | ifelse | hexstring | member | "(" ~ expr ~ ")" }
+primary = _{ hex | ip | integer | string | boolean | option | relay | pkt | pkt_base | substring | concat | ifelse | hexstring | member | "(" ~ expr ~ ")" }
 predicate = _{ SOI ~ expr ~ EOI }
 
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }

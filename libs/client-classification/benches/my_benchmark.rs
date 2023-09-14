@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use client_classification::{ast, Args};
+use client_classification::{ast, Args, PacketDetails};
 use criterion::{criterion_group, criterion_main, Criterion};
 use dhcproto::v4::{self, UnknownOption};
 use pest::Parser;
@@ -30,6 +30,7 @@ fn criterion_benchmark(c: &mut Criterion) {
                     opts,
                     msg: &v4::Message::default(),
                     member: HashSet::new(),
+                    pkt: PacketDetails::default(),
                 };
                 client_classification::eval(
                     &client_classification::ast::build_ast(tokens).unwrap(),
@@ -62,6 +63,7 @@ fn criterion_benchmark(c: &mut Criterion) {
                     opts,
                     msg: &v4::Message::default(),
                     member: HashSet::new(),
+                    pkt: PacketDetails::default(),
                 };
                 client_classification::eval(&ast, &args).unwrap()
             })

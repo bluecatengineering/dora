@@ -65,7 +65,7 @@ impl Plugin<Message> for MsgType {
         let interface = self
             .cfg
             .v4()
-            .get_interface(meta.ifindex)
+            .find_network(meta.ifindex)
             .context("interface message was received on does not exist?")?;
         ctx.set_interface(interface);
 
@@ -117,7 +117,7 @@ impl Plugin<Message> for MsgType {
         resp.opts_mut()
             .insert(DhcpOption::ServerIdentifier(server_id));
         // evaluate client classes
-        let matched = util::client_classes(self.cfg.v4(), req);
+        let matched = util::client_classes(self.cfg.v4(), ctx)?;
         let addr = {
             let ciaddr = ctx.msg().ciaddr();
             if !ciaddr.is_unspecified() {
@@ -207,7 +207,7 @@ impl Plugin<Message> for MsgType {
 }
 
 pub mod util {
-    use config::v4::Config;
+    use config::{client_classes::client_classification::PacketDetails, v4::Config};
 
     use super::*;
 
@@ -238,9 +238,38 @@ pub mod util {
         msg
     }
 
-    pub fn client_classes(cfg: &Config, req: &Message) -> Option<Vec<String>> {
+    pub fn packet_details(cfg: &Config, meta: RecvMeta) -> Result<PacketDetails<'_>> {
+        Ok(PacketDetails {
+            iface: cfg
+                .find_interface(meta.ifindex)
+                .context("could not find interface")?
+                .name
+                .as_str(),
+            src: match meta.addr.ip() {
+                IpAddr::V4(ip) => ip,
+                IpAddr::V6(_ip) => {
+                    // this error shouldn't happen but we'll cover it anyway
+                    return Err(anyhow::anyhow!(
+                        "addr recvd an ipv6 address for ipv4 message"
+                    ));
+                }
+            },
+            dst: match meta.dst_ip.context("no destination ip on recvd message")? {
+                IpAddr::V4(ip) => ip,
+                IpAddr::V6(_ip) => {
+                    return Err(anyhow::anyhow!(
+                        "dst_ip recvd an ipv6 address for ipv4 message"
+                    ))
+                }
+            },
+            len: meta.len,
+        })
+    }
+
+    pub fn client_classes(cfg: &Config, ctx: &MsgContext<Message>) -> Result<Option<Vec<String>>> {
         // TODO: what should we do if there is an error processing client classes?
-        cfg.eval_client_classes(req)
+        Ok(cfg
+            .eval_client_classes(ctx.msg(), util::packet_details(cfg, ctx.meta())?)
             .and_then(|classes| match classes {
                 Ok(classes) => {
                     debug!(matched_classes = ?classes, "matched classes");
@@ -250,10 +279,10 @@ pub mod util {
                     error!(?err, "error processing client classes");
                     None
                 }
-            })
+            }))
     }
 
-    use std::net::{Ipv4Addr, SocketAddr};
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
     use anyhow::Result;
     use dhcproto::{v4, Encodable};
@@ -284,6 +313,8 @@ pub mod util {
             addr: recv_addr,
             len: buf.len(),
             ifindex: 1,
+            // recv addr copied here
+            dst_ip: Some(recv_addr.ip()),
             ..RecvMeta::default()
         };
         let resp = crate::util::new_msg(&msg, siaddr, None, None);
