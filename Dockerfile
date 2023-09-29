@@ -1,21 +1,29 @@
 FROM rust:1.72.0 as builder
-
+# set workdir
 WORKDIR /usr/src/dora
 COPY . .
+# setup sqlx-cli
+RUN cargo install sqlx-cli
+RUN sqlx database create
+RUN sqlx migrate run
+# release build
+ARG BUILD_MODE=release
+RUN cargo build --${BUILD_MODE} --bin dora
 
-RUN cargo build --release --bin dora
-
+# run
 FROM ubuntu:latest
 RUN apt-get -qq update; \
     apt-get -qq --no-install-recommends install \
+    dumb-init \
+    isc-dhcp-server \
     ca-certificates \
     wget \
     sudo;
-COPY --from=builder /usr/src/dora/target/release/dora /usr/local/bin/dora
 
-RUN mkdir -p /var/dora/lib/
+ARG BUILD_MODE=release
+COPY --from=builder /usr/src/dora/target/${BUILD_MODE}/dora /usr/local/bin/dora
 
-ARG DORA_CONFIG=config.yaml
-COPY ${DORA_CONFIG} /var/dora/lib/config.yaml
+RUN mkdir -p /var/lib/dora/
 
-CMD ["dora"]
+COPY util/entrypoint.sh /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
