@@ -16,6 +16,8 @@ If started on non-default dhcp port, it is assumed this is for testing, and dora
 
 ## Build/Run
 
+[To build and run dora in docker see docs/docker.md](./docs/docker.md)
+
 You will need `sqlx-cli` to build, as sql queries written in Rust are checked against the database at compile time. [Install sqlx-cli](https://crates.io/crates/sqlx-cli)
 
 From workspace root run:
