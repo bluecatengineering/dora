@@ -440,14 +440,14 @@ fn test_requested_opts() -> Result<()> {
     // create DISCOVER msg & send
     let msg_args = DiscoverBuilder::default()
         .giaddr([192, 168, 2, 1])
-        .req_list([v4::OptionCode::NISDomain])
+        .req_list([v4::OptionCode::NisDomain])
         .build()?;
     let resp = client.run(MsgType::Discover(msg_args))?;
 
     assert_eq!(resp.opts().msg_type().unwrap(), v4::MessageType::Offer);
     assert_eq!(
-        resp.opts().get(v4::OptionCode::NISDomain).unwrap(),
-        &v4::DhcpOption::NISDomain("testdomain.com".to_string())
+        resp.opts().get(v4::OptionCode::NisDomain).unwrap(),
+        &v4::DhcpOption::NisDomain("testdomain.com".to_string())
     );
     Ok(())
 }

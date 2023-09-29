@@ -18,21 +18,22 @@ anyhow = { version = "1.0", features = ["backtrace"] }
 async-trait = "0.1"
 bytes = "1.1"
 clap = { version = "4.1.8", features = ["derive", "env"] }
-dhcproto = "0.9.0"
+dhcproto = "0.10.0"
 futures = { version = "0.3", default-features = false, features = ["std"] }
 ipnet = { features = ["serde"], version = "2.4.0" }
 pnet = { features = ["serde", "std"], version = "0.33.0" }
 prometheus = "0.13.0"
 prometheus-static-metric = "0.5"
-tokio = { version = "1.26.0", features = [ "full" ] }
+tokio = { version = "1.26.0", features = ["full"] }
 tracing = "0.1.22"
 tracing-futures = "0.2"
 tracing-subscriber = { features = ["env-filter", "json"], version = "0.3" }
 trust-dns-proto = { version = "0.22.0", default-features = false }
 thiserror = "1.0"
 rand = "0.8"
-socket2 = { version = "0.4.9", features = ["all"] } # TODO: update when tokio sockets impl AsFd, then update unix-udp-sock
+socket2 = { version = "0.4.9", features = [
+    "all",
+] } # TODO: update when tokio sockets impl AsFd, then update unix-udp-sock
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.8"
-

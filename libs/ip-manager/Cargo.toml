@@ -14,11 +14,18 @@ client-protection = { path = "../client-protection" }
 async-trait = { workspace = true }
 ipnet = { workspace = true }
 thiserror = { workspace = true }
-tracing = { workspace = true, features = ["log"] } # TODO: do we need the log feature?
+tracing = { workspace = true, features = [
+    "log",
+] } # TODO: do we need the log feature?
 chrono = "0.4.19"
 moka = { version = "0.10.0", features = ["future"] }
 # TODO: hopefully the rustls feature can go away, the lib requires it
-sqlx = { version = "0.5.13", features = ["sqlite", "runtime-tokio-rustls", "chrono", "offline"] }
+sqlx = { version = "0.5.13", features = [
+    "sqlite",
+    "runtime-tokio-rustls",
+    "chrono",
+    "offline",
+] }
 
 [dev-dependencies]
 tokio-test = "0.4.1"

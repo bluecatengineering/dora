@@ -412,59 +412,66 @@ impl Serialize for Opts {
 }
 
 fn to_opt(code: &OptionCode, opt: &DhcpOption) -> Option<(u8, Opt)> {
-    use dora_core::dhcproto::v4::DhcpOption::*;
+    use dora_core::dhcproto::v4::DhcpOption as O;
     match opt {
-        Pad | End => None,
-        SubnetMask(addr)
-        | SwapServer(addr)
-        | BroadcastAddr(addr)
-        | RouterSolicitationAddr(addr)
-        | RequestedIpAddress(addr)
-        | ServerIdentifier(addr)
-        | SubnetSelection(addr) => Some(((*code).into(), Opt::Ip(MaybeList::Val(*addr)))),
-        TimeServer(ips)
-        | NameServer(ips)
-        | Router(ips)
-        | DomainNameServer(ips)
-        | LogServer(ips)
-        | QuoteServer(ips)
-        | LprServer(ips)
-        | ImpressServer(ips)
-        | ResourceLocationServer(ips)
-        | XFontServer(ips)
-        | XDisplayManager(ips)
-        | NIS(ips)
-        | NTPServers(ips)
-        | NetBiosNameServers(ips)
-        | NetBiosDatagramDistributionServer(ips) => {
+        O::Pad | O::End => None,
+        O::SubnetMask(addr)
+        | O::SwapServer(addr)
+        | O::BroadcastAddr(addr)
+        | O::RouterSolicitationAddr(addr)
+        | O::RequestedIpAddress(addr)
+        | O::ServerIdentifier(addr)
+        | O::SubnetSelection(addr) => Some(((*code).into(), Opt::Ip(MaybeList::Val(*addr)))),
+        O::TimeServer(ips)
+        | O::NameServer(ips)
+        | O::Router(ips)
+        | O::DomainNameServer(ips)
+        | O::LogServer(ips)
+        | O::QuoteServer(ips)
+        | O::LprServer(ips)
+        | O::ImpressServer(ips)
+        | O::ResourceLocationServer(ips)
+        | O::XFontServer(ips)
+        | O::XDisplayManager(ips)
+        | O::NisServers(ips)
+        | O::NtpServers(ips)
+        | O::NetBiosNameServers(ips)
+        | O::NetBiosDatagramDistributionServer(ips) => {
             Some(((*code).into(), Opt::Ip(MaybeList::List(ips.clone()))))
         }
-        TimeOffset(num) => Some(((*code).into(), Opt::I32(MaybeList::Val(*num)))),
-        DefaultTcpTtl(num) | DefaultIpTtl(num) | OptionOverload(num) => {
+        O::TimeOffset(num) => Some(((*code).into(), Opt::I32(MaybeList::Val(*num)))),
+        O::DefaultTcpTtl(num) | O::DefaultIpTtl(num) | O::OptionOverload(num) => {
             Some(((*code).into(), Opt::U8(MaybeList::Val(*num))))
         }
-        NetBiosNodeType(ntype) => Some(((*code).into(), Opt::U8(MaybeList::Val((*ntype).into())))),
-        IpForwarding(b)
-        | NonLocalSrcRouting(b)
-        | AllSubnetsLocal(b)
-        | PerformMaskDiscovery(b)
-        | MaskSupplier(b)
-        | PerformRouterDiscovery(b)
-        | EthernetEncapsulation(b)
-        | TcpKeepaliveGarbage(b) => Some(((*code).into(), Opt::Bool(MaybeList::Val(*b)))),
-        ArpCacheTimeout(num)
-        | TcpKeepaliveInterval(num)
-        | AddressLeaseTime(num)
-        | Renewal(num)
-        | Rebinding(num) => Some(((*code).into(), Opt::U32(MaybeList::Val(*num)))),
-        Hostname(s) | MeritDumpFile(s) | DomainName(s) | ExtensionsPath(s) | NISDomain(s)
-        | RootPath(s) | NetBiosScope(s) | Message(s) => {
-            Some(((*code).into(), Opt::Str(MaybeList::Val(s.clone()))))
+        O::NetBiosNodeType(ntype) => {
+            Some(((*code).into(), Opt::U8(MaybeList::Val((*ntype).into()))))
         }
-        BootFileSize(num) | MaxDatagramSize(num) | InterfaceMtu(num) | MaxMessageSize(num) => {
-            Some(((*code).into(), Opt::U16(MaybeList::Val(*num))))
-        }
-        Unknown(opt) => Some(((*code).into(), Opt::Hex(hex::encode(opt.data())))),
+        O::IpForwarding(b)
+        | O::NonLocalSrcRouting(b)
+        | O::AllSubnetsLocal(b)
+        | O::PerformMaskDiscovery(b)
+        | O::MaskSupplier(b)
+        | O::PerformRouterDiscovery(b)
+        | O::EthernetEncapsulation(b)
+        | O::TcpKeepaliveGarbage(b) => Some(((*code).into(), Opt::Bool(MaybeList::Val(*b)))),
+        O::ArpCacheTimeout(num)
+        | O::TcpKeepaliveInterval(num)
+        | O::AddressLeaseTime(num)
+        | O::Renewal(num)
+        | O::Rebinding(num) => Some(((*code).into(), Opt::U32(MaybeList::Val(*num)))),
+        O::Hostname(s)
+        | O::MeritDumpFile(s)
+        | O::DomainName(s)
+        | O::ExtensionsPath(s)
+        | O::NisDomain(s)
+        | O::RootPath(s)
+        | O::NetBiosScope(s)
+        | O::Message(s) => Some(((*code).into(), Opt::Str(MaybeList::Val(s.clone())))),
+        O::BootFileSize(num)
+        | O::MaxDatagramSize(num)
+        | O::InterfaceMtu(num)
+        | O::MaxMessageSize(num) => Some(((*code).into(), Opt::U16(MaybeList::Val(*num)))),
+        O::Unknown(opt) => Some(((*code).into(), Opt::Hex(hex::encode(opt.data())))),
         _ => {
             // the data includes the code & len, let's slice that off
             match opt.to_vec() {
