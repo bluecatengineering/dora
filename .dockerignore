@@ -1,0 +1,10 @@
+.git/
+.github/
+.vscode/
+
+*.db
+
+docs/
+data/
+# build directories
+target/
