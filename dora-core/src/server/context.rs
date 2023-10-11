@@ -602,6 +602,7 @@ impl MsgContext<v4::Message> {
     /// these will be overwritten.
     pub fn populate_opts(&mut self, param_opts: &v4::DhcpOptions) -> Option<()> {
         use dhcproto::v4::{DhcpOption, OptionCode};
+        let subnet = self.subnet();
         // https://datatracker.ietf.org/doc/html/rfc3046#section-2.2
         // copy opt 82 (relay agent) into response
         let resp = self.resp_msg.as_mut()?;
@@ -614,21 +615,37 @@ impl MsgContext<v4::Message> {
         if let Some(id) = self.msg.opts().get(OptionCode::ClientIdentifier) {
             resp.opts_mut().insert(id.clone());
         }
-
-        // insert router & net mask & broadcast from interface
+        let mut interface_match = false;
+        // insert router/netmask
         // if the config provides these also, they will be overwritten
         if let Some(IpNetwork::V4(interface)) = self.interface {
-            resp.opts_mut()
-                .insert(DhcpOption::Router(vec![interface.ip()]));
-            resp.opts_mut()
-                .insert(DhcpOption::SubnetMask(interface.mask()));
-            resp.opts_mut()
-                .insert(DhcpOption::BroadcastAddr(interface.broadcast()));
+            // if we populate from interface, interface must be on same subnet as packet (local)
+            if matches!(subnet, Ok(subnet) if interface.contains(subnet)) {
+                resp.opts_mut()
+                    .insert(DhcpOption::Router(vec![interface.ip()]));
+                resp.opts_mut()
+                    .insert(DhcpOption::SubnetMask(interface.mask()));
+                interface_match = true;
+            }
+            // configured router/netmask will override interface
+            if let Some(v) = param_opts.get(OptionCode::Router) {
+                resp.opts_mut().insert(v.clone());
+            }
+            if let Some(v) = param_opts.get(OptionCode::SubnetMask) {
+                resp.opts_mut().insert(v.clone());
+            }
         }
 
         if let Some(DhcpOption::ParameterRequestList(requested)) =
             self.msg.opts().get(OptionCode::ParameterRequestList)
         {
+            // if broadcast addr is requested, try to fill from interface
+            if let Some(IpNetwork::V4(interface)) = self.interface {
+                if requested.contains(&v4::OptionCode::BroadcastAddr) && interface_match {
+                    resp.opts_mut()
+                        .insert(DhcpOption::BroadcastAddr(interface.broadcast()));
+                }
+            }
             // look in the requested list of params
             for code in requested {
                 // if we have that option, add it to the response

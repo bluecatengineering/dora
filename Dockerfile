@@ -16,6 +16,8 @@ RUN apt-get -qq update; \
     apt-get -qq --no-install-recommends install \
     dumb-init \
     isc-dhcp-server \
+    iputils-ping \
+    iproute2 \
     ca-certificates \
     wget \
     sudo;

@@ -24,6 +24,7 @@ use dora_core::{
     dhcproto::v4::{DhcpOption, Message, MessageType, OptionCode},
     metrics,
     prelude::*,
+    tracing::warn,
 };
 use message_type::MatchedClasses;
 use register_derive::Register;
@@ -262,7 +263,7 @@ where
                 }
             }
         }
-        debug!("leases plugin did not assign ip");
+        warn!("leases plugin did not assign ip, check configuration or try clearing leases table. submit bugs to: github.com/bluecatengineering/dora");
         Ok(Action::NoResponse)
     }
 

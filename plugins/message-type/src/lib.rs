@@ -140,7 +140,7 @@ impl Plugin<Message> for MsgType {
                     .insert(DhcpOption::MessageType(MessageType::Offer));
             }
             Some(MessageType::Request) => {
-                if !req.giaddr().is_unspecified() {
+                if req.giaddr().is_unspecified() {
                     resp.set_flags(req.flags().set_broadcast());
                 }
                 resp.opts_mut()
