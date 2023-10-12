@@ -619,6 +619,65 @@ mod tests {
         Ok(())
     }
 
+    //
+    #[tokio::test]
+    #[traced_test]
+    async fn test_reserve_first() -> Result<()> {
+        let mgr = IpManager::new(SqliteDb::new("sqlite::memory:").await?)?;
+        let range = NetRange::new(
+            Ipv4Addr::new(192, 168, 1, 100)..=Ipv4Addr::new(192, 168, 1, 255),
+            LeaseTime::new(
+                Duration::from_secs(5),
+                Duration::from_secs(3),
+                Duration::from_secs(10),
+            ),
+        );
+        let mut network = Network::default();
+        network
+            .set_subnet("192.168.1.0/24".parse()?)
+            .set_ranges(vec![range.clone()]);
+        let client_id = &[1, 2, 3, 4, 5, 6];
+        let expires_at = SystemTime::now() + Duration::from_secs(1);
+        let ip = mgr
+            .reserve_first(&range, &network, client_id, expires_at, None)
+            .await?;
+        assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)));
+        assert_eq!(
+            mgr.lookup_id(client_id).await?,
+            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100))
+        );
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        // try another range with the same client id-- should delete previous expired
+        // entry
+        let range = NetRange::new(
+            Ipv4Addr::new(192, 168, 5, 100)..=Ipv4Addr::new(192, 168, 5, 255),
+            LeaseTime::new(
+                Duration::from_secs(5),
+                Duration::from_secs(3),
+                Duration::from_secs(10),
+            ),
+        );
+        let mut network = Network::default();
+        network
+            .set_subnet("192.168.5.0/24".parse()?)
+            .set_ranges(vec![range.clone()]);
+        let client_id = &[1, 2, 3, 4, 5, 6];
+        let expires_at = SystemTime::now() + Duration::from_secs(1);
+        let ip = mgr
+            .reserve_first(&range, &network, client_id, expires_at, None)
+            .await?;
+
+        assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(192, 168, 5, 100)));
+        assert_eq!(
+            mgr.lookup_id(client_id).await?,
+            IpAddr::V4(Ipv4Addr::new(192, 168, 5, 100))
+        );
+
+        Ok(())
+    }
+
     // DISCOVER - ACK
     // get lease on discover like in a rapid commit response
     #[tokio::test]
