@@ -260,12 +260,19 @@ where
         expires_at: SystemTime,
         state: Option<IpState>,
     ) -> Result<IpAddr, IpError<T::Error>> {
+        const MAX_ATTEMPTS: usize = 2;
         let subnet = network.subnet().into();
         // unfortunately the sqlite connection is sometimes unreliable under high contention, meaning
         // we need to make a few attempts to get an address.
         let mut attempts = 0;
         loop {
             let ip_range = range.start().into()..=range.end().into();
+            if attempts > MAX_ATTEMPTS {
+                return Err(IpError::MaxAttempts {
+                    range: ip_range,
+                    attempts,
+                });
+            }
             // find the min expired IP or where id matches
             let ip = match self
                 .store
@@ -286,25 +293,19 @@ where
                     )
                     .await
                 {
-                    Ok(ip) => ip.ok_or(IpError::RangeError { range: ip_range })?,
+                    Ok(ip) => ip.ok_or(IpError::RangeError {
+                        range: ip_range.clone(),
+                    })?,
                     Err(err) => {
                         attempts += 1;
-                        if attempts <= 1 {
-                            warn!("error grabbing new IP-- retrying");
-                            continue;
-                        } else {
-                            return Err(IpError::DbError(err));
-                        }
+                        warn!(?err, "error grabbing new IP-- retrying");
+                        continue;
                     }
                 },
                 Err(err) => {
                     attempts += 1;
-                    if attempts <= 1 {
-                        warn!("error grabbing next expired IP-- retrying");
-                        continue;
-                    } else {
-                        return Err(IpError::DbError(err));
-                    }
+                    warn!(?err, "error grabbing next expired IP-- retrying");
+                    continue;
                 }
             };
             match ip {
@@ -327,6 +328,7 @@ where
                                     .update_ip(ip, IpState::Probate, None, probation_time)
                                     .await
                                 {
+                                    attempts += 1;
                                     error!(?err, "failed to probate IP on ping success");
                                     // not returning error because we must give client an IP
                                 } else {
@@ -336,11 +338,16 @@ where
                             }
                         }
                     } else {
-                        error!(
+                        attempts += 1;
+                        warn!(
                             ?range,
                             ?ipv4,
-                            "IP returned from leases table is outside of network range"
+                            "IP for client id returned from leases table is outside of network range"
                         );
+                        // entry for ip/id but the range doesn't match, remove the old entry
+                        if let Err(err) = self.store.release_ip(ip, id).await {
+                            error!(?err, "failed to delete entry");
+                        }
                         continue;
                     }
                 }
@@ -530,6 +537,11 @@ pub enum IpError<E> {
     AddrInUse(IpAddr),
     #[error("error getting next IP in range {range:?}")]
     RangeError { range: RangeInclusive<IpAddr> },
+    #[error("error getting next IP in range {range:?} inside attempts {attempts:?}")]
+    MaxAttempts {
+        range: RangeInclusive<IpAddr>,
+        attempts: usize,
+    },
 }
 
 #[cfg(test)]
@@ -602,6 +614,65 @@ mod tests {
         assert_eq!(
             mgr.lookup_id(client_id).await?,
             IpAddr::V4(Ipv4Addr::new(192, 168, 1, 103))
+        );
+
+        Ok(())
+    }
+
+    //
+    #[tokio::test]
+    #[traced_test]
+    async fn test_reserve_first() -> Result<()> {
+        let mgr = IpManager::new(SqliteDb::new("sqlite::memory:").await?)?;
+        let range = NetRange::new(
+            Ipv4Addr::new(192, 168, 1, 100)..=Ipv4Addr::new(192, 168, 1, 255),
+            LeaseTime::new(
+                Duration::from_secs(5),
+                Duration::from_secs(3),
+                Duration::from_secs(10),
+            ),
+        );
+        let mut network = Network::default();
+        network
+            .set_subnet("192.168.1.0/24".parse()?)
+            .set_ranges(vec![range.clone()]);
+        let client_id = &[1, 2, 3, 4, 5, 6];
+        let expires_at = SystemTime::now() + Duration::from_secs(1);
+        let ip = mgr
+            .reserve_first(&range, &network, client_id, expires_at, None)
+            .await?;
+        assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)));
+        assert_eq!(
+            mgr.lookup_id(client_id).await?,
+            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100))
+        );
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        // try another range with the same client id-- should delete previous expired
+        // entry
+        let range = NetRange::new(
+            Ipv4Addr::new(192, 168, 5, 100)..=Ipv4Addr::new(192, 168, 5, 255),
+            LeaseTime::new(
+                Duration::from_secs(5),
+                Duration::from_secs(3),
+                Duration::from_secs(10),
+            ),
+        );
+        let mut network = Network::default();
+        network
+            .set_subnet("192.168.5.0/24".parse()?)
+            .set_ranges(vec![range.clone()]);
+        let client_id = &[1, 2, 3, 4, 5, 6];
+        let expires_at = SystemTime::now() + Duration::from_secs(1);
+        let ip = mgr
+            .reserve_first(&range, &network, client_id, expires_at, None)
+            .await?;
+
+        assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(192, 168, 5, 100)));
+        assert_eq!(
+            mgr.lookup_id(client_id).await?,
+            IpAddr::V4(Ipv4Addr::new(192, 168, 5, 100))
         );
 
         Ok(())
