@@ -873,9 +873,9 @@ mod tests {
             (DhcpOption::DomainNameServer(vec![[8, 8, 8, 8].into()]), res),
         );
         reserved_opts.insert(
-            OptionCode::NISDomain,
+            OptionCode::NisDomain,
             (
-                DhcpOption::NISDomain("testdomain.com.".to_string()),
+                DhcpOption::NisDomain("testdomain.com.".to_string()),
                 another,
             ),
         );
