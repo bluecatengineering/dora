@@ -227,7 +227,8 @@ pub mod util {
         );
         msg.set_opcode(Opcode::BootReply)
             .set_htype(req.htype())
-            .set_flags(req.flags());
+            .set_flags(req.flags())
+            .set_hops(req.hops());
         // set the sname & fname header fields
         if let Some(sname) = sname {
             msg.set_sname_str(sname);
