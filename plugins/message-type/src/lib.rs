@@ -104,16 +104,21 @@ impl Plugin<Message> for MsgType {
         let mut resp = util::new_msg(req, cfg_server_id, sname, fname);
         let server_id_override = util::get_server_id_override(req.opts());
 
-        // determine if we should use the server identifier override as the server identifier in the response message
-        let use_server_id_override =
-            if let (Some(override_id), Some(&DhcpOption::ServerIdentifier(msg_server_id))) = (
-                server_id_override,
-                req.opts().get(OptionCode::ServerIdentifier),
-            ) {
-                override_id == msg_server_id
-            } else {
-                false
-            };
+        // determine if we should use the server id override as the server id in the response message
+        let (use_server_id_override, resp_server_id) = match (
+            server_id_override,
+            req.opts().get(OptionCode::ServerIdentifier),
+        ) {
+            (Some(override_id), Some(&DhcpOption::ServerIdentifier(msg_server_id)))
+                if override_id == msg_server_id =>
+            {
+                (true, override_id)
+            }
+
+            // in this case, `server_id_override` is None or the condition failed, so we set the flag to false
+            // and use `cfg_server_id`.
+            _ => (false, cfg_server_id),
+        };
         // if there is a server identifier it must match either the server identifier override address or ours
         if matches!(req.opts().get(OptionCode::ServerIdentifier), Some(DhcpOption::ServerIdentifier(id)) if *id != cfg_server_id && !id.is_unspecified() && !use_server_id_override)
         {
@@ -124,14 +129,6 @@ impl Plugin<Message> for MsgType {
             debug!("BootReply not supported");
             return Ok(Action::NoResponse);
         }
-
-        // determine which server identifier to use in the response message
-        let resp_server_id = if use_server_id_override {
-            // safe due to our previous check
-            server_id_override.unwrap()
-        } else {
-            cfg_server_id
-        };
 
         // add the correct server identifier to response
         resp.opts_mut()
