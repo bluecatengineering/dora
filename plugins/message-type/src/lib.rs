@@ -20,7 +20,7 @@ use dora_core::{
     tracing::warn,
 };
 use register_derive::Register;
-use std::fmt::Debug;
+use std::{fmt::Debug, net::Ipv4Addr};
 
 use config::{client_classes, DhcpConfig};
 
@@ -103,26 +103,21 @@ impl Plugin<Message> for MsgType {
         // message that will be returned
         let mut resp = util::new_msg(req, cfg_server_id, sname, fname);
         let server_id_override = util::get_server_id_override(req.opts());
+        let msg_server_id_opt = req.opts().get(OptionCode::ServerIdentifier);
 
-        // determine if we should use the server id override as the server id in the response message
-        let (use_server_id_override, resp_server_id) = match (
-            server_id_override,
-            req.opts().get(OptionCode::ServerIdentifier),
-        ) {
-            (Some(override_id), Some(&DhcpOption::ServerIdentifier(msg_server_id)))
-                if override_id == msg_server_id =>
-            {
-                (true, override_id)
-            }
+        // determine the server id to use in the response message
+        let resp_server_id =
+            RespServerId::new(cfg_server_id, server_id_override, msg_server_id_opt).get();
 
-            // in this case, `server_id_override` is None or the condition failed, so we set the flag to false
-            // and use `cfg_server_id`.
-            _ => (false, cfg_server_id),
-        };
-        // if there is a server identifier it must match either the server identifier override address or ours
-        if matches!(req.opts().get(OptionCode::ServerIdentifier), Some(DhcpOption::ServerIdentifier(id)) if *id != cfg_server_id && !id.is_unspecified() && !use_server_id_override)
-        {
-            debug!(?cfg_server_id, "server identifier in msg doesn't match server address or server identifier override");
+        if let Some(server_id) = resp_server_id {
+            // add the correct server identifier to response
+            resp.opts_mut()
+                .insert(DhcpOption::ServerIdentifier(server_id));
+        } else {
+            debug!(
+                ?cfg_server_id,
+                "server identifier in msg doesn't match server address or server id override"
+            );
             return Ok(Action::NoResponse);
         }
         if req.opcode() == Opcode::BootReply {
@@ -130,9 +125,6 @@ impl Plugin<Message> for MsgType {
             return Ok(Action::NoResponse);
         }
 
-        // add the correct server identifier to response
-        resp.opts_mut()
-            .insert(DhcpOption::ServerIdentifier(resp_server_id));
         // evaluate client classes
         let matched = util::client_classes(self.cfg.v4(), ctx)?;
         let addr = {
@@ -220,6 +212,48 @@ impl Plugin<Message> for MsgType {
         }
         ctx.set_resp_msg(resp);
         Ok(Action::Continue)
+    }
+}
+
+/// supports 3 variants:
+/// CfgServerId - the server id retrieved from the config
+/// ServerIdOverride - the server id override retrieved from the message
+/// None - no valid server id, we should not process the message
+enum RespServerId {
+    CfgServerId(Ipv4Addr),
+    ServerIdOverride(Ipv4Addr),
+    None,
+}
+
+impl RespServerId {
+    /// returns either the server id override or the server id from the config (RFC 5107)
+    fn new(
+        cfg_server_id: Ipv4Addr,
+        server_id_override: Option<Ipv4Addr>,
+        msg_server_id_opt: Option<&DhcpOption>,
+    ) -> Self {
+        if let Some(&DhcpOption::ServerIdentifier(msg_id)) = msg_server_id_opt {
+            // if the server override matches the msg server id, we should respond
+            if let Some(override_id) = server_id_override {
+                if override_id == msg_id {
+                    return Self::ServerIdOverride(override_id);
+                }
+            }
+            // we should not respond if the server id from the config does not match the msg server id and
+            // the msg server id is not unspecified
+            if cfg_server_id != msg_id && !msg_id.is_unspecified() {
+                return Self::None;
+            }
+        }
+        Self::CfgServerId(cfg_server_id)
+    }
+
+    fn get(&self) -> Option<Ipv4Addr> {
+        match self {
+            Self::CfgServerId(addr) => Some(*addr),
+            Self::ServerIdOverride(addr) => Some(*addr),
+            Self::None => None,
+        }
     }
 }
 
