@@ -102,14 +102,11 @@ impl Plugin<Message> for MsgType {
         let fname = network.and_then(|net| net.file_name());
         // message that will be returned
         let mut resp = util::new_msg(req, cfg_server_id, sname, fname);
-        let server_id_override = util::get_server_id_override(req.opts());
-        let msg_server_id_opt = req.opts().get(OptionCode::ServerIdentifier);
 
         // determine the server id to use in the response message
-        let resp_server_id =
-            RespServerId::new(cfg_server_id, server_id_override, msg_server_id_opt).get();
+        let resp_server_id = RespServerId::new(cfg_server_id, req);
 
-        if let Some(server_id) = resp_server_id {
+        if let Some(server_id) = resp_server_id.get() {
             // add the correct server identifier to response
             resp.opts_mut()
                 .insert(DhcpOption::ServerIdentifier(server_id));
@@ -217,7 +214,7 @@ impl Plugin<Message> for MsgType {
 
 /// supports 3 variants:
 /// CfgServerId - the server id retrieved from the config
-/// ServerIdOverride - the server id override retrieved from the message
+/// ServerIdOverride - the server id override retrieved from the RAI in the message
 /// None - no valid server id, we should not process the message
 enum RespServerId {
     CfgServerId(Ipv4Addr),
@@ -227,11 +224,11 @@ enum RespServerId {
 
 impl RespServerId {
     /// returns either the server id override or the server id from the config (RFC 5107)
-    fn new(
-        cfg_server_id: Ipv4Addr,
-        server_id_override: Option<Ipv4Addr>,
-        msg_server_id_opt: Option<&DhcpOption>,
-    ) -> Self {
+    fn new(cfg_server_id: Ipv4Addr, req: &Message) -> Self {
+        // get the server id and server id override from the message
+        let server_id_override = util::get_server_id_override(req.opts());
+        let msg_server_id_opt = req.opts().get(OptionCode::ServerIdentifier);
+
         if let Some(&DhcpOption::ServerIdentifier(msg_id)) = msg_server_id_opt {
             // if the server override matches the msg server id, we should respond
             if let Some(override_id) = server_id_override {
