@@ -128,6 +128,7 @@ It will pretty-print the internal dora config representation as well as parse th
 -   [v4 RFC4093](https://datatracker.ietf.org/doc/html/rfc4093)
 -   [v4 RFC6842](https://datatracker.ietf.org/doc/html/rfc6842)
 -   [v4 RFC3046](https://datatracker.ietf.org/doc/html/rfc3046)
+-   [v4 RFC5107](https://datatracker.ietf.org/doc/html/rfc5107)
 -   see [dhcproto](https://github.com/bluecatengineering/dhcproto) for protocol level support
 
 #### v6

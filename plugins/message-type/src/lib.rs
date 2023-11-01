@@ -20,7 +20,7 @@ use dora_core::{
     tracing::warn,
 };
 use register_derive::Register;
-use std::fmt::Debug;
+use std::{fmt::Debug, net::Ipv4Addr};
 
 use config::{client_classes, DhcpConfig};
 
@@ -91,7 +91,7 @@ impl Plugin<Message> for MsgType {
             return Ok(Action::NoResponse);
         }
         // otherwise our interface IP as the id
-        let server_id = self
+        let cfg_server_id = self
             .cfg
             .v4()
             .server_id(meta.ifindex, subnet)
@@ -101,21 +101,27 @@ impl Plugin<Message> for MsgType {
         let sname = network.and_then(|net| net.server_name());
         let fname = network.and_then(|net| net.file_name());
         // message that will be returned
-        let mut resp = util::new_msg(req, server_id, sname, fname);
+        let mut resp = util::new_msg(req, cfg_server_id, sname, fname);
 
-        // if there is a server identifier it must match ours
-        if matches!(req.opts().get(OptionCode::ServerIdentifier), Some(DhcpOption::ServerIdentifier(id)) if *id != server_id && !id.is_unspecified())
-        {
-            debug!(?server_id, "server identifier in msg doesn't match");
+        // determine the server id to use in the response message
+        let resp_server_id = RespServerId::new(cfg_server_id, req);
+
+        if let Some(server_id) = resp_server_id.get() {
+            // add the correct server identifier to response
+            resp.opts_mut()
+                .insert(DhcpOption::ServerIdentifier(server_id));
+        } else {
+            debug!(
+                ?cfg_server_id,
+                "server identifier in msg doesn't match server address or server id override"
+            );
             return Ok(Action::NoResponse);
         }
         if req.opcode() == Opcode::BootReply {
             debug!("BootReply not supported");
             return Ok(Action::NoResponse);
         }
-        // add server id to response
-        resp.opts_mut()
-            .insert(DhcpOption::ServerIdentifier(server_id));
+
         // evaluate client classes
         let matched = util::client_classes(self.cfg.v4(), ctx)?;
         let addr = {
@@ -203,6 +209,48 @@ impl Plugin<Message> for MsgType {
         }
         ctx.set_resp_msg(resp);
         Ok(Action::Continue)
+    }
+}
+
+/// supports 3 variants:
+/// CfgServerId - the server id retrieved from the config
+/// ServerIdOverride - the server id override retrieved from the RAI in the message
+/// None - no valid server id, we should not process the message
+enum RespServerId {
+    CfgServerId(Ipv4Addr),
+    ServerIdOverride(Ipv4Addr),
+    None,
+}
+
+impl RespServerId {
+    /// returns either the server id override or the server id from the config (RFC 5107)
+    fn new(cfg_server_id: Ipv4Addr, req: &Message) -> Self {
+        // get the server id and server id override from the message
+        let server_id_override = util::get_server_id_override(req.opts());
+        let msg_server_id_opt = req.opts().get(OptionCode::ServerIdentifier);
+
+        if let Some(&DhcpOption::ServerIdentifier(msg_id)) = msg_server_id_opt {
+            // if the server override matches the msg server id, we should respond
+            if let Some(override_id) = server_id_override {
+                if override_id == msg_id {
+                    return Self::ServerIdOverride(override_id);
+                }
+            }
+            // we should not respond if the server id from the config does not match the msg server id and
+            // the msg server id is not unspecified
+            if cfg_server_id != msg_id && !msg_id.is_unspecified() {
+                return Self::None;
+            }
+        }
+        Self::CfgServerId(cfg_server_id)
+    }
+
+    fn get(&self) -> Option<Ipv4Addr> {
+        match self {
+            Self::CfgServerId(addr) => Some(*addr),
+            Self::ServerIdOverride(addr) => Some(*addr),
+            Self::None => None,
+        }
     }
 }
 
@@ -327,6 +375,22 @@ pub mod util {
         ctx.set_resp_msg(resp);
         Ok(ctx)
     }
+
+    /// Convenience for RFC 5107 compliance. Fetches the ServerIdentifierOverride suboption (11) from
+    /// RelayAgentInformation (82) to use in comparisons between the server id and override id.
+    pub fn get_server_id_override(opts: &v4::DhcpOptions) -> Option<Ipv4Addr> {
+        // fetch the RelayAgentInformation option (option 82)
+        if let Some(DhcpOption::RelayAgentInformation(relay_info)) =
+            opts.get(OptionCode::RelayAgentInformation)
+        {
+            // fetch the ServerIdentifierOverride suboption (suboption 11) from the relay information
+            let override_info = relay_info.get(v4::relay::RelayCode::ServerIdentifierOverride);
+            if let Some(v4::relay::RelayInfo::ServerIdentifierOverride(addr)) = override_info {
+                return Some(*addr);
+            }
+        }
+        None
+    }
 }
 
 #[async_trait]
@@ -413,7 +477,9 @@ pub struct MatchedClasses(pub Vec<String>);
 
 #[cfg(test)]
 mod tests {
-    use dora_core::dhcproto::v4;
+    use util::get_server_id_override;
+
+    use dora_core::dhcproto::v4::{self, relay};
     use tracing_test::traced_test;
 
     use super::*;
@@ -478,6 +544,89 @@ mod tests {
         plugin.handle(&mut ctx).await?;
 
         assert!(ctx.resp_msg().unwrap().opts().msg_type().is_none());
+        Ok(())
+    }
+
+    // ensure the server identifier override is written to the response server identifier when they match
+    #[tokio::test]
+    #[traced_test]
+    async fn test_server_id_eq_override() -> Result<()> {
+        let cfg = DhcpConfig::parse_str(SAMPLE_YAML).unwrap();
+        let plugin = MsgType::new(Arc::new(cfg.clone()))?;
+        let mut ctx = util::blank_ctx(
+            "192.168.0.1:67".parse()?,
+            "192.168.0.1".parse()?,
+            "192.168.0.1".parse()?,
+            v4::MessageType::Discover,
+        )?;
+
+        let mut relay_info = relay::RelayAgentInformation::default();
+        relay_info.insert(relay::RelayInfo::ServerIdentifierOverride(
+            "10.0.0.1".parse()?,
+        ));
+        // assign suboption 11 of DHCP relay info (opt 82)
+        ctx.msg_mut()
+            .opts_mut()
+            .insert(v4::DhcpOption::RelayAgentInformation(relay_info));
+        // assign the same address to the server identifier
+        ctx.msg_mut()
+            .opts_mut()
+            .insert(DhcpOption::ServerIdentifier("10.0.0.1".parse()?));
+        plugin.handle(&mut ctx).await?;
+
+        let resp_server_id = ctx
+            .resp_msg()
+            .unwrap()
+            .opts()
+            .get(OptionCode::ServerIdentifier);
+        let msg_server_id_override = get_server_id_override(ctx.msg().opts());
+
+        // get and compare the Ipv4Addrs from resp_server_id and resp_server_id_override
+        if let (Some(&DhcpOption::ServerIdentifier(addr1)), Some(addr2)) =
+            (resp_server_id, msg_server_id_override)
+        {
+            assert_eq!(addr1, addr2);
+        } else {
+            panic!("Server identifier and server identifier override are not both Ipv4Addrs:\n\nOpt 54 = {:?}\nOpt 82 Subopt 11 = {:?}\n\n", resp_server_id, msg_server_id_override);
+        }
+        // ensure we respond with an offer
+        assert!(ctx
+            .resp_msg()
+            .unwrap()
+            .opts()
+            .has_msg_type(v4::MessageType::Offer));
+        Ok(())
+    }
+
+    // ensure the server identifier override is not written to the response server identifier when they don't match
+    #[tokio::test]
+    #[traced_test]
+    async fn test_server_id_ne_override() -> Result<()> {
+        let cfg = DhcpConfig::parse_str(SAMPLE_YAML).unwrap();
+        let plugin = MsgType::new(Arc::new(cfg.clone()))?;
+        let mut ctx = util::blank_ctx(
+            "192.168.0.1:67".parse()?,
+            "192.168.0.1".parse()?,
+            "192.168.0.1".parse()?,
+            v4::MessageType::Discover,
+        )?;
+
+        let mut relay_info = relay::RelayAgentInformation::default();
+        relay_info.insert(relay::RelayInfo::ServerIdentifierOverride(
+            "10.0.0.2".parse()?,
+        ));
+        // assign suboption 11 of DHCP relay info (opt 82)
+        ctx.msg_mut()
+            .opts_mut()
+            .insert(v4::DhcpOption::RelayAgentInformation(relay_info));
+        // assign an address to the server identifier that does not match the override or our address
+        ctx.msg_mut()
+            .opts_mut()
+            .insert(DhcpOption::ServerIdentifier("10.0.0.10".parse()?));
+        let res = plugin.handle(&mut ctx).await?;
+        // when the the server id in the message matches neither the server id override nor our server
+        // id, we must not respond
+        assert_eq!(res, Action::NoResponse);
         Ok(())
     }
 }
