@@ -381,10 +381,10 @@ ddns:
     forward:
        - name: "example.com."
          # key: (optional) "key_foo"
-         ip: 192.168.3.111
+         ip: 192.168.3.111:53
     reverse:
        - name: "168.192.in-addr.arpa."
-         ip: 192.168.3.111
+         ip: 192.168.3.111:53
     # map of tsig keys. DNS servers reference these by name
     tsig_keys:
         key_foo:
