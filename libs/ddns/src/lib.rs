@@ -62,7 +62,7 @@ impl DdnsUpdate {
         leased: Ipv4Addr,
     ) -> Result<(), DdnsError> {
         let Some(cfg) = cfg else {
-            info!("no DDNS config is present. No update performed");
+            debug!("no DDNS config is present. No update performed");
             if let Some(DhcpOption::ClientFQDN(fqdn)) = ctx.msg().opts().get(OptionCode::ClientFQDN)
             {
                 let domain = fqdn.domain().clone();
