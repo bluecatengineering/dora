@@ -366,7 +366,7 @@ client_classes:
                         type: ip
                         value: [ 1.1.1.1 ]
 
-# DDNS config
+# DDNS config (see docs/ddns.md for more information)
 # This section is optional, if not included, no DDNS updates will
 # be sent
 ddns:
