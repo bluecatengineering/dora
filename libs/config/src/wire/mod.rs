@@ -26,6 +26,7 @@ pub struct Config {
     pub networks: HashMap<Ipv4Net, v4::Net>,
     pub v6: Option<v6::Config>,
     pub client_classes: Option<ClientClasses>,
+    pub ddns: Option<v4::ddns::Ddns>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]

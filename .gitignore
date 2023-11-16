@@ -1,5 +1,6 @@
 out/
 data/
 target/
+data/
 *.db*
 .vscode/*.log
