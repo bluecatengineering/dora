@@ -216,9 +216,9 @@ pub struct IdentifierFileStruct {
 }
 
 impl IdentifierFileStruct {
-    pub fn new(identifier: &String, duid_config: &ServerDuid) -> Self {
+    pub fn new(identifier: &str, duid_config: &ServerDuid) -> Self {
         Self {
-            identifier: identifier.clone(),
+            identifier: identifier.to_owned(),
             duid_config: Some(duid_config.clone()),
         }
     }

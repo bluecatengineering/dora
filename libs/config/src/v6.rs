@@ -253,7 +253,7 @@ pub fn generate_duid_from_config(
             if identifier_string.is_empty() {
                 bail!("identifier must be specified for UUID type DUID");
             }
-            let identifier = generate_bytes_from_string(&identifier_string)
+            let identifier = generate_bytes_from_string(identifier_string)
                 .context("should be a valid hex string")?;
             Ok(Duid::uuid(&identifier[..]))
         }
@@ -325,23 +325,17 @@ impl TryFrom<wire::v6::Config> for Config {
                 if server_id.persist == Some(false) {
                     generate_duid_from_config(&server_id, link_local.ip())
                         .context("can not generate duid from config")?
+                } else if !server_id_path.exists() {
+                    generate_duid_and_save_to_file(&server_id, link_local.ip(), server_id_path)?
                 } else {
-                    if !server_id_path.exists() {
-                        generate_duid_and_save_to_file(&server_id, link_local.ip(), server_id_path)?
+                    let identifier_file = IdentifierFileStruct::from_json(server_id_path)
+                        .context("can not read server identifier json")?;
+                    if identifier_file.duid_config == Some(server_id.clone()) {
+                        identifier_file
+                            .duid()
+                            .context("can not get duid from server identifier file")?
                     } else {
-                        let identifier_file = IdentifierFileStruct::from_json(server_id_path)
-                            .context("can not read server identifier json")?;
-                        if identifier_file.duid_config == Some(server_id.clone()) {
-                            identifier_file
-                                .duid()
-                                .context("can not get duid from server identifier file")?
-                        } else {
-                            generate_duid_and_save_to_file(
-                                &server_id,
-                                link_local.ip(),
-                                server_id_path,
-                            )?
-                        }
+                        generate_duid_and_save_to_file(&server_id, link_local.ip(), server_id_path)?
                     }
                 }
             }

@@ -21,10 +21,7 @@ use dora_core::{
 use ipnet::{Ipv4AddrRange, Ipv4Net};
 use tracing::debug;
 
-use crate::{
-    client_classes::ClientClasses, v6::DEFAULT_SERVER_ID_FILE_PATH, wire, IdentifierFileStruct,
-    LeaseTime,
-};
+use crate::{client_classes::ClientClasses, wire, LeaseTime};
 
 // re-export wire Ddns since it doesn't need to be modified (yet)
 pub use wire::v4::ddns::Ddns;
@@ -674,6 +671,8 @@ mod tests {
     use dora_core::dhcproto::v4;
 
     use super::*;
+
+    use crate::{v6::DEFAULT_SERVER_ID_FILE_PATH, IdentifierFileStruct};
 
     pub static SAMPLE_YAML: &str = include_str!("../sample/config.yaml");
     pub static CIRC_YAML: &str = include_str!("../sample/circular_deps.yaml");
