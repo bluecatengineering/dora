@@ -21,7 +21,10 @@ use dora_core::{
 use ipnet::{Ipv4AddrRange, Ipv4Net};
 use tracing::debug;
 
-use crate::{client_classes::ClientClasses, wire, LeaseTime,v6::DEFAULT_SERVER_ID_FILE_PATH,IdentifierFileStruct};
+use crate::{
+    client_classes::ClientClasses, v6::DEFAULT_SERVER_ID_FILE_PATH, wire, IdentifierFileStruct,
+    LeaseTime,
+};
 
 // re-export wire Ddns since it doesn't need to be modified (yet)
 pub use wire::v4::ddns::Ddns;
@@ -287,7 +290,7 @@ impl Config {
     /// Create a new DhcpConfig for the server. Pass in the wire
     /// config format from yaml
     pub fn yaml<S: AsRef<str>>(input: S) -> Result<Self> {
-                Self::try_from(serde_yaml::from_str::<wire::Config>(input.as_ref())?)
+        Self::try_from(serde_yaml::from_str::<wire::Config>(input.as_ref())?)
     }
     /// Create a new DhcpConfig for the server. Pass in the wire
     /// config format from json
@@ -296,13 +299,13 @@ impl Config {
     }
     /// Create a new DhcpConfig for the server. Attempts to decode path
     /// as json, then yaml, and if both fail will return Err
-        pub fn new<S: AsRef<str>>(input: S) -> Result<Self> {
+    pub fn new<S: AsRef<str>>(input: S) -> Result<Self> {
         match Self::json(input.as_ref()) {
             Ok(r) => Ok(r),
             Err(_err) => Self::yaml(input.as_ref()),
         }
     }
-    }
+}
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Network {
@@ -678,7 +681,8 @@ mod tests {
     pub static CONFIG_V6_LL_YAML: &str = include_str!("../sample/config_v6_LL.yaml");
     pub static CONFIG_V6_EN_YAML: &str = include_str!("../sample/config_v6_EN.yaml");
     pub static CONFIG_V6_UUID_YAML: &str = include_str!("../sample/config_v6_UUID.yaml");
-    pub static CONFIG_V6_NO_PERSIST_YAML: &str = include_str!("../sample/config_v6_no_persist.yaml");
+    pub static CONFIG_V6_NO_PERSIST_YAML: &str =
+        include_str!("../sample/config_v6_no_persist.yaml");
     // test we can decode from wire
     #[test]
     fn test_sample() {
@@ -917,13 +921,13 @@ mod tests {
         // test a range decoded properly
         match cfg.v6() {
             Some(v6_config) => {
-                println!("{:?}",v6_config);
+                println!("{:?}", v6_config);
             }
             None => {
                 panic!("expected v6 config")
             }
         };
-       
+
         let identifier_file_struct = IdentifierFileStruct::from_json(path).unwrap();
         let file_server_id = identifier_file_struct.duid().unwrap();
         let file_server_id = file_server_id.as_ref();
@@ -938,8 +942,8 @@ mod tests {
         let cfg2 = Config::new(CONFIG_V6_LL_YAML).unwrap();
         let server_id1 = cfg1.v6().unwrap().server_id();
         let server_id2 = cfg2.v6().unwrap().server_id();
-        println!("server_id1: {:?}",server_id1);
-        println!("server_id2: {:?}",server_id2);
+        println!("server_id1: {:?}", server_id1);
+        println!("server_id2: {:?}", server_id2);
         assert_ne!(server_id1, server_id2);
     }
     /// test if we can generate EN type server_id
@@ -947,14 +951,14 @@ mod tests {
     fn test_v6_generate_en_server_id() {
         let cfg = Config::new(CONFIG_V6_EN_YAML).unwrap();
         let server_id = cfg.v6().unwrap().server_id();
-        println!("server_id: {:?}",server_id);
+        println!("server_id: {:?}", server_id);
     }
     /// test if we can generate UUID type server_id
     #[test]
     fn test_v6_generate_uuid_server_id() {
         let cfg = Config::new(CONFIG_V6_UUID_YAML).unwrap();
         let server_id = cfg.v6().unwrap().server_id();
-        println!("server_id: {:?}",server_id);
+        println!("server_id: {:?}", server_id);
     }
     /// test if wen can generate server_id without persisting it to a file
     #[test]
@@ -965,7 +969,7 @@ mod tests {
         }
         let cfg = Config::new(CONFIG_V6_NO_PERSIST_YAML).unwrap();
         let server_id = cfg.v6().unwrap().server_id();
-        println!("server_id: {:?}",server_id);
+        println!("server_id: {:?}", server_id);
         assert!(!server_id_path.exists());
     }
 }

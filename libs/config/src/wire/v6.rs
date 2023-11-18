@@ -43,7 +43,6 @@ pub struct Net {
     pub authoritative: bool,
 }
 
-
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub enum DuidType {
     LLT,

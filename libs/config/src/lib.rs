@@ -6,16 +6,16 @@ pub mod wire;
 use std::{env, path::Path, time::Duration};
 
 use anyhow::{bail, Context, Result};
+use dora_core::dhcproto::v6::duid::Duid;
 use dora_core::pnet::{
     self,
     datalink::NetworkInterface,
     ipnetwork::{IpNetwork, Ipv4Network},
 };
-use serde::{Serialize, Deserialize};
-use tracing::debug;
 use rand::{self, RngCore};
+use serde::{Deserialize, Serialize};
+use tracing::debug;
 use wire::v6::ServerDuid;
-use dora_core::dhcproto::v6::duid::Duid;
 /// server config
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DhcpConfig {
@@ -56,7 +56,7 @@ impl EnvConfig {
 
 impl DhcpConfig {
     /// attempts to decode the config first as JSON, then YAML, finally erroring if neither work
-        pub fn parse<P: AsRef<Path>>(path: P) -> Result<Self> {
+    pub fn parse<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
         let config = v4::Config::new(
             std::fs::read_to_string(path)
@@ -66,7 +66,7 @@ impl DhcpConfig {
 
         Ok(Self { v4: config })
     }
-        /// attempts to decode the config first as JSON, then YAML, finally erroring if neither work
+    /// attempts to decode the config first as JSON, then YAML, finally erroring if neither work
     pub fn parse_str<S: AsRef<str>>(s: S) -> Result<Self> {
         let config = v4::Config::new(s.as_ref())?;
         debug!(?config);
@@ -193,8 +193,7 @@ pub fn generate_bytes_from_string(s: &String) -> Result<Vec<u8>> {
     let mut ident = Vec::new();
     let mut i = 0;
     while i < s.len() {
-        let byte = u8::from_str_radix(&s[i..i + 2], 16)
-            .context("should be a valid hex string")?;
+        let byte = u8::from_str_radix(&s[i..i + 2], 16).context("should be a valid hex string")?;
         ident.push(byte);
         i += 2;
     }
@@ -220,11 +219,11 @@ impl IdentifierFileStruct {
     pub fn new(identifier: &String, duid_config: &ServerDuid) -> Self {
         Self {
             identifier: identifier.clone(),
-            duid_config: Some(duid_config.clone())
+            duid_config: Some(duid_config.clone()),
         }
     }
-    
-    pub fn to_json(&self,path: &Path) -> Result<()> {
+
+    pub fn to_json(&self, path: &Path) -> Result<()> {
         let file = std::fs::File::create(path)?;
         serde_json::to_writer_pretty(file, self)?;
         Ok(())
@@ -237,8 +236,8 @@ impl IdentifierFileStruct {
     }
 
     pub fn duid(&self) -> Result<Duid> {
-        let duid_bytes = generate_bytes_from_string(&self.identifier).context("server identifier should be a valid hex string")?;
+        let duid_bytes = generate_bytes_from_string(&self.identifier)
+            .context("server identifier should be a valid hex string")?;
         Ok(Duid::from(duid_bytes))
     }
 }
-

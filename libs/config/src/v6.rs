@@ -260,8 +260,11 @@ pub fn generate_duid_from_config(
     }
 }
 
-fn generate_duid_and_save_to_file(server_id: &ServerDuid,
-    link_layer_address: Ipv6Addr,server_id_path: &Path) -> Result<Duid> {
+fn generate_duid_and_save_to_file(
+    server_id: &ServerDuid,
+    link_layer_address: Ipv6Addr,
+    server_id_path: &Path,
+) -> Result<Duid> {
     let duid = generate_duid_from_config(server_id, link_layer_address)
         .context("can not generate duid from config")?;
     let duid_vec = duid.as_ref().to_vec();
@@ -283,12 +286,15 @@ impl TryFrom<wire::v6::Config> for Config {
     fn try_from(cfg: wire::v6::Config) -> Result<Self> {
         let interfaces = crate::v6_find_interfaces(cfg.interfaces)?;
         // DUID-LLT is the default, will need config options to do others
-        let link_local = interfaces.iter().find_map(|int| {
-            int.ips.iter().find_map(|ip| match ip {
-                IpNetwork::V6(ip) if is_unicast_link_local(&ip.ip()) => Some(*ip),
-                _ => None,
+        let link_local = interfaces
+            .iter()
+            .find_map(|int| {
+                int.ips.iter().find_map(|ip| match ip {
+                    IpNetwork::V6(ip) if is_unicast_link_local(&ip.ip()) => Some(*ip),
+                    _ => None,
+                })
             })
-        }).context("unable to find a link local ip")?;
+            .context("unable to find a link local ip")?;
         let server_id = match cfg.server_id {
             None => {
                 // if server id file exists, then use it
@@ -330,7 +336,11 @@ impl TryFrom<wire::v6::Config> for Config {
                                 .duid()
                                 .context("can not get duid from server identifier file")?
                         } else {
-                            generate_duid_and_save_to_file(&server_id, link_local.ip(), server_id_path)?
+                            generate_duid_and_save_to_file(
+                                &server_id,
+                                link_local.ip(),
+                                server_id_path,
+                            )?
                         }
                     }
                 }
