@@ -28,6 +28,7 @@ tracing = { workspace = true }
 tracing-futures = { workspace = true }
 tracing-subscriber = { workspace = true }
 thiserror = { workspace = true }
+trust-dns-proto = { workspace = true }
 pin-project = "1.0"
 prometheus = { workspace = true }
 prometheus-static-metric = { workspace = true }

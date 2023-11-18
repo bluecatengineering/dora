@@ -23,6 +23,9 @@ use tracing::debug;
 
 use crate::{client_classes::ClientClasses, wire, LeaseTime,v6::DEFAULT_SERVER_ID_FILE_PATH,IdentifierFileStruct};
 
+// re-export wire Ddns since it doesn't need to be modified (yet)
+pub use wire::v4::ddns::Ddns;
+
 pub const DEFAULT_LEASE_TIME: Duration = Duration::from_secs(86_400);
 
 /// server config for dhcpv4
@@ -40,6 +43,7 @@ pub struct Config {
     networks: HashMap<Ipv4Net, Network>,
     v6: Option<crate::v6::Config>,
     client_classes: Option<ClientClasses>,
+    ddns: Option<Ddns>,
 }
 
 impl TryFrom<wire::Config> for Config {
@@ -142,11 +146,15 @@ impl TryFrom<wire::Config> for Config {
                 .map(ClientClasses::try_from)
                 .transpose()
                 .context("unable to parse client_classes config")?,
+            ddns: cfg.ddns,
         })
     }
 }
 
 impl Config {
+    pub fn ddns(&self) -> Option<&Ddns> {
+        self.ddns.as_ref()
+    }
     pub fn v6(&self) -> Option<&crate::v6::Config> {
         self.v6.as_ref()
     }

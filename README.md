@@ -2,7 +2,7 @@
 
 ![](dora.jpg)
 
-`dora` is a DHCP server written in Rust using tokio. It is built on the [`dhcproto`](https://github.com/bluecatengineering/dhcproto) library and `sqlx`. We currently use the sqlite backend, although that could change in the future. The goal of `dora` is to provide a complete, performant, and correct implementation of DHCPv4, and eventually DHCPv6. Dora supports duplicate address detection, ping, binding multiple interfaces, static addresses, client classes, etc [see example.yaml for all options](./example.yaml).
+`dora` is a DHCP server written in Rust using tokio. It is built on the [`dhcproto`](https://github.com/bluecatengineering/dhcproto) library and `sqlx`. We currently use the sqlite backend, although that could change in the future. The goal of `dora` is to provide a complete, performant, and correct implementation of DHCPv4, and eventually DHCPv6. Dora supports duplicate address detection, ping, binding multiple interfaces, static addresses, client classes, DDNS (**new!**) etc [see example.yaml for all options](./example.yaml).
 
 It is, however, an **early release version** and may contain bugs. We hope to build an active community around this project so we can create a new DHCP server together. PRs, issues, and constructive comments are welcome.
 
@@ -129,6 +129,10 @@ It will pretty-print the internal dora config representation as well as parse th
 -   [v4 RFC6842](https://datatracker.ietf.org/doc/html/rfc6842)
 -   [v4 RFC3046](https://datatracker.ietf.org/doc/html/rfc3046)
 -   [v4 RFC5107](https://datatracker.ietf.org/doc/html/rfc5107)
+-   [v4 RFC4701](https://www.rfc-editor.org/rfc/rfc4701)
+-   [v4 RFC4702](https://www.rfc-editor.org/rfc/rfc4702)
+-   [v4 RFC4703](https://www.rfc-editor.org/rfc/rfc4703)
+
 -   see [dhcproto](https://github.com/bluecatengineering/dhcproto) for protocol level support
 
 #### v6
