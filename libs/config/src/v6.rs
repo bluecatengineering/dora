@@ -1,6 +1,8 @@
 use std::{
     collections::HashMap,
     net::Ipv6Addr,
+    path::Path,
+    str::FromStr,
     time::{Duration, SystemTime},
 };
 
@@ -17,8 +19,13 @@ use dora_core::{
 use ipnet::Ipv6Net;
 use tracing::debug;
 
-use crate::{wire, LeaseTime};
-
+use crate::{
+    generate_bytes_from_string, generate_random_bytes, generate_string_from_bytes,
+    wire::{self, v6::ServerDuid},
+    IdentifierFileStruct, LeaseTime,
+};
+/// the default path to  server identifier file path
+pub static DEFAULT_SERVER_ID_FILE_PATH: &str = "/var/lib/dora/server_id";
 // const DEFAULT_VALID: Duration = Duration::from_secs(12 * 24 * 60 * 60); // 12 days
 // const DEFAULT_PREFERRED: Duration = Duration::from_secs(8 * 24 * 60 * 60); // 8 days
 
@@ -176,38 +183,159 @@ pub const fn is_unicast_link_local(ip: &Ipv6Addr) -> bool {
     (ip.segments()[0] & 0xffc0) == 0xfe80
 }
 
+pub fn generate_duid_from_config(
+    server_id: &ServerDuid,
+    link_layer_address: Ipv6Addr,
+) -> Result<Duid> {
+    match server_id.duid_type {
+        wire::v6::DuidType::LLT | wire::v6::DuidType::LL => {
+            let htype = match server_id.htype {
+                None | Some(0) => HType::Eth,
+                Some(htype_no) => {
+                    let htype_u8 = htype_no as u8; //TODO: a compromise of v4 HType
+                    HType::from(htype_u8)
+                }
+            };
+            let identifier = match &server_id.identifier {
+                None => link_layer_address,
+                Some(identifier_string) => {
+                    if identifier_string.is_empty() {
+                        link_layer_address
+                    } else {
+                        Ipv6Addr::from_str(identifier_string.as_str())
+                            .context("should be a valid ipv6 address")?
+                    }
+                }
+            };
+            if server_id.duid_type == wire::v6::DuidType::LLT {
+                let time = match server_id.time {
+                    None | Some(0) => SystemTime::now()
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .context("unable to get system time")?
+                        .as_secs() as u32,
+                    Some(time) => time,
+                };
+                println!(
+                    "htype: {:?}, time: {:?}, identifier: {:?}",
+                    htype, time, identifier
+                );
+                Ok(Duid::link_layer_time(htype, time, identifier))
+            } else {
+                Ok(Duid::link_layer(htype, identifier))
+            }
+        }
+        wire::v6::DuidType::EN => {
+            let enterprise_id = match server_id.enterprise_id {
+                None | Some(0) => 1, //TODO: harewire to 1 temporarily
+                Some(enterprise_id) => enterprise_id,
+            };
+            let identifier = match &server_id.identifier {
+                None => {
+                    //randomly generate a 6-byte long identifier. use rand library
+                    generate_random_bytes(6)
+                }
+                Some(identifier_string) => {
+                    if identifier_string.is_empty() {
+                        generate_random_bytes(6)
+                    } else {
+                        generate_bytes_from_string(identifier_string)
+                            .context("should be a valid hex string")?
+                    }
+                }
+            };
+            Ok(Duid::enterprise(enterprise_id, &identifier[..]))
+        }
+        wire::v6::DuidType::UUID => {
+            if server_id.identifier.is_none() {
+                bail!("identifier must be specified for UUID type DUID");
+            }
+            let identifier_string = server_id.identifier.as_ref().unwrap();
+            if identifier_string.is_empty() {
+                bail!("identifier must be specified for UUID type DUID");
+            }
+            let identifier = generate_bytes_from_string(&identifier_string)
+                .context("should be a valid hex string")?;
+            Ok(Duid::uuid(&identifier[..]))
+        }
+    }
+}
+
+fn generate_duid_and_save_to_file(server_id: &ServerDuid,
+    link_layer_address: Ipv6Addr,server_id_path: &Path) -> Result<Duid> {
+    let duid = generate_duid_from_config(server_id, link_layer_address)
+        .context("can not generate duid from config")?;
+    let duid_vec = duid.as_ref().to_vec();
+    let duid_string =
+        generate_string_from_bytes(&duid_vec).context("can not generate string from bytes")?;
+    let new_identifier_file = IdentifierFileStruct {
+        identifier: duid_string,
+        duid_config: Some(server_id.clone()),
+    };
+    new_identifier_file
+        .to_json(server_id_path)
+        .context("can not write server identifier json")?;
+    Ok(duid)
+}
+
 impl TryFrom<wire::v6::Config> for Config {
     type Error = anyhow::Error;
 
     fn try_from(cfg: wire::v6::Config) -> Result<Self> {
         let interfaces = crate::v6_find_interfaces(cfg.interfaces)?;
         // DUID-LLT is the default, will need config options to do others
-        let int = interfaces
-            .first()
-            .context("must find at least one v6 interface")?;
-
-        // find a link local ipv6 address, then convert that into a Duid
-        let server_id = int
-            .ips
-            .iter()
-            .find_map(|ip| match ip {
+        let link_local = interfaces.iter().find_map(|int| {
+            int.ips.iter().find_map(|ip| match ip {
                 IpNetwork::V6(ip) if is_unicast_link_local(&ip.ip()) => Some(*ip),
                 _ => None,
             })
-            .context("unable to find a link local ip")
-            .and_then(|link_local| {
-                // https://www.rfc-editor.org/rfc/rfc8415#section-11.2
-                Ok(Duid::link_layer_time(
-                    // TODO: hardcoded eth type right now
-                    HType::Eth,
-                    SystemTime::now()
-                        .duration_since(SystemTime::UNIX_EPOCH)
-                        .context("unable to get system time")?
-                        .as_secs() as u32,
-                    link_local.ip(),
-                ))
-            })?;
-
+        }).context("unable to find a link local ip")?;
+        let server_id = match cfg.server_id {
+            None => {
+                // if server id file exists, then use it
+                let server_id_path = Path::new(DEFAULT_SERVER_ID_FILE_PATH);
+                if server_id_path.exists() {
+                    let identifier_file = IdentifierFileStruct::from_json(server_id_path)
+                        .context("can not read server identifier json")?;
+                    identifier_file
+                        .duid()
+                        .context("can not get duid from server identifier file")?
+                } else {
+                    // https://www.rfc-editor.org/rfc/rfc8415#section-11.2
+                    Duid::link_layer_time(
+                        HType::Eth,
+                        SystemTime::now()
+                            .duration_since(SystemTime::UNIX_EPOCH)
+                            .context("unable to get system time")?
+                            .as_secs() as u32,
+                        link_local.ip(),
+                    )
+                }
+            }
+            Some(server_id) => {
+                let server_id_path = match server_id.server_id_path.as_ref() {
+                    Some(path) => Path::new(path),
+                    None => Path::new(DEFAULT_SERVER_ID_FILE_PATH),
+                };
+                if server_id.persist == Some(false) {
+                    generate_duid_from_config(&server_id, link_local.ip())
+                        .context("can not generate duid from config")?
+                } else {
+                    if !server_id_path.exists() {
+                        generate_duid_and_save_to_file(&server_id, link_local.ip(), server_id_path)?
+                    } else {
+                        let identifier_file = IdentifierFileStruct::from_json(server_id_path)
+                            .context("can not read server identifier json")?;
+                        if identifier_file.duid_config == Some(server_id.clone()) {
+                            identifier_file
+                                .duid()
+                                .context("can not get duid from server identifier file")?
+                        } else {
+                            generate_duid_and_save_to_file(&server_id, link_local.ip(), server_id_path)?
+                        }
+                    }
+                }
+            }
+        };
         let global_opts = cfg.options;
         debug!(?interfaces, ?server_id, "v6 interfaces that will be used");
         let networks = cfg

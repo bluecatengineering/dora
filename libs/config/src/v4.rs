@@ -21,7 +21,7 @@ use dora_core::{
 use ipnet::{Ipv4AddrRange, Ipv4Net};
 use tracing::debug;
 
-use crate::{client_classes::ClientClasses, wire, LeaseTime};
+use crate::{client_classes::ClientClasses, wire, LeaseTime,v6::DEFAULT_SERVER_ID_FILE_PATH,IdentifierFileStruct};
 
 pub const DEFAULT_LEASE_TIME: Duration = Duration::from_secs(86_400);
 
@@ -279,7 +279,7 @@ impl Config {
     /// Create a new DhcpConfig for the server. Pass in the wire
     /// config format from yaml
     pub fn yaml<S: AsRef<str>>(input: S) -> Result<Self> {
-        Self::try_from(serde_yaml::from_str::<wire::Config>(input.as_ref())?)
+                Self::try_from(serde_yaml::from_str::<wire::Config>(input.as_ref())?)
     }
     /// Create a new DhcpConfig for the server. Pass in the wire
     /// config format from json
@@ -288,13 +288,13 @@ impl Config {
     }
     /// Create a new DhcpConfig for the server. Attempts to decode path
     /// as json, then yaml, and if both fail will return Err
-    pub fn new<S: AsRef<str>>(input: S) -> Result<Self> {
+        pub fn new<S: AsRef<str>>(input: S) -> Result<Self> {
         match Self::json(input.as_ref()) {
             Ok(r) => Ok(r),
             Err(_err) => Self::yaml(input.as_ref()),
         }
     }
-}
+    }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Network {
@@ -658,13 +658,19 @@ impl FloodThreshold {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use dora_core::dhcproto::v4;
 
     use super::*;
 
     pub static SAMPLE_YAML: &str = include_str!("../sample/config.yaml");
     pub static CIRC_YAML: &str = include_str!("../sample/circular_deps.yaml");
-
+    pub static CONFIG_V6_YAML: &str = include_str!("../sample/config_v6.yaml");
+    pub static CONFIG_V6_LL_YAML: &str = include_str!("../sample/config_v6_LL.yaml");
+    pub static CONFIG_V6_EN_YAML: &str = include_str!("../sample/config_v6_EN.yaml");
+    pub static CONFIG_V6_UUID_YAML: &str = include_str!("../sample/config_v6_UUID.yaml");
+    pub static CONFIG_V6_NO_PERSIST_YAML: &str = include_str!("../sample/config_v6_no_persist.yaml");
     // test we can decode from wire
     #[test]
     fn test_sample() {
@@ -889,5 +895,69 @@ mod tests {
             .get_reserved_opt(&DhcpOption::DomainNameServer(vec![[8, 8, 8, 8].into()]))
             .unwrap();
         assert_eq!(res.ip, Ipv4Addr::new(192, 168, 0, 120));
+    }
+
+    /// test if v6_config can generate a server_id; and if it can dump it to a file
+    #[test]
+    fn test_v6_config() {
+        let path = Path::new(DEFAULT_SERVER_ID_FILE_PATH);
+        if path.exists() {
+            std::fs::remove_file(path).unwrap();
+        }
+
+        let cfg = Config::new(CONFIG_V6_YAML).unwrap();
+        // test a range decoded properly
+        match cfg.v6() {
+            Some(v6_config) => {
+                println!("{:?}",v6_config);
+            }
+            None => {
+                panic!("expected v6 config")
+            }
+        };
+       
+        let identifier_file_struct = IdentifierFileStruct::from_json(path).unwrap();
+        let file_server_id = identifier_file_struct.duid().unwrap();
+        let file_server_id = file_server_id.as_ref();
+        let server_id = cfg.v6().unwrap().server_id();
+        assert_eq!(server_id, file_server_id);
+    }
+
+    /// test if we can generate a different server_id using different config rather than using the config file that exists
+    #[test]
+    fn test_v6_generate_different_server_id() {
+        let cfg1 = Config::new(CONFIG_V6_YAML).unwrap();
+        let cfg2 = Config::new(CONFIG_V6_LL_YAML).unwrap();
+        let server_id1 = cfg1.v6().unwrap().server_id();
+        let server_id2 = cfg2.v6().unwrap().server_id();
+        println!("server_id1: {:?}",server_id1);
+        println!("server_id2: {:?}",server_id2);
+        assert_ne!(server_id1, server_id2);
+    }
+    /// test if we can generate EN type server_id
+    #[test]
+    fn test_v6_generate_en_server_id() {
+        let cfg = Config::new(CONFIG_V6_EN_YAML).unwrap();
+        let server_id = cfg.v6().unwrap().server_id();
+        println!("server_id: {:?}",server_id);
+    }
+    /// test if we can generate UUID type server_id
+    #[test]
+    fn test_v6_generate_uuid_server_id() {
+        let cfg = Config::new(CONFIG_V6_UUID_YAML).unwrap();
+        let server_id = cfg.v6().unwrap().server_id();
+        println!("server_id: {:?}",server_id);
+    }
+    /// test if wen can generate server_id without persisting it to a file
+    #[test]
+    fn test_v6_generate_server_id_without_persist() {
+        let server_id_path = Path::new(DEFAULT_SERVER_ID_FILE_PATH);
+        if server_id_path.exists() {
+            std::fs::remove_file(server_id_path).unwrap();
+        }
+        let cfg = Config::new(CONFIG_V6_NO_PERSIST_YAML).unwrap();
+        let server_id = cfg.v6().unwrap().server_id();
+        println!("server_id: {:?}",server_id);
+        assert!(!server_id_path.exists());
     }
 }

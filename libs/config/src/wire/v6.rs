@@ -15,6 +15,7 @@ use crate::wire::{MaybeList, MinMax};
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default)]
 pub struct Config {
     pub interfaces: Option<Vec<String>>,
+    pub server_id: Option<ServerDuid>,
     pub networks: HashMap<Ipv6Net, Net>,
     // TODO: better defaults than blank? pull information from the system
     #[serde(default)]
@@ -27,7 +28,6 @@ pub struct Net {
     #[serde(default)]
     pub options: Options,
     pub interfaces: Option<Vec<String>>,
-    // pub duid: ServerDuid,
     /// ping check is an optional value, when turned on an ICMP echo request will be sent
     /// before OFFER for this network
     #[serde(default)]
@@ -43,14 +43,31 @@ pub struct Net {
     pub authoritative: bool,
 }
 
-// TODO allow configuring server id
-// #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
-// #[serde(tag = "type", content = "value", rename_all = "snake_case")]
-// pub enum ServerDuid {
-//     LLT(String),
-//     LL(String),
-//     EN(String),
-// }
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub enum DuidType {
+    LLT,
+    LL,
+    EN,
+    UUID,
+}
+
+impl Default for DuidType {
+    fn default() -> Self {
+        Self::LLT
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Default)]
+pub struct ServerDuid {
+    pub duid_type: DuidType,
+    pub htype: Option<u16>, //according to https://datatracker.ietf.org/doc/html/rfc8415#section-11.1 htype is a 16-digit unsigned value, unlike 8 digit number in DHCP v4. Will it be a problem?
+    pub identifier: Option<String>,
+    pub time: Option<u32>,
+    pub enterprise_id: Option<u32>,
+    pub persist: Option<bool>,
+    pub server_id_path: Option<String>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct NetworkConfig {
