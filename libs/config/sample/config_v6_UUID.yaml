@@ -1,49 +1,25 @@
 v6:
-    # optional, interfaces to bind
-    # interfaces:
-        # - enp6s0
-    # Optional, if server_id is not specified, we will generate an server identifer or use previous generated server identifier(if exists). Addtionally, if all settings are the same as previous settings, we will also use previous generated server identifier.
     server_id:
-        duid_type: UUID # LLT (default) | LL | EN | UUID
-        identifier: 451c810bf191a92abf3768dd1ed61f3a  # Optional, set blank or remove to auto-generate link-layer address. For LLT and LL, it must be a valid link-layer address.
-        persist: true # Optional, default value is true. set false to generate a new DUID every time the server is restarted. Persist feature is now unimplemented.
-        server_id_path: /var/lib/dora/server_id # optional. default is /var/lib/dora/server_id
-    # global options (optional)
+        duid_type: UUID 
+        identifier: 451c810bf191a92abf3768dd1ed61f3a 
+        persist: true
+        server_id_path: /var/lib/dora/server_id
     options:
         values:
-            # dns
             23:
                 type: ip_list
                 value:
                     - 2001:db8::1
                     - 2001:db8::2
-    # optional
     networks:
-        # subnet selection:
-        # we will attempt to match first the IP of the `interfaces` field below to determine
-        # which subnet to apply, if none is specified we will use the link-local, then the global IP
-        # of the interface we received the message on.
-        # (this method should be double checked, I'm not sure it's correct)
-        #
-        # https://kea.readthedocs.io/en/kea-1.6.0/arm/dhcp6-srv.html#dhcp6-config-subnets
-        # https://datatracker.ietf.org/doc/html/rfc8415#section-13.1
-        # https://techhub.hpe.com/eginfolib/networking/docs/switches/5130ei/5200-3942_l3-ip-svcs_cg/content/483572577.htm
-        #
-        2001:db8:1::/64: # https://en.wikipedia.org/wiki/IPv6_address#Documentation
-            # optional - what interfaces we will apply to this network
-            #interfaces:
-                # - enp6s0
-            # no explicit ranges (yet)
+        2001:db8:1::/64:
             config:
                 lease_time:
                     default: 3600
                 preferred_time:
                     default: 3600
-            # same with options
-            # inspiration: https://kea.readthedocs.io/en/kea-2.2.0/arm/dhcp6-srv.html?highlight=router%20advertisement#dhcp6-std-options-list
             options:
                 values:
-                    # dns
                     23:
                         type: ip_list
                         value:

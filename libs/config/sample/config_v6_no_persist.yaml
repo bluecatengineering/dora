@@ -1,47 +1,23 @@
 v6:
-    # optional, interfaces to bind
-    # interfaces:
-        # - enp6s0
-    # Optional, if server_id is not specified, we will generate an server identifer or use previous generated server identifier(if exists). Addtionally, if all settings are the same as previous settings, we will also use previous generated server identifier.
     server_id:
-        duid_type: LLT # LLT (default) | LL | EN | UUID
-        persist: false # Optional, default value is true. set false to generate a new DUID every time the server is restarted. Persist feature is now unimplemented.
-    # global options (optional)
+        duid_type: LLT 
+        persist: false
     options:
         values:
-            # dns
             23:
                 type: ip_list
                 value:
                     - 2001:db8::1
                     - 2001:db8::2
-    # optional
     networks:
-        # subnet selection:
-        # we will attempt to match first the IP of the `interfaces` field below to determine
-        # which subnet to apply, if none is specified we will use the link-local, then the global IP
-        # of the interface we received the message on.
-        # (this method should be double checked, I'm not sure it's correct)
-        #
-        # https://kea.readthedocs.io/en/kea-1.6.0/arm/dhcp6-srv.html#dhcp6-config-subnets
-        # https://datatracker.ietf.org/doc/html/rfc8415#section-13.1
-        # https://techhub.hpe.com/eginfolib/networking/docs/switches/5130ei/5200-3942_l3-ip-svcs_cg/content/483572577.htm
-        #
-        2001:db8:1::/64: # https://en.wikipedia.org/wiki/IPv6_address#Documentation
-            # optional - what interfaces we will apply to this network
-            #interfaces:
-                # - enp6s0 
-            # no explicit ranges (yet)
+        2001:db8:1::/64: 
             config:
                 lease_time:
                     default: 3600
                 preferred_time:
                     default: 3600
-            # same with options
-            # inspiration: https://kea.readthedocs.io/en/kea-2.2.0/arm/dhcp6-srv.html?highlight=router%20advertisement#dhcp6-std-options-list
             options:
                 values:
-                    # dns
                     23:
                         type: ip_list
                         value:
