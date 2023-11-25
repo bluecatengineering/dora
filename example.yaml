@@ -228,7 +228,6 @@ v6:
             # optional - what interfaces we will apply to this network
             interfaces:
                 # - enp6s0
-                - ens37
             # no explicit ranges (yet)
             config:
                 lease_time:
