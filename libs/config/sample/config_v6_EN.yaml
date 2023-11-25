@@ -4,7 +4,7 @@ v6:
         identifier: 1122FFFE3842 
         enterprise_id: 23
         persist: true 
-        server_id_path: /var/lib/dora/server_id 
+        path: /var/lib/dora/server_id 
     options:
         values:
             23:

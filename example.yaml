@@ -202,7 +202,7 @@ v6:
         hardware_type: 1 # Optional, set blank or remove to auto-generate hardware type. For LL, it must be a valid u16 hardware type
         #enterprise_id: 1 # Optional, set blank or remove to auto-generate enterprise id. For EN, it must be a valid u32 enterprise id
         persist: true # Optional, default value is true. set false to generate a new DUID every time the server is restarted.
-        server_id_path: ./server_id.json # optional. default is /var/lib/dora/server_id
+        path: ./server_id.json # optional. default is /var/lib/dora/server_id
     # global options (optional)
     options:
         values:

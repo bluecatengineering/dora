@@ -5,7 +5,7 @@ v6:
         time: 1111112 
         hardware_type: 1 
         persist: true 
-        server_id_path: /var/lib/dora/server_id
+        path: /var/lib/dora/server_id
     options:
         values:
             23:

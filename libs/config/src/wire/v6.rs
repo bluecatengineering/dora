@@ -57,6 +57,7 @@ impl Default for DuidType {
     }
 }
 
+/*
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Default)]
 pub struct ServerDuid {
     pub duid_type: DuidType,
@@ -66,6 +67,72 @@ pub struct ServerDuid {
     pub enterprise_id: Option<u32>,
     pub persist: Option<bool>,
     pub server_id_path: Option<String>,
+}
+*/
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[serde(tag = "duid_type")]
+pub enum ServerDuidInfo {
+    LLT {
+        #[serde(default = "default_htype")]
+        htype: u16,
+        #[serde(default = "default_identifier")]
+        identifier: String,
+        #[serde(default = "default_time")]
+        time: u32,
+    },
+    LL {
+        #[serde(default = "default_htype")]
+        htype: u16,
+        #[serde(default = "default_identifier")]
+        identifier: String,
+    },
+    EN {
+        #[serde(default = "default_enterprise_id")]
+        enterprise_id: u32,
+        #[serde(default = "default_identifier")]
+        identifier: String,
+    },
+    UUID {
+        #[serde(default = "default_identifier")]
+        identifier: String,
+    },
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[serde(tag = "duid_type")]
+pub struct ServerDuid {
+    #[serde(flatten)]
+    pub info: ServerDuidInfo,
+    #[serde(default = "default_persist")]
+    pub persist: bool,
+    #[serde(default = "default_path")]
+    pub path: String,
+}
+
+fn default_enterprise_id() -> u32 {
+    0 // Deal the default value in /lib/config/v6.rs to handle compatibility with the value of 0.
+}
+
+fn default_htype() -> u16 {
+    0 // Deal the default value in /lib/config/v6.rs to handle compatibility with the value of 0.
+}
+
+fn default_identifier() -> String {
+    String::new() // More actions are performed in /lib/config/v6.rs, as this file is not designed for comprehensive actions.
+}
+
+fn default_time() -> u32 {
+    // More actions are performed in /lib/config/v6.rs.
+    // System time should not be set here, as it will affect the comparison of the server_id from the config file and the one from the persisted file.
+    0
+}
+
+fn default_persist() -> bool {
+    true
+}
+
+fn default_path() -> String {
+    "/var/lib/dora/server_id".to_string()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]

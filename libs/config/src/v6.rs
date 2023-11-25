@@ -22,7 +22,10 @@ use tracing::debug;
 
 use crate::{
     generate_random_bytes,
-    wire::{self, v6::ServerDuid},
+    wire::{
+        self,
+        v6::{ServerDuid, ServerDuidInfo},
+    },
     IdentifierFileStruct, LeaseTime,
 };
 /// the default path to  server identifier file path
@@ -185,73 +188,72 @@ pub const fn is_unicast_link_local(ip: &Ipv6Addr) -> bool {
 }
 
 pub fn generate_duid_from_config(
-    server_id: &ServerDuid,
+    server_id_info: &ServerDuidInfo,
     link_layer_address: Ipv6Addr,
 ) -> Result<Duid> {
-    match server_id.duid_type {
-        wire::v6::DuidType::LLT | wire::v6::DuidType::LL => {
-            let htype = match server_id.htype {
-                None | Some(0) => HType::Eth,
-                Some(htype_no) => {
-                    let htype_u8 = htype_no as u8; //TODO: a compromise of v4 HType
-                    HType::from(htype_u8)
-                }
-            };
-            let identifier = match &server_id.identifier {
-                None => link_layer_address,
-                Some(identifier_string) => {
-                    if identifier_string.is_empty() {
-                        link_layer_address
-                    } else {
-                        Ipv6Addr::from_str(identifier_string.as_str())
-                            .context("should be a valid ipv6 address")?
-                    }
-                }
-            };
-            if server_id.duid_type == wire::v6::DuidType::LLT {
-                let time = match server_id.time {
-                    None | Some(0) => SystemTime::now()
-                        .duration_since(SystemTime::UNIX_EPOCH)
-                        .context("unable to get system time")?
-                        .as_secs() as u32,
-                    Some(time) => time,
-                };
-                Ok(Duid::link_layer_time(htype, time, identifier))
+    match server_id_info {
+        ServerDuidInfo::LLT {
+            htype,
+            identifier,
+            time,
+        } => {
+            let _htype = if htype == &0 {
+                HType::Eth
             } else {
-                Ok(Duid::link_layer(htype, identifier))
-            }
-        }
-        wire::v6::DuidType::EN => {
-            let enterprise_id = match server_id.enterprise_id {
-                None | Some(0) => 1, //TODO: harewire to 1 temporarily
-                Some(enterprise_id) => enterprise_id,
+                let htype_u8 = *htype as u8; //TODO: a compromise of v4 HType
+                HType::from(htype_u8)
             };
-            let identifier = match &server_id.identifier {
-                None => {
-                    //randomly generate a 6-byte long identifier. use rand library
-                    generate_random_bytes(6)
-                }
-                Some(identifier_string) => {
-                    if identifier_string.is_empty() {
-                        generate_random_bytes(6)
-                    } else {
-                        hex::decode(identifier_string).context("should be a valid hex string")?
-                    }
-                }
+            let _identifier = if identifier.is_empty() {
+                link_layer_address
+            } else {
+                Ipv6Addr::from_str(identifier.as_str()).context("should be a valid ipv6 address")?
             };
-            Ok(Duid::enterprise(enterprise_id, &identifier[..]))
+            let _time = if time == &0 {
+                SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .context("unable to get system time")?
+                    .as_secs() as u32
+            } else {
+                *time
+            };
+            Ok(Duid::link_layer_time(_htype, _time, _identifier))
         }
-        wire::v6::DuidType::UUID => {
-            if server_id.identifier.is_none() {
+        ServerDuidInfo::LL { htype, identifier } => {
+            let _htype = if htype == &0 {
+                HType::Eth
+            } else {
+                let htype_u8 = *htype as u8; //TODO: a compromise of v4 HType
+                HType::from(htype_u8)
+            };
+            let _identifier = if identifier.is_empty() {
+                link_layer_address
+            } else {
+                Ipv6Addr::from_str(identifier.as_str()).context("should be a valid ipv6 address")?
+            };
+            Ok(Duid::link_layer(_htype, _identifier))
+        }
+        ServerDuidInfo::EN {
+            enterprise_id,
+            identifier,
+        } => {
+            let _enterprise_id = if enterprise_id == &0 {
+                1 //TODO: harewire to 1 temporarily
+            } else {
+                *enterprise_id
+            };
+            let _identifier = if identifier.is_empty() {
+                generate_random_bytes(6)
+            } else {
+                hex::decode(identifier).context("should be a valid hex string")?
+            };
+            Ok(Duid::enterprise(_enterprise_id, &_identifier[..]))
+        }
+        ServerDuidInfo::UUID { identifier } => {
+            if identifier.is_empty() {
                 bail!("identifier must be specified for UUID type DUID");
             }
-            let identifier_string = server_id.identifier.as_ref().unwrap();
-            if identifier_string.is_empty() {
-                bail!("identifier must be specified for UUID type DUID");
-            }
-            let identifier =
-                hex::decode(identifier_string).context("should be a valid hex string")?;
-            Ok(Duid::uuid(&identifier[..]))
+            let _identifier = hex::decode(identifier).context("should be a valid hex string")?;
+            Ok(Duid::uuid(&_identifier[..]))
         }
     }
 }
@@ -261,10 +263,10 @@ fn generate_duid_and_save_to_file(
     link_layer_address: Ipv6Addr,
     server_id_path: &Path,
 ) -> Result<Duid> {
-    let duid = generate_duid_from_config(server_id, link_layer_address)
+    let duid = generate_duid_from_config(&server_id.info, link_layer_address)
         .context("can not generate duid from config")?;
     let duid_vec = duid.as_ref().to_vec();
-    let duid_string = hex::encode(&duid_vec);
+    let duid_string = hex::encode(duid_vec);
     let new_identifier_file = IdentifierFileStruct {
         identifier: duid_string,
         duid_config: Some(server_id.clone()),
@@ -313,12 +315,13 @@ impl TryFrom<wire::v6::Config> for Config {
                 }
             }
             Some(server_id) => {
-                let server_id_path = match server_id.server_id_path.as_ref() {
-                    Some(path) => Path::new(path),
-                    None => Path::new(DEFAULT_SERVER_ID_FILE_PATH),
+                let server_id_path = if server_id.path.is_empty() {
+                    Path::new(DEFAULT_SERVER_ID_FILE_PATH)
+                } else {
+                    Path::new(&server_id.path)
                 };
-                if server_id.persist == Some(false) {
-                    generate_duid_from_config(&server_id, link_local.ip())
+                if !server_id.persist {
+                    generate_duid_from_config(&server_id.info, link_local.ip())
                         .context("can not generate duid from config")?
                 } else if !server_id_path.exists() {
                     generate_duid_and_save_to_file(&server_id, link_local.ip(), server_id_path)?
