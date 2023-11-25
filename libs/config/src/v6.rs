@@ -1,3 +1,4 @@
+use hex;
 use std::{
     collections::HashMap,
     net::Ipv6Addr,
@@ -20,7 +21,7 @@ use ipnet::Ipv6Net;
 use tracing::debug;
 
 use crate::{
-    generate_bytes_from_string, generate_random_bytes, generate_string_from_bytes,
+    generate_random_bytes,
     wire::{self, v6::ServerDuid},
     IdentifierFileStruct, LeaseTime,
 };
@@ -215,10 +216,6 @@ pub fn generate_duid_from_config(
                         .as_secs() as u32,
                     Some(time) => time,
                 };
-                println!(
-                    "htype: {:?}, time: {:?}, identifier: {:?}",
-                    htype, time, identifier
-                );
                 Ok(Duid::link_layer_time(htype, time, identifier))
             } else {
                 Ok(Duid::link_layer(htype, identifier))
@@ -238,8 +235,7 @@ pub fn generate_duid_from_config(
                     if identifier_string.is_empty() {
                         generate_random_bytes(6)
                     } else {
-                        generate_bytes_from_string(identifier_string)
-                            .context("should be a valid hex string")?
+                        hex::decode(identifier_string).context("should be a valid hex string")?
                     }
                 }
             };
@@ -253,8 +249,8 @@ pub fn generate_duid_from_config(
             if identifier_string.is_empty() {
                 bail!("identifier must be specified for UUID type DUID");
             }
-            let identifier = generate_bytes_from_string(identifier_string)
-                .context("should be a valid hex string")?;
+            let identifier =
+                hex::decode(identifier_string).context("should be a valid hex string")?;
             Ok(Duid::uuid(&identifier[..]))
         }
     }
@@ -268,8 +264,7 @@ fn generate_duid_and_save_to_file(
     let duid = generate_duid_from_config(server_id, link_layer_address)
         .context("can not generate duid from config")?;
     let duid_vec = duid.as_ref().to_vec();
-    let duid_string =
-        generate_string_from_bytes(&duid_vec).context("can not generate string from bytes")?;
+    let duid_string = hex::encode(&duid_vec);
     let new_identifier_file = IdentifierFileStruct {
         identifier: duid_string,
         duid_config: Some(server_id.clone()),

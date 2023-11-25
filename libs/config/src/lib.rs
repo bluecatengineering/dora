@@ -189,26 +189,6 @@ pub fn generate_random_bytes(len: usize) -> Vec<u8> {
     ident
 }
 
-pub fn generate_bytes_from_string(s: &String) -> Result<Vec<u8>> {
-    let mut ident = Vec::new();
-    let mut i = 0;
-    while i < s.len() {
-        let byte = u8::from_str_radix(&s[i..i + 2], 16).context("should be a valid hex string")?;
-        ident.push(byte);
-        i += 2;
-    }
-    Ok(ident)
-}
-
-pub fn generate_string_from_bytes(bytes: &Vec<u8>) -> Result<String> {
-    //Generate hex string from bytes, for example 0x00 0x01 0x02 0x03 -> "00010203"
-    let mut ident = String::new();
-    for byte in bytes {
-        ident.push_str(&format!("{:02x}", byte));
-    }
-    Ok(ident)
-}
-
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Default)]
 pub struct IdentifierFileStruct {
     pub identifier: String,
@@ -236,7 +216,7 @@ impl IdentifierFileStruct {
     }
 
     pub fn duid(&self) -> Result<Duid> {
-        let duid_bytes = generate_bytes_from_string(&self.identifier)
+        let duid_bytes = hex::decode(&self.identifier)
             .context("server identifier should be a valid hex string")?;
         Ok(Duid::from(duid_bytes))
     }
