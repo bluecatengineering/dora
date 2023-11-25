@@ -22,11 +22,8 @@ use tracing::debug;
 
 use crate::{
     generate_random_bytes,
-    wire::{
-        self,
-        v6::{ServerDuid, ServerDuidInfo},
-    },
-    IdentifierFileStruct, LeaseTime,
+    wire::{self, v6::ServerDuidInfo},
+    LeaseTime, PersistIdentifier,
 };
 /// the default path to  server identifier file path
 pub static DEFAULT_SERVER_ID_FILE_PATH: &str = "/var/lib/dora/server_id";
@@ -259,17 +256,17 @@ pub fn generate_duid_from_config(
 }
 
 fn generate_duid_and_save_to_file(
-    server_id: &ServerDuid,
+    server_id_info: &ServerDuidInfo,
     link_layer_address: Ipv6Addr,
     server_id_path: &Path,
 ) -> Result<Duid> {
-    let duid = generate_duid_from_config(&server_id.info, link_layer_address)
+    let duid = generate_duid_from_config(server_id_info, link_layer_address)
         .context("can not generate duid from config")?;
     let duid_vec = duid.as_ref().to_vec();
     let duid_string = hex::encode(duid_vec);
-    let new_identifier_file = IdentifierFileStruct {
+    let new_identifier_file = PersistIdentifier {
         identifier: duid_string,
-        duid_config: Some(server_id.clone()),
+        duid_config: server_id_info.clone(),
     };
     new_identifier_file
         .to_json(server_id_path)
@@ -297,7 +294,7 @@ impl TryFrom<wire::v6::Config> for Config {
                 // if server id file exists, then use it
                 let server_id_path = Path::new(DEFAULT_SERVER_ID_FILE_PATH);
                 if server_id_path.exists() {
-                    let identifier_file = IdentifierFileStruct::from_json(server_id_path)
+                    let identifier_file = PersistIdentifier::from_json(server_id_path)
                         .context("can not read server identifier json")?;
                     identifier_file
                         .duid()
@@ -324,16 +321,24 @@ impl TryFrom<wire::v6::Config> for Config {
                     generate_duid_from_config(&server_id.info, link_local.ip())
                         .context("can not generate duid from config")?
                 } else if !server_id_path.exists() {
-                    generate_duid_and_save_to_file(&server_id, link_local.ip(), server_id_path)?
+                    generate_duid_and_save_to_file(
+                        &server_id.info,
+                        link_local.ip(),
+                        server_id_path,
+                    )?
                 } else {
-                    let identifier_file = IdentifierFileStruct::from_json(server_id_path)
+                    let identifier_file = PersistIdentifier::from_json(server_id_path)
                         .context("can not read server identifier json")?;
-                    if identifier_file.duid_config == Some(server_id.clone()) {
+                    if identifier_file.duid_config == server_id.info {
                         identifier_file
                             .duid()
                             .context("can not get duid from server identifier file")?
                     } else {
-                        generate_duid_and_save_to_file(&server_id, link_local.ip(), server_id_path)?
+                        generate_duid_and_save_to_file(
+                            &server_id.info,
+                            link_local.ip(),
+                            server_id_path,
+                        )?
                     }
                 }
             }

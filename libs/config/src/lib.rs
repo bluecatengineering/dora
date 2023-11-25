@@ -15,7 +15,7 @@ use dora_core::pnet::{
 use rand::{self, RngCore};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
-use wire::v6::ServerDuid;
+use wire::v6::ServerDuidInfo;
 /// server config
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DhcpConfig {
@@ -190,19 +190,12 @@ pub fn generate_random_bytes(len: usize) -> Vec<u8> {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Default)]
-pub struct IdentifierFileStruct {
+pub struct PersistIdentifier {
     pub identifier: String,
-    pub duid_config: Option<ServerDuid>,
+    pub duid_config: ServerDuidInfo,
 }
 
-impl IdentifierFileStruct {
-    pub fn new(identifier: &str, duid_config: &ServerDuid) -> Self {
-        Self {
-            identifier: identifier.to_owned(),
-            duid_config: Some(duid_config.clone()),
-        }
-    }
-
+impl PersistIdentifier {
     pub fn to_json(&self, path: &Path) -> Result<()> {
         let file = std::fs::File::create(path)?;
         serde_json::to_writer_pretty(file, self)?;
@@ -211,7 +204,7 @@ impl IdentifierFileStruct {
 
     pub fn from_json(path: &Path) -> Result<Self> {
         let file = std::fs::File::open(path)?;
-        let identifier_file_struct: IdentifierFileStruct = serde_json::from_reader(file)?;
+        let identifier_file_struct: PersistIdentifier = serde_json::from_reader(file)?;
         Ok(identifier_file_struct)
     }
 

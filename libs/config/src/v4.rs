@@ -672,7 +672,7 @@ mod tests {
 
     use super::*;
 
-    use crate::{v6::DEFAULT_SERVER_ID_FILE_PATH, IdentifierFileStruct};
+    use crate::{v6::DEFAULT_SERVER_ID_FILE_PATH, PersistIdentifier};
 
     pub static SAMPLE_YAML: &str = include_str!("../sample/config.yaml");
     pub static CIRC_YAML: &str = include_str!("../sample/circular_deps.yaml");
@@ -927,7 +927,7 @@ mod tests {
             }
         };
 
-        let identifier_file_struct = IdentifierFileStruct::from_json(path).unwrap();
+        let identifier_file_struct = PersistIdentifier::from_json(path).unwrap();
         let file_server_id = identifier_file_struct.duid().unwrap();
         let file_server_id = file_server_id.as_ref();
         let server_id = cfg.v6().unwrap().server_id();

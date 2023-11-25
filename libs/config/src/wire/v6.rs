@@ -57,18 +57,6 @@ impl Default for DuidType {
     }
 }
 
-/*
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Default)]
-pub struct ServerDuid {
-    pub duid_type: DuidType,
-    pub htype: Option<u16>, //according to https://datatracker.ietf.org/doc/html/rfc8415#section-11.1 htype is a 16-digit unsigned value, unlike 8 digit number in DHCP v4. Will it be a problem?
-    pub identifier: Option<String>,
-    pub time: Option<u32>,
-    pub enterprise_id: Option<u32>,
-    pub persist: Option<bool>,
-    pub server_id_path: Option<String>,
-}
-*/
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 #[serde(tag = "duid_type")]
 pub enum ServerDuidInfo {
@@ -96,6 +84,16 @@ pub enum ServerDuidInfo {
         #[serde(default = "default_identifier")]
         identifier: String,
     },
+}
+
+impl Default for ServerDuidInfo {
+    fn default() -> Self {
+        Self::LLT {
+            htype: default_htype(),
+            identifier: default_identifier(),
+            time: default_time(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
