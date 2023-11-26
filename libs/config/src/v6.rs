@@ -421,7 +421,7 @@ mod tests {
     use crate::{v4::Config, PersistIdentifier};
     use std::path::Path;
 
-    pub static TEST_SERVER_ID_FILE_PATH: &str = include_str!("./server_id");
+    pub static TEST_SERVER_ID_FILE_PATH: &str = "./server_id"; //can not use include_str because sometimes it doesn't exist.
     pub static CONFIG_V6_YAML: &str = include_str!("../sample/config_v6.yaml");
     pub static CONFIG_V6_LL_YAML: &str = include_str!("../sample/config_v6_LL.yaml");
     pub static CONFIG_V6_EN_YAML: &str = include_str!("../sample/config_v6_EN.yaml");
