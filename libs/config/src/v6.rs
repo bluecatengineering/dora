@@ -330,6 +330,7 @@ impl TryFrom<wire::v6::Config> for Config {
                     let identifier_file = PersistIdentifier::from_json(server_id_path)
                         .context("can not read server identifier json")?;
                     if identifier_file.duid_config == server_id.info {
+                        // Here, server_id.info is read from a YAML file and the fields like time, identifier, enterprise_id, etc. have not been processed yet (i.e., 0 has not been replaced with the corresponding default values). Therefore, a comparison can be made. For example, if the server_id type is set to LLT and all other values are empty, then both the persisted file and server_id.info will have all fields as 0 or empty string, making them equal. The difference in time or local link layer address due to changes in time or adapter will not affect the comparison.
                         identifier_file
                             .duid()
                             .context("can not get duid from server identifier file")?
