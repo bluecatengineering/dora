@@ -9,7 +9,10 @@ use tracing::warn;
 
 use std::{collections::HashMap, net::Ipv6Addr, ops::RangeInclusive};
 
-use crate::wire::{MaybeList, MinMax};
+use crate::{
+    v6::DEFAULT_SERVER_ID_FILE_PATH,
+    wire::{MaybeList, MinMax},
+};
 
 /// top-level config type
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default)]
@@ -120,7 +123,7 @@ fn default_persist() -> bool {
 }
 
 fn default_path() -> String {
-    "/var/lib/dora/server_id".to_string()
+    DEFAULT_SERVER_ID_FILE_PATH.to_string()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
