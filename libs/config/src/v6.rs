@@ -418,10 +418,10 @@ impl TryFrom<wire::v6::Config> for Config {
 
 #[cfg(test)]
 mod tests {
-    use crate::v4::Config;
-    use crate::{v6::DEFAULT_SERVER_ID_FILE_PATH, PersistIdentifier};
+    use crate::{v4::Config, PersistIdentifier};
     use std::path::Path;
 
+    pub static TEST_SERVER_ID_FILE_PATH: &str = include_str!("./server_id");
     pub static CONFIG_V6_YAML: &str = include_str!("../sample/config_v6.yaml");
     pub static CONFIG_V6_LL_YAML: &str = include_str!("../sample/config_v6_LL.yaml");
     pub static CONFIG_V6_EN_YAML: &str = include_str!("../sample/config_v6_EN.yaml");
@@ -432,7 +432,7 @@ mod tests {
     /// test if v6_config can generate a server_id; and if it can dump it to a file
     #[test]
     fn test_v6_config() {
-        let path = Path::new(DEFAULT_SERVER_ID_FILE_PATH);
+        let path = Path::new(TEST_SERVER_ID_FILE_PATH);
         if path.exists() {
             std::fs::remove_file(path).unwrap();
         }
@@ -483,7 +483,7 @@ mod tests {
     /// test if wen can generate server_id without persisting it to a file
     #[test]
     fn test_v6_generate_server_id_without_persist() {
-        let server_id_path = Path::new(DEFAULT_SERVER_ID_FILE_PATH);
+        let server_id_path = Path::new(TEST_SERVER_ID_FILE_PATH);
         if server_id_path.exists() {
             std::fs::remove_file(server_id_path).unwrap();
         }
