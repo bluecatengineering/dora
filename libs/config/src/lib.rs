@@ -189,7 +189,7 @@ pub fn generate_random_bytes(len: usize) -> Vec<u8> {
     ident
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct PersistIdentifier {
     pub identifier: String,
     pub duid_config: ServerDuidInfo,

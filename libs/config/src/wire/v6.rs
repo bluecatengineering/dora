@@ -86,16 +86,6 @@ pub enum ServerDuidInfo {
     },
 }
 
-impl Default for ServerDuidInfo {
-    fn default() -> Self {
-        Self::LLT {
-            htype: default_htype(),
-            identifier: default_identifier(),
-            time: default_time(),
-        }
-    }
-}
-
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 #[serde(tag = "duid_type")]
 pub struct ServerDuid {
