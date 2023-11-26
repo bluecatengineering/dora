@@ -3,7 +3,7 @@ v6:
         duid_type: UUID 
         identifier: 451c810bf191a92abf3768dd1ed61f3a 
         persist: true
-        path: /var/lib/dora/server_id
+        path: ./server_id
     options:
         values:
             23:

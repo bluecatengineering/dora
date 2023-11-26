@@ -4,7 +4,7 @@ v6:
         identifier: fe80::c981:b769:461a:bfb4
         hardware_type: 2
         persist: true
-        path: /var/lib/dora/server_id
+        path: ./server_id
     options:
         values:
             23:
