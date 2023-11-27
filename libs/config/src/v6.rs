@@ -197,7 +197,7 @@ pub fn generate_duid_from_config(
             let _htype = if htype == &0 {
                 HType::Eth
             } else {
-                let htype_u8 = *htype as u8; //TODO: a compromise of v4 HType
+                let htype_u8 = *htype as u8; //TODO: This is a compromise of v4 HType. Should be changed to v6 HType after dhcproto is updated.
                 HType::from(htype_u8)
             };
             let _identifier = if identifier.is_empty() {
@@ -219,7 +219,7 @@ pub fn generate_duid_from_config(
             let _htype = if htype == &0 {
                 HType::Eth
             } else {
-                let htype_u8 = *htype as u8; //TODO: a compromise of v4 HType
+                let htype_u8 = *htype as u8; //TODO: This is a compromise of v4 HType. Should be changed to v6 HType after dhcproto is updated.
                 HType::from(htype_u8)
             };
             let _identifier = if identifier.is_empty() {
