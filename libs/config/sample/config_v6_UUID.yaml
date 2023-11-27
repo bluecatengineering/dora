@@ -1,0 +1,27 @@
+v6:
+    server_id:
+        type: UUID
+        identifier: 451c810bf191a92abf3768dd1ed61f3a
+        persist: true
+        path: ./server_id
+    options:
+        values:
+            23:
+                type: ip_list
+                value:
+                    - 2001:db8::1
+                    - 2001:db8::2
+    networks:
+        2001:db8:1::/64:
+            config:
+                lease_time:
+                    default: 3600
+                preferred_time:
+                    default: 3600
+            options:
+                values:
+                    23:
+                        type: ip_list
+                        value:
+                            - 2001:db8::1
+                            - 2001:db8::2

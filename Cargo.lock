@@ -583,6 +583,7 @@ dependencies = [
  "hex",
  "ipnet",
  "phf",
+ "rand",
  "serde",
  "serde_json",
  "serde_yaml",

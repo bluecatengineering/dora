@@ -4,3 +4,4 @@ target/
 data/
 *.db*
 .vscode/*.log
+server_id

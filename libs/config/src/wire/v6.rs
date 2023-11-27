@@ -9,12 +9,16 @@ use tracing::warn;
 
 use std::{collections::HashMap, net::Ipv6Addr, ops::RangeInclusive};
 
-use crate::wire::{MaybeList, MinMax};
+use crate::{
+    v6::DEFAULT_SERVER_ID_FILE_PATH,
+    wire::{MaybeList, MinMax},
+};
 
 /// top-level config type
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default)]
 pub struct Config {
     pub interfaces: Option<Vec<String>>,
+    pub server_id: Option<ServerDuid>,
     pub networks: HashMap<Ipv6Net, Net>,
     // TODO: better defaults than blank? pull information from the system
     #[serde(default)]
@@ -27,7 +31,6 @@ pub struct Net {
     #[serde(default)]
     pub options: Options,
     pub interfaces: Option<Vec<String>>,
-    // pub duid: ServerDuid,
     /// ping check is an optional value, when turned on an ICMP echo request will be sent
     /// before OFFER for this network
     #[serde(default)]
@@ -43,14 +46,67 @@ pub struct Net {
     pub authoritative: bool,
 }
 
-// TODO allow configuring server id
-// #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
-// #[serde(tag = "type", content = "value", rename_all = "snake_case")]
-// pub enum ServerDuid {
-//     LLT(String),
-//     LL(String),
-//     EN(String),
-// }
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub enum DuidType {
+    LLT,
+    LL,
+    EN,
+    UUID,
+}
+
+impl Default for DuidType {
+    fn default() -> Self {
+        Self::LLT
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[serde(tag = "type")]
+pub enum ServerDuidInfo {
+    LLT {
+        #[serde(default)]
+        htype: u16,
+        #[serde(default)]
+        time: u32,
+        #[serde(default)]
+        identifier: String,
+    },
+    LL {
+        #[serde(default)]
+        htype: u16,
+        #[serde(default)]
+        identifier: String,
+    },
+    EN {
+        #[serde(default)]
+        enterprise_id: u32,
+        #[serde(default)]
+        identifier: String,
+    },
+    UUID {
+        // identifier must be supplied for UUID
+        identifier: String,
+    },
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[serde(tag = "type")]
+pub struct ServerDuid {
+    #[serde(flatten)]
+    pub info: ServerDuidInfo,
+    #[serde(default = "default_persist")]
+    pub persist: bool,
+    #[serde(default = "default_path")]
+    pub path: String,
+}
+
+fn default_persist() -> bool {
+    true
+}
+
+fn default_path() -> String {
+    DEFAULT_SERVER_ID_FILE_PATH.to_owned()
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct NetworkConfig {

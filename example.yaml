@@ -192,12 +192,17 @@ networks:
 # responding to INFOREQ.
 v6:
     # optional, interfaces to bind
-    interfaces:
-        - enp6s0
-    # TODO: SERVER ID
-    # server_id:
-    #       type: DUID-LLT (default) | DUID-LL | DUID-EN | ...
-    #       value: ""
+    # interfaces:
+        # - enp6s0
+    # Optional, if server_id is not specified, we will generate an server identifer or use previous generated server identifier(if exists). Addtionally, if all settings are the same as previous settings, we will also use previous generated server identifier.
+    server_id:
+        type: LLT # LLT (default) | LL | EN | UUID
+        identifier: fe80::c981:b769:461a:bfb4 # Optional, set blank or remove to auto-generate link-layer address. For LLT and LL, it must be a valid link-layer address.
+        time: 1111112 # Optional, set blank or remove to auto-generate time. For LLT, it must be a valid u32 timestamp
+        hardware_type: 1 # Optional, set blank or remove to auto-generate hardware type. For LL, it must be a valid u16 hardware type
+        #enterprise_id: 1 # Optional, set blank or remove to auto-generate enterprise id. For EN, it must be a valid u32 enterprise id
+        persist: true # Optional, default value is true. set false to generate a new DUID every time the server is restarted.
+        path: ./server_id # optional. default is /var/lib/dora/server_id
     # global options (optional)
     options:
         values:
@@ -222,7 +227,7 @@ v6:
         2001:db8:1::/64: # https://en.wikipedia.org/wiki/IPv6_address#Documentation
             # optional - what interfaces we will apply to this network
             interfaces:
-                - enp6s0
+                # - enp6s0
             # no explicit ranges (yet)
             config:
                 lease_time:

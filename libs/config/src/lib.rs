@@ -6,13 +6,16 @@ pub mod wire;
 use std::{env, path::Path, time::Duration};
 
 use anyhow::{bail, Context, Result};
+use dora_core::dhcproto::v6::duid::Duid;
 use dora_core::pnet::{
     self,
     datalink::NetworkInterface,
     ipnetwork::{IpNetwork, Ipv4Network},
 };
+use rand::{self, RngCore};
+use serde::{Deserialize, Serialize};
 use tracing::debug;
-
+use wire::v6::ServerDuidInfo;
 /// server config
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DhcpConfig {
@@ -178,4 +181,35 @@ pub fn renew(t: Duration) -> Duration {
 
 pub fn rebind(t: Duration) -> Duration {
     t * 7 / 8
+}
+
+pub fn generate_random_bytes(len: usize) -> Vec<u8> {
+    let mut ident = Vec::with_capacity(len);
+    rand::thread_rng().fill_bytes(&mut ident);
+    ident
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct PersistIdentifier {
+    pub identifier: String,
+    pub duid_config: ServerDuidInfo,
+}
+
+impl PersistIdentifier {
+    pub fn to_json(&self, path: &Path) -> Result<()> {
+        let file = std::fs::File::create(path)?;
+        serde_json::to_writer_pretty(file, self)?;
+        Ok(())
+    }
+
+    pub fn from_json(path: &Path) -> Result<Self> {
+        let file = std::fs::File::open(path)?;
+        Ok(serde_json::from_reader(file)?)
+    }
+
+    pub fn duid(&self) -> Result<Duid> {
+        let duid_bytes = hex::decode(&self.identifier)
+            .context("server identifier should be a valid hex string")?;
+        Ok(Duid::from(duid_bytes))
+    }
 }

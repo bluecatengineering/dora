@@ -1,0 +1,28 @@
+v6:
+    server_id:
+        type: LL
+        identifier: fe80::c981:b769:461a:bfb4
+        hardware_type: 2
+        persist: true
+        path: ./server_id
+    options:
+        values:
+            23:
+                type: ip_list
+                value:
+                    - 2001:db8::1
+                    - 2001:db8::2
+    networks:
+        2001:db8:1::/64:
+            config:
+                lease_time:
+                    default: 3600
+                preferred_time:
+                    default: 3600
+            options:
+                values:
+                    23:
+                        type: ip_list
+                        value:
+                            - 2001:db8::1
+                            - 2001:db8::2
