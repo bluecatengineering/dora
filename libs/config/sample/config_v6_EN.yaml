@@ -1,9 +1,9 @@
 v6:
     server_id:
-        duid_type: EN 
-        identifier: 1122FFFE3842 
+        type: EN
+        identifier: 1122FFFE3842
         enterprise_id: 23
-        persist: true 
+        persist: true
         path: ./server_id
     options:
         values:

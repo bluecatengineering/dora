@@ -1,6 +1,6 @@
 v6:
     server_id:
-        duid_type: LL
+        type: LL
         identifier: fe80::c981:b769:461a:bfb4
         hardware_type: 2
         persist: true
@@ -13,7 +13,7 @@ v6:
                     - 2001:db8::1
                     - 2001:db8::2
     networks:
-        2001:db8:1::/64: 
+        2001:db8:1::/64:
             config:
                 lease_time:
                     default: 3600

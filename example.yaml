@@ -196,7 +196,7 @@ v6:
         # - enp6s0
     # Optional, if server_id is not specified, we will generate an server identifer or use previous generated server identifier(if exists). Addtionally, if all settings are the same as previous settings, we will also use previous generated server identifier.
     server_id:
-        duid_type: LLT # LLT (default) | LL | EN | UUID
+        type: LLT # LLT (default) | LL | EN | UUID
         identifier: fe80::c981:b769:461a:bfb4 # Optional, set blank or remove to auto-generate link-layer address. For LLT and LL, it must be a valid link-layer address.
         time: 1111112 # Optional, set blank or remove to auto-generate time. For LLT, it must be a valid u32 timestamp
         hardware_type: 1 # Optional, set blank or remove to auto-generate hardware type. For LL, it must be a valid u16 hardware type

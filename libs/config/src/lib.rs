@@ -204,8 +204,7 @@ impl PersistIdentifier {
 
     pub fn from_json(path: &Path) -> Result<Self> {
         let file = std::fs::File::open(path)?;
-        let identifier_file_struct: PersistIdentifier = serde_json::from_reader(file)?;
-        Ok(identifier_file_struct)
+        Ok(serde_json::from_reader(file)?)
     }
 
     pub fn duid(&self) -> Result<Duid> {

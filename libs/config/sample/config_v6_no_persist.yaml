@@ -1,6 +1,6 @@
 v6:
     server_id:
-        duid_type: LLT 
+        type: LLT
         persist: false
     options:
         values:
@@ -10,7 +10,7 @@ v6:
                     - 2001:db8::1
                     - 2001:db8::2
     networks:
-        2001:db8:1::/64: 
+        2001:db8:1::/64:
             config:
                 lease_time:
                     default: 3600

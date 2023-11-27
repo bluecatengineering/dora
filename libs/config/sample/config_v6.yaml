@@ -1,10 +1,10 @@
 v6:
     server_id:
-        duid_type: LLT
-        identifier: fe80::c981:b769:461a:bfb4 
-        time: 1111112 
-        hardware_type: 1 
-        persist: true 
+        type: LLT
+        identifier: fe80::c981:b769:461a:bfb4
+        time: 1111112
+        hardware_type: 1
+        persist: true
         path: ./server_id
     options:
         values:
@@ -14,7 +14,7 @@ v6:
                     - 2001:db8::1
                     - 2001:db8::2
     networks:
-        2001:db8:1::/64: 
+        2001:db8:1::/64:
             config:
                 lease_time:
                     default: 3600

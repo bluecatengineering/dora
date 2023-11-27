@@ -1,7 +1,7 @@
 v6:
     server_id:
-        duid_type: UUID 
-        identifier: 451c810bf191a92abf3768dd1ed61f3a 
+        type: UUID
+        identifier: 451c810bf191a92abf3768dd1ed61f3a
         persist: true
         path: ./server_id
     options:

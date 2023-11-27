@@ -61,36 +61,36 @@ impl Default for DuidType {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
-#[serde(tag = "duid_type")]
+#[serde(tag = "type")]
 pub enum ServerDuidInfo {
     LLT {
-        #[serde(default = "default_htype")]
+        #[serde(default)]
         htype: u16,
-        #[serde(default = "default_identifier")]
-        identifier: String,
-        #[serde(default = "default_time")]
+        #[serde(default)]
         time: u32,
+        #[serde(default)]
+        identifier: String,
     },
     LL {
-        #[serde(default = "default_htype")]
+        #[serde(default)]
         htype: u16,
-        #[serde(default = "default_identifier")]
+        #[serde(default)]
         identifier: String,
     },
     EN {
-        #[serde(default = "default_enterprise_id")]
+        #[serde(default)]
         enterprise_id: u32,
-        #[serde(default = "default_identifier")]
+        #[serde(default)]
         identifier: String,
     },
     UUID {
-        #[serde(default = "default_identifier")]
+        // identifier must be supplied for UUID
         identifier: String,
     },
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
-#[serde(tag = "duid_type")]
+#[serde(tag = "type")]
 pub struct ServerDuid {
     #[serde(flatten)]
     pub info: ServerDuidInfo,
@@ -100,30 +100,12 @@ pub struct ServerDuid {
     pub path: String,
 }
 
-fn default_enterprise_id() -> u32 {
-    0 // Deal the default value in /lib/config/v6.rs to handle compatibility with the value of 0.
-}
-
-fn default_htype() -> u16 {
-    0 // Deal the default value in /lib/config/v6.rs to handle compatibility with the value of 0.
-}
-
-fn default_identifier() -> String {
-    String::new() // More actions are performed in /lib/config/v6.rs, as this file is not designed for comprehensive actions.
-}
-
-fn default_time() -> u32 {
-    // More actions are performed in /lib/config/v6.rs.
-    // System time should not be set here, as it will affect the comparison of the server_id from the config file and the one from the persisted file.
-    0
-}
-
 fn default_persist() -> bool {
     true
 }
 
 fn default_path() -> String {
-    DEFAULT_SERVER_ID_FILE_PATH.to_string()
+    DEFAULT_SERVER_ID_FILE_PATH.to_owned()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]

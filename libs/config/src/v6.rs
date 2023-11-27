@@ -184,28 +184,31 @@ pub const fn is_unicast_link_local(ip: &Ipv6Addr) -> bool {
     (ip.segments()[0] & 0xffc0) == 0xfe80
 }
 
-pub fn generate_duid_from_config(
-    server_id_info: &ServerDuidInfo,
-    link_layer_address: Ipv6Addr,
-) -> Result<Duid> {
-    match server_id_info {
+pub fn generate_duid_from_config(server_id: &ServerDuidInfo, link_layer: Ipv6Addr) -> Result<Duid> {
+    fn parse_id(id: &str, link_layer: Ipv6Addr) -> Result<Ipv6Addr> {
+        Ok(if id.is_empty() {
+            link_layer
+        } else {
+            Ipv6Addr::from_str(id).context("identifier must be a valid ipv6 address")?
+        })
+    }
+    fn parse_htype(htype: u16) -> HType {
+        if htype == 0 {
+            HType::Eth
+        } else {
+            //TODO: This is a compromise of v4 HType. Should be changed to v6 HType after dhcproto is updated.
+            HType::from(htype as u8)
+        }
+    }
+    match server_id {
         ServerDuidInfo::LLT {
             htype,
             identifier,
             time,
         } => {
-            let _htype = if htype == &0 {
-                HType::Eth
-            } else {
-                let htype_u8 = *htype as u8; //TODO: This is a compromise of v4 HType. Should be changed to v6 HType after dhcproto is updated.
-                HType::from(htype_u8)
-            };
-            let _identifier = if identifier.is_empty() {
-                link_layer_address
-            } else {
-                Ipv6Addr::from_str(identifier.as_str()).context("should be a valid ipv6 address")?
-            };
-            let _time = if time == &0 {
+            let htype = parse_htype(*htype);
+            let identifier = parse_id(identifier, link_layer)?;
+            let time = if *time == 0 {
                 SystemTime::now()
                     .duration_since(SystemTime::UNIX_EPOCH)
                     .context("unable to get system time")?
@@ -213,64 +216,53 @@ pub fn generate_duid_from_config(
             } else {
                 *time
             };
-            Ok(Duid::link_layer_time(_htype, _time, _identifier))
+            Ok(Duid::link_layer_time(htype, time, identifier))
         }
         ServerDuidInfo::LL { htype, identifier } => {
-            let _htype = if htype == &0 {
-                HType::Eth
-            } else {
-                let htype_u8 = *htype as u8; //TODO: This is a compromise of v4 HType. Should be changed to v6 HType after dhcproto is updated.
-                HType::from(htype_u8)
-            };
-            let _identifier = if identifier.is_empty() {
-                link_layer_address
-            } else {
-                Ipv6Addr::from_str(identifier.as_str()).context("should be a valid ipv6 address")?
-            };
-            Ok(Duid::link_layer(_htype, _identifier))
+            let htype = parse_htype(*htype);
+            let identifier = parse_id(identifier, link_layer)?;
+            Ok(Duid::link_layer(htype, identifier))
         }
         ServerDuidInfo::EN {
             enterprise_id,
             identifier,
         } => {
-            let _enterprise_id = if enterprise_id == &0 {
+            let enterprise_id = if *enterprise_id == 0 {
                 1 //TODO: harewire to 1 temporarily
             } else {
                 *enterprise_id
             };
-            let _identifier = if identifier.is_empty() {
+            let identifier = if identifier.is_empty() {
                 generate_random_bytes(6)
             } else {
-                hex::decode(identifier).context("should be a valid hex string")?
+                hex::decode(identifier).context("identifier should be a valid hex string")?
             };
-            Ok(Duid::enterprise(_enterprise_id, &_identifier[..]))
+            Ok(Duid::enterprise(enterprise_id, &identifier[..]))
         }
         ServerDuidInfo::UUID { identifier } => {
             if identifier.is_empty() {
                 bail!("identifier must be specified for UUID type DUID");
             }
-            let _identifier = hex::decode(identifier).context("should be a valid hex string")?;
-            Ok(Duid::uuid(&_identifier[..]))
+            let identifier =
+                hex::decode(identifier).context("identifier should be a valid hex string")?;
+            Ok(Duid::uuid(&identifier[..]))
         }
     }
 }
 
-fn generate_duid_and_save_to_file(
+fn generate_duid_and_persist(
     server_id_info: &ServerDuidInfo,
     link_layer_address: Ipv6Addr,
     server_id_path: &Path,
 ) -> Result<Duid> {
     let duid = generate_duid_from_config(server_id_info, link_layer_address)
         .context("can not generate duid from config")?;
-    let duid_vec = duid.as_ref().to_vec();
-    let duid_string = hex::encode(duid_vec);
-    let new_identifier_file = PersistIdentifier {
-        identifier: duid_string,
+    PersistIdentifier {
+        identifier: hex::encode(duid.as_ref()),
         duid_config: server_id_info.clone(),
-    };
-    new_identifier_file
-        .to_json(server_id_path)
-        .context("can not write server identifier json")?;
+    }
+    .to_json(server_id_path)
+    .context("can not write server identifier json")?;
     Ok(duid)
 }
 
@@ -321,11 +313,7 @@ impl TryFrom<wire::v6::Config> for Config {
                     generate_duid_from_config(&server_id.info, link_local.ip())
                         .context("can not generate duid from config")?
                 } else if !server_id_path.exists() {
-                    generate_duid_and_save_to_file(
-                        &server_id.info,
-                        link_local.ip(),
-                        server_id_path,
-                    )?
+                    generate_duid_and_persist(&server_id.info, link_local.ip(), server_id_path)?
                 } else {
                     let identifier_file = PersistIdentifier::from_json(server_id_path)
                         .context("can not read server identifier json")?;
@@ -335,11 +323,7 @@ impl TryFrom<wire::v6::Config> for Config {
                             .duid()
                             .context("can not get duid from server identifier file")?
                     } else {
-                        generate_duid_and_save_to_file(
-                            &server_id.info,
-                            link_local.ip(),
-                            server_id_path,
-                        )?
+                        generate_duid_and_persist(&server_id.info, link_local.ip(), server_id_path)?
                     }
                 }
             }
@@ -448,8 +432,8 @@ mod tests {
             }
         };
 
-        let identifier_file_struct = PersistIdentifier::from_json(path).unwrap();
-        let file_server_id = identifier_file_struct.duid().unwrap();
+        let identifier_file = PersistIdentifier::from_json(path).unwrap();
+        let file_server_id = identifier_file.duid().unwrap();
         let file_server_id = file_server_id.as_ref();
         let server_id = cfg.v6().unwrap().server_id();
         assert_eq!(server_id, file_server_id);
