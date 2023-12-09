@@ -23,6 +23,7 @@ use dora_core::{
     anyhow::anyhow,
     chrono::{DateTime, SecondsFormat, Utc},
     dhcproto::v4::{DhcpOption, Message, MessageType, OptionCode},
+    dhcproto::v6::OptionCode as v6OptionCode,
     metrics,
     prelude::*,
     tracing::warn,
@@ -160,6 +161,26 @@ where
                 Ok(Action::NoResponse)
             }
         }
+    }
+}
+
+#[async_trait]
+impl<S> Plugin<v6::Message> for Leases<S>
+where
+    S: Storage + Send + Sync + 'static,
+{
+    #[instrument(level = "debug", skip_all)]
+    async fn handle(&self, ctx: &mut MsgContext<v6::Message>) -> Result<Action> {
+        let req = ctx.msg();
+        let meta = ctx.meta();
+        let client_id = self
+            .cfg
+            .v6()
+            .get_opts(meta.ifindex)
+            .context("can not get dhcp options")?
+            .get(v6OptionCode::ClientId)
+            .context("no client id")?;
+        //TODO unfinish
     }
 }
 
