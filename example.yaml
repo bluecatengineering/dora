@@ -244,7 +244,9 @@ v6:
                         value:
                             - 2001:db8::1
                             - 2001:db8::2
-
+#TODO: 
+#       1. ipv6 static addr; 
+#       2. server preference(https://datatracker.ietf.org/doc/html/rfc8415#section-21.8)
 # Example Client Classifier
 #
 # We define in the dora config a client_classes section, where each class has a predicate whose syntax

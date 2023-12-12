@@ -23,6 +23,7 @@ use dora_core::{
     anyhow::anyhow,
     chrono::{DateTime, SecondsFormat, Utc},
     dhcproto::v4::{DhcpOption, Message, MessageType, OptionCode},
+    dhcproto::v6,
     dhcproto::v6::OptionCode as v6OptionCode,
     metrics,
     prelude::*,
@@ -40,6 +41,7 @@ use ip_manager::{IpError, IpManager, IpState, Storage};
 
 #[derive(Register)]
 #[register(msg(Message))]
+#[register(msg(v6::Message))]
 #[register(plugin(StaticAddr))]
 pub struct Leases<S>
 where
@@ -181,6 +183,68 @@ where
             .get(v6OptionCode::ClientId)
             .context("no client id")?;
         //TODO unfinish
+        let rapid_commit = ctx.msg().opts().get(v6::OptionCode::RapidCommit).is_some()
+            && self.cfg.v4().rapid_commit();
+        let network = self
+            .cfg
+            .v6()
+            .get_network(meta.ifindex)
+            .context("no network")?;
+        match req.msg_type() {
+            v6::MessageType::Solicit => {
+                //self.solicit()
+                todo!()
+            }
+            v6::MessageType::Request => todo!(),
+            v6::MessageType::Confirm => todo!(),
+            v6::MessageType::Renew => todo!(),
+            v6::MessageType::Rebind => todo!(),
+            v6::MessageType::Reply => todo!(),
+            v6::MessageType::Release => todo!(),
+            v6::MessageType::Decline => todo!(),
+            v6::MessageType::InformationRequest => todo!(),
+            v6::MessageType::RelayForw => todo!(),
+            _ => {
+                debug!("unsupported message type");
+                return Ok(Action::NoResponse);
+            }
+        }
+    }
+}
+
+//v6 related
+impl<S> Leases<S>
+where
+    S: Storage,
+{
+    async fn solicit(
+        &self,
+        ctx: &mut MsgContext<v6::Message>,
+        server_id: &[u8],
+        client_id: &[u8],
+        network: &Network,
+        rapid_commit: bool,
+    ) -> Result<Action> {
+        if rapid_commit {
+            todo!()
+        } else {
+            ctx.resp_msg_mut()
+                .unwrap()
+                .opts_mut()
+                .insert(v6::DhcpOption::ServerId(server_id.to_vec()));
+            ctx.resp_msg_mut()
+                .unwrap()
+                .opts_mut()
+                .insert(v6::DhcpOption::ClientId(client_id.to_vec()));
+            //TODO: Preference option
+            //TODO: Reconfigure Accept option
+            // fill informations that requested in ORO
+            if let Some(opts) = self.cfg.v6().get_opts(meta.ifindex) {
+                ctx.populate_opts(opts);
+            }
+            //TODO: IA related and leases
+
+        }
     }
 }
 
