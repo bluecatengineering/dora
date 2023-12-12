@@ -243,7 +243,21 @@ where
                 ctx.populate_opts(opts);
             }
             //TODO: IA related and leases
-
+            // IANA
+            /* */
+            if let Some(ia_na) = ctx.msg().opts().get(v6::OptionCode::IANA) {
+                let iana = match ia_na {
+                    v6::DhcpOption::IANA(iana) => iana,
+                    _ => unreachable!(),
+                };
+                let iaid = iana.iaid();
+                let t1 = iana.t1();
+                let t2 = iana.t2();
+                let iana = v6::IANA::new(iaid, t1, t2);
+                //TODO: generate v6 lease and addr
+                let iana = v6::DhcpOption::IANA(iana);
+                ctx.resp_msg_mut().unwrap().opts_mut().insert(iana);
+            }
         }
     }
 }
