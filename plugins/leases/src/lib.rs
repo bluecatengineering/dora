@@ -239,26 +239,31 @@ where
             //TODO: Preference option
             //TODO: Reconfigure Accept option
             // fill informations that requested in ORO
-            if let Some(opts) = self.cfg.v6().get_opts(meta.ifindex) {
+            if let Some(opts) = self.cfg.v6().get_opts(ctx.meta().ifindex) {
                 ctx.populate_opts(opts);
             }
             //TODO: IA related and leases
             // IANA
-            /* */
             if let Some(ia_na) = ctx.msg().opts().get(v6::OptionCode::IANA) {
                 let iana = match ia_na {
                     v6::DhcpOption::IANA(iana) => iana,
                     _ => unreachable!(),
                 };
-                let iaid = iana.iaid();
-                let t1 = iana.t1();
-                let t2 = iana.t2();
-                let iana = v6::IANA::new(iaid, t1, t2);
+                let iaid = iana.id;
+                let t1 = iana.t1;
+                let t2 = iana.t2;
                 //TODO: generate v6 lease and addr
+                let iana = v6::IANA {
+                    id: iaid,
+                    t1: t1,
+                    t2: t2,
+                    opts: todo!(),
+                };
                 let iana = v6::DhcpOption::IANA(iana);
                 ctx.resp_msg_mut().unwrap().opts_mut().insert(iana);
             }
         }
+        Ok(Action::Continue)
     }
 }
 
