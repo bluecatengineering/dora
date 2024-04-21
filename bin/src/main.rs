@@ -66,10 +66,13 @@ async fn start(config: cli::Config) -> Result<()> {
     info!(?dora_id, "using id");
     // setting DORA_ID for other plugins
     std::env::set_var("DORA_ID", &dora_id);
-    // start external api for healthchecks
-    let api = ExternalApi::new(config.external_api);
+
     debug!("parsing DHCP config");
     let dhcp_cfg = Arc::new(DhcpConfig::parse(&config.config_path)?);
+    debug!("starting database");
+    let ip_mgr = Arc::new(IpManager::new(SqliteDb::new(database_url).await?)?);
+    // start external api for healthchecks
+    let api = ExternalApi::new(config.external_api, Arc::clone(&ip_mgr));
     // start v4 server
     debug!("starting v4 server");
     let mut v4: Server<v4::Message> =
@@ -82,9 +85,7 @@ async fn start(config: cli::Config) -> Result<()> {
     StaticAddr::new(Arc::clone(&dhcp_cfg))?.register(&mut v4);
     // leases plugin
 
-    let ip_mgr = IpManager::new(SqliteDb::new(database_url).await?)?;
-
-    Leases::new(Arc::clone(&dhcp_cfg), ip_mgr).register(&mut v4);
+    Leases::new(Arc::clone(&dhcp_cfg), Arc::clone(&ip_mgr)).register(&mut v4);
 
     let v6 = if dhcp_cfg.has_v6() {
         // start v6 server

@@ -36,7 +36,7 @@ rand = { workspace = true }
 clap = { workspace = true }
 socket2 = { workspace = true }
 libc = "0.2.126"
-unix-udp-sock = "0.7.0"
+unix-udp-sock = "0.7.1"
 pnet = { workspace = true }
 
 [dev-dependencies]

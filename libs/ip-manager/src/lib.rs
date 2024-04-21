@@ -23,6 +23,7 @@ use tracing::{debug, error, info, trace, warn};
 
 pub mod sqlite;
 
+use core::fmt;
 use std::{
     collections::HashSet,
     net::{IpAddr, Ipv4Addr},
@@ -159,6 +160,16 @@ pub struct IpManager<T> {
     store: T,
     icmpv4: Arc<IcmpInner>,
     ping_cache: moka::future::Cache<IpAddr, Option<PingReply>>,
+}
+
+impl<T> fmt::Debug for IpManager<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("IpManager {{}}")
+            // .field("store", &self.store)
+            // .field("icmpv4", &self.icmpv4)
+            // .field("ping_cache", &self.ping_cache)
+            .finish()
+    }
 }
 
 impl<T: Clone> Clone for IpManager<T> {
