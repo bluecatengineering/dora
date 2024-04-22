@@ -18,10 +18,11 @@
 
 use anyhow::{bail, Result};
 use axum::{extract::Extension, routing, Router};
-use tokio::{sync::mpsc, task::JoinHandle};
+use ip_manager::{IpManager, Storage};
+use tokio::{net::TcpListener, sync::mpsc, task::JoinHandle};
 use tracing::{error, info, trace};
 
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc};
 
 pub use crate::models::{Health, State};
 
@@ -43,16 +44,17 @@ impl Drop for ExternalApiGuard {
 /// Listens to relevant channels to gather information about
 /// the running system and reports this data in an HTTP API
 #[derive(Debug)]
-pub struct ExternalApi {
+pub struct ExternalApi<S> {
     tx: mpsc::Sender<Health>,
     rx: mpsc::Receiver<Health>,
     addr: SocketAddr,
     state: State,
+    ip_mgr: Arc<IpManager<S>>,
 }
 
-impl ExternalApi {
+impl<S: Storage> ExternalApi<S> {
     /// Create a new ExternalApi instance
-    pub fn new(addr: SocketAddr) -> Self {
+    pub fn new(addr: SocketAddr, ip_mgr: Arc<IpManager<S>>) -> Self {
         trace!("starting external api");
         let (tx, rx) = mpsc::channel(10);
         let state = models::blank_health();
@@ -61,6 +63,7 @@ impl ExternalApi {
             rx,
             addr,
             state,
+            ip_mgr,
         }
     }
 
@@ -87,7 +90,8 @@ impl ExternalApi {
     }
 
     /// serve the HTTP external api
-    async fn run(state: State, addr: SocketAddr) -> Result<()> {
+    async fn run(addr: SocketAddr, state: State, ip_mgr: Arc<IpManager<S>>) -> Result<()> {
+        let tcp = TcpListener::bind(&addr).await?;
         // Provides:
         // /health
         // /ping
@@ -98,13 +102,12 @@ impl ExternalApi {
             .route("/ping", routing::get(handlers::ping))
             .route("/metrics", routing::get(handlers::metrics))
             .route("/metrics-text", routing::get(handlers::metrics_text))
-            .layer(Extension(state));
+            .layer(Extension(state))
+            .layer(Extension(ip_mgr));
 
         tracing::debug!("external API listening on {}", addr);
 
-        axum::Server::bind(&addr)
-            .serve(app.into_make_service())
-            .await?;
+        axum::serve(tcp, app).await?;
         bail!("external API returned-- should not happen")
     }
 
@@ -113,9 +116,12 @@ impl ExternalApi {
     pub fn start(mut self) -> JoinHandle<()> {
         let state = self.state.clone();
         let addr = self.addr;
+        let ip_mgr = self.ip_mgr.clone();
+        // if tx is not cloned, health listen will never update since ExternalApi is owner
 
         tokio::spawn(async move {
-            if let Err(err) = tokio::try_join!(ExternalApi::run(state, addr), self.listen_status())
+            if let Err(err) =
+                tokio::try_join!(ExternalApi::run(addr, state, ip_mgr), self.listen_status())
             {
                 error!(?err, "health task returning, this should not happen")
             }
@@ -131,6 +137,7 @@ impl ExternalApi {
 }
 
 mod handlers {
+
     use crate::models::{Health, State};
     use axum::{
         body::Body,
@@ -235,10 +242,13 @@ pub mod models {
 mod tests {
     use std::time::Duration;
 
+    use ip_manager::sqlite::SqliteDb;
+
     use super::*;
     #[tokio::test]
     async fn test_health() -> anyhow::Result<()> {
-        let api = ExternalApi::new("0.0.0.0:8889".parse().unwrap());
+        let mgr = Arc::new(IpManager::new(SqliteDb::new("sqlite::memory:").await?)?);
+        let api = ExternalApi::new("0.0.0.0:8889".parse().unwrap(), mgr);
         let _handle = api.serve();
         // wait for server to come up
         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -260,7 +270,8 @@ mod tests {
     // very simple test for existence of metrics endpoint
     #[tokio::test]
     async fn test_metrics() -> anyhow::Result<()> {
-        let api = ExternalApi::new("0.0.0.0:8888".parse().unwrap());
+        let mgr = Arc::new(IpManager::new(SqliteDb::new("sqlite::memory:").await?)?);
+        let api = ExternalApi::new("0.0.0.0:8888".parse().unwrap(), mgr);
         let _handle = api.serve();
         // wait for server to come up
         tokio::time::sleep(Duration::from_secs(1)).await;

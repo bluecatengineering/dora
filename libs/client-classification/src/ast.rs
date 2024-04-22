@@ -91,16 +91,20 @@ pub enum ParseErr {
     Bool(String),
     #[error("undefined with: {0:?}")]
     Undefined(Rule),
-    #[error("pest error {0:?}")]
-    PestErr(#[from] pest::error::Error<Rule>),
+    #[error("pest error: {0:?}")]
+    PestErr(#[from] Box<pest::error::Error<Rule>>),
 }
 
-#[allow(clippy::result_large_err)]
+impl From<pest::error::Error<Rule>> for ParseErr {
+    fn from(value: pest::error::Error<Rule>) -> Self {
+        ParseErr::PestErr(Box::new(value))
+    }
+}
+
 pub fn parse<S: AsRef<str>>(expr: S) -> ParseResult<Expr> {
     build_ast(PredicateParser::parse(Rule::expr, expr.as_ref())?)
 }
 
-#[allow(clippy::result_large_err)]
 pub fn build_ast(pair: Pairs<Rule>) -> ParseResult<Expr> {
     let climber = PrattParser::new()
         .op(Op::infix(Rule::or, Assoc::Left))
@@ -115,7 +119,6 @@ pub fn build_ast(pair: Pairs<Rule>) -> ParseResult<Expr> {
     parse_expr(pair, &climber)
 }
 
-#[allow(clippy::result_large_err)]
 fn parse_expr(pairs: Pairs<Rule>, pratt: &PrattParser<Rule>) -> ParseResult<Expr> {
     pratt
         .map_primary(|primary| {

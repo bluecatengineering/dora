@@ -46,7 +46,7 @@ where
 {
     cfg: Arc<DhcpConfig>,
     ddns: DdnsUpdate,
-    ip_mgr: IpManager<S>,
+    ip_mgr: Arc<IpManager<S>>,
     renew_cache: Option<RenewThreshold<Vec<u8>>>,
 }
 
@@ -63,7 +63,7 @@ impl<S> Leases<S>
 where
     S: Storage,
 {
-    pub fn new(cfg: Arc<DhcpConfig>, ip_mgr: IpManager<S>) -> Self {
+    pub fn new(cfg: Arc<DhcpConfig>, ip_mgr: Arc<IpManager<S>>) -> Self {
         Self {
             renew_cache: cfg.v4().cache_threshold().map(RenewThreshold::new),
             ip_mgr,
@@ -473,7 +473,7 @@ mod tests {
     async fn test_request() -> Result<()> {
         let cfg = DhcpConfig::parse_str(SAMPLE_YAML).unwrap();
         // println!("{cfg:#?}");
-        let mgr = IpManager::new(SqliteDb::new("sqlite::memory:").await?)?;
+        let mgr = Arc::new(IpManager::new(SqliteDb::new("sqlite::memory:").await?)?);
         let leases = Leases::new(Arc::new(cfg.clone()), mgr);
         let mut ctx = message_type::util::blank_ctx(
             "192.168.0.1:67".parse()?,
@@ -496,7 +496,7 @@ mod tests {
     #[traced_test]
     async fn test_discover() -> Result<()> {
         let cfg = DhcpConfig::parse_str(SAMPLE_YAML).unwrap();
-        let mgr = IpManager::new(SqliteDb::new("sqlite::memory:").await?)?;
+        let mgr = Arc::new(IpManager::new(SqliteDb::new("sqlite::memory:").await?)?);
         let leases = Leases::new(Arc::new(cfg.clone()), mgr);
         let mut ctx = message_type::util::blank_ctx(
             "192.168.0.1:67".parse()?,
@@ -532,7 +532,7 @@ mod tests {
     async fn test_release() -> Result<()> {
         let cfg = DhcpConfig::parse_str(SAMPLE_YAML).unwrap();
         let mgr = IpManager::new(SqliteDb::new("sqlite::memory:").await?)?;
-        let leases = Leases::new(Arc::new(cfg.clone()), mgr);
+        let leases = Leases::new(Arc::new(cfg.clone()), Arc::new(mgr));
         let mut ctx = message_type::util::blank_ctx(
             "192.168.0.1:67".parse()?,
             "192.168.0.1".parse()?,
