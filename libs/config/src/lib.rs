@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use tracing::debug;
 use wire::v6::ServerDuidInfo;
 /// server config
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct DhcpConfig {
     v4: v4::Config,
 }

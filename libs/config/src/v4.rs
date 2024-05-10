@@ -29,7 +29,7 @@ pub use wire::v4::ddns::Ddns;
 pub const DEFAULT_LEASE_TIME: Duration = Duration::from_secs(86_400);
 
 /// server config for dhcpv4
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Config {
     /// interfaces that are either explicitly bound by the config or
     /// are up & ipv4
@@ -672,6 +672,7 @@ mod tests {
     use super::*;
 
     pub static SAMPLE_YAML: &str = include_str!("../sample/config.yaml");
+    pub static V4_JSON: &str = include_str!("../sample/config_v4.json");
     pub static CIRC_YAML: &str = include_str!("../sample/circular_deps.yaml");
 
     // test we can decode from wire
@@ -685,6 +686,21 @@ mod tests {
             net.ranges()[0].opts().get(v4::OptionCode::Router),
             Some(&v4::DhcpOption::Router(vec![Ipv4Addr::from([
                 192, 168, 0, 1
+            ])]))
+        );
+    }
+
+    // test json sample
+    #[test]
+    fn test_sample_json() {
+        let cfg = Config::new(V4_JSON).unwrap();
+        // test a range decoded properly
+        let net = cfg.network([192, 168, 1, 100]).unwrap();
+        assert_eq!(net.ranges()[0].start(), Ipv4Addr::from([192, 168, 1, 100]));
+        assert_eq!(
+            net.ranges()[0].opts().get(v4::OptionCode::Router),
+            Some(&v4::DhcpOption::Router(vec![Ipv4Addr::from([
+                192, 168, 1, 1
             ])]))
         );
     }
