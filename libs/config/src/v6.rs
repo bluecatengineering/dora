@@ -1,4 +1,3 @@
-use hex;
 use std::{
     collections::HashMap,
     net::Ipv6Addr,

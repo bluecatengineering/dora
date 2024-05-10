@@ -10,6 +10,7 @@ license = "MPL-2.0"
 [dependencies]
 dora-core = { path = "../dora-core" }
 ip-manager = { path = "../libs/ip-manager" }
+config = { path = "../libs/config" }
 
 # libs
 anyhow = { workspace = true }
