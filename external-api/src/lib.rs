@@ -16,15 +16,17 @@
 #![deny(rustdoc::broken_intra_doc_links)]
 #![allow(clippy::cognitive_complexity, clippy::too_many_arguments)]
 
+use std::{net::SocketAddr, sync::Arc};
+
 use anyhow::{Result, bail};
 use axum::{Router, extract::Extension, routing};
+
 use ip_manager::{IpManager, Storage};
 use tokio::{net::TcpListener, sync::mpsc, task::JoinHandle};
 use tracing::{error, info, trace};
 
-use std::{net::SocketAddr, sync::Arc};
-
 pub use crate::models::{Health, State};
+use config::DhcpConfig;
 
 /// The task runner for the [`ExternalApi`]
 ///
@@ -50,11 +52,12 @@ pub struct ExternalApi<S> {
     addr: SocketAddr,
     state: State,
     ip_mgr: Arc<IpManager<S>>,
+    cfg: Arc<DhcpConfig>,
 }
 
 impl<S: Storage> ExternalApi<S> {
     /// Create a new ExternalApi instance
-    pub fn new(addr: SocketAddr, ip_mgr: Arc<IpManager<S>>) -> Self {
+    pub fn new(addr: SocketAddr, cfg: Arc<DhcpConfig>, ip_mgr: Arc<IpManager<S>>) -> Self {
         trace!("starting external api");
         let (tx, rx) = mpsc::channel(10);
         let state = models::blank_health();
@@ -64,6 +67,7 @@ impl<S: Storage> ExternalApi<S> {
             addr,
             state,
             ip_mgr,
+            cfg,
         }
     }
 
@@ -90,20 +94,28 @@ impl<S: Storage> ExternalApi<S> {
     }
 
     /// serve the HTTP external api
-    async fn run(addr: SocketAddr, state: State, ip_mgr: Arc<IpManager<S>>) -> Result<()> {
+    async fn run(
+        addr: SocketAddr,
+        state: State,
+        cfg: Arc<DhcpConfig>,
+        ip_mgr: Arc<IpManager<S>>,
+    ) -> Result<()> {
         let tcp = TcpListener::bind(&addr).await?;
         // Provides:
         // /health
         // /ping
         // /metrics
         // /metrics-text
+        // /leases
         let app = Router::new()
             .route("/health", routing::get(handlers::ok))
             .route("/ping", routing::get(handlers::ping))
             .route("/metrics", routing::get(handlers::metrics))
             .route("/metrics-text", routing::get(handlers::metrics_text))
+            .route("/leases", routing::get(handlers::leases::<S>))
             .layer(Extension(state))
-            .layer(Extension(ip_mgr));
+            .layer(Extension(ip_mgr))
+            .layer(Extension(cfg));
 
         tracing::debug!("external API listening on {}", addr);
 
@@ -117,12 +129,14 @@ impl<S: Storage> ExternalApi<S> {
         let state = self.state.clone();
         let addr = self.addr;
         let ip_mgr = self.ip_mgr.clone();
+        let cfg = self.cfg.clone();
         // if tx is not cloned, health listen will never update since ExternalApi is owner
 
         tokio::spawn(async move {
-            if let Err(err) =
-                tokio::try_join!(ExternalApi::run(addr, state, ip_mgr), self.listen_status())
-            {
+            if let Err(err) = tokio::try_join!(
+                ExternalApi::run(addr, state, cfg, ip_mgr),
+                self.listen_status()
+            ) {
                 error!(?err, "health task returning, this should not happen")
             }
         })
@@ -138,7 +152,8 @@ impl<S: Storage> ExternalApi<S> {
 
 mod handlers {
 
-    use crate::models::{Health, State};
+    use std::sync::Arc;
+
     use axum::{
         body::Body,
         extract::Extension,
@@ -146,20 +161,30 @@ mod handlers {
         http::{Response, StatusCode},
         response::IntoResponse,
     };
+    use config::DhcpConfig;
     use dora_core::metrics::{START_TIME, UPTIME};
+    use ip_manager::{IpManager, Storage};
     use prometheus::{Encoder, ProtobufEncoder, TextEncoder};
     use tracing::error;
 
-    pub(crate) async fn ok(
-        Extension(state): Extension<State>,
-    ) -> Result<impl IntoResponse, std::convert::Infallible> {
+    use crate::models::{Health, ServerResult, State};
+
+    pub(crate) async fn ok(Extension(state): Extension<State>) -> ServerResult<impl IntoResponse> {
         Ok(match *state.lock() {
             Health::Good => StatusCode::OK,
             Health::Bad => StatusCode::INTERNAL_SERVER_ERROR,
         })
     }
 
-    pub(crate) async fn metrics() -> Result<impl IntoResponse, std::convert::Infallible> {
+    pub(crate) async fn leases<S: Storage>(
+        Extension(cfg): Extension<Arc<DhcpConfig>>,
+        Extension(ip_mgr): Extension<Arc<IpManager<S>>>,
+    ) -> ServerResult<impl IntoResponse> {
+        todo!();
+        Ok(())
+    }
+
+    pub(crate) async fn metrics() -> ServerResult<impl IntoResponse> {
         UPTIME.set(START_TIME.elapsed().as_secs() as i64);
         let encoder = ProtobufEncoder::new();
         let mut buf = Vec::new();
@@ -171,14 +196,13 @@ mod handlers {
                 error!(?err, "error protobuf encoding prometheus metrics");
                 Ok(resp
                     .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .body(Body::empty())
-                    .unwrap())
+                    .body(Body::empty())?)
             }
-            Ok(_) => Ok(resp.status(StatusCode::OK).body(Body::from(buf)).unwrap()),
+            Ok(_) => Ok(resp.status(StatusCode::OK).body(Body::from(buf))?),
         }
     }
 
-    pub(crate) async fn metrics_text() -> Result<impl IntoResponse, std::convert::Infallible> {
+    pub(crate) async fn metrics_text() -> ServerResult<impl IntoResponse> {
         UPTIME.set(START_TIME.elapsed().as_secs() as i64);
         let encoder = TextEncoder::new();
         let mut buf = String::new();
@@ -190,10 +214,9 @@ mod handlers {
                 error!(?err, "error text encoding prometheus metrics");
                 Ok(resp
                     .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .body(Body::empty())
-                    .unwrap())
+                    .body(Body::empty())?)
             }
-            Ok(_) => Ok(resp.status(StatusCode::OK).body(Body::from(buf)).unwrap()),
+            Ok(_) => Ok(resp.status(StatusCode::OK).body(Body::from(buf))?),
         }
     }
 
@@ -204,6 +227,7 @@ mod handlers {
 
 /// Various models for API responses
 pub mod models {
+    use axum::response::IntoResponse;
     use parking_lot::Mutex;
     use serde::{Deserialize, Serialize};
     use std::{fmt, sync::Arc};
@@ -236,6 +260,32 @@ pub mod models {
     pub(crate) fn blank_health() -> State {
         Arc::new(Mutex::new(Health::Bad))
     }
+
+    // error type
+    /// Make our own error that wraps `anyhow::Error`.
+    #[derive(Debug)]
+    pub struct ServerError(anyhow::Error);
+    /// return error result
+    pub type ServerResult<T> = Result<T, ServerError>;
+
+    impl IntoResponse for ServerError {
+        fn into_response(self) -> axum::response::Response {
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}", self.0),
+            )
+                .into_response()
+        }
+    }
+
+    impl<E> From<E> for ServerError
+    where
+        E: Into<anyhow::Error>,
+    {
+        fn from(err: E) -> Self {
+            Self(err.into())
+        }
+    }
 }
 
 #[cfg(test)]
@@ -248,7 +298,8 @@ mod tests {
     #[tokio::test]
     async fn test_health() -> anyhow::Result<()> {
         let mgr = Arc::new(IpManager::new(SqliteDb::new("sqlite::memory:").await?)?);
-        let api = ExternalApi::new("0.0.0.0:8889".parse().unwrap(), mgr);
+        let cfg = Arc::new(DhcpConfig::default());
+        let api = ExternalApi::new("0.0.0.0:8889".parse().unwrap(), cfg, mgr);
         let _handle = api.serve();
         // wait for server to come up
         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -271,7 +322,8 @@ mod tests {
     #[tokio::test]
     async fn test_metrics() -> anyhow::Result<()> {
         let mgr = Arc::new(IpManager::new(SqliteDb::new("sqlite::memory:").await?)?);
-        let api = ExternalApi::new("0.0.0.0:8888".parse().unwrap(), mgr);
+        let cfg = Arc::new(DhcpConfig::default());
+        let api = ExternalApi::new("0.0.0.0:8888".parse().unwrap(), cfg, mgr);
         let _handle = api.serve();
         // wait for server to come up
         tokio::time::sleep(Duration::from_secs(1)).await;

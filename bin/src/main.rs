@@ -72,7 +72,11 @@ async fn start(config: cli::Config) -> Result<()> {
     debug!("starting database");
     let ip_mgr = Arc::new(IpManager::new(SqliteDb::new(database_url).await?)?);
     // start external api for healthchecks
-    let api = ExternalApi::new(config.external_api, Arc::clone(&ip_mgr));
+    let api = ExternalApi::new(
+        config.external_api,
+        Arc::clone(&dhcp_cfg),
+        Arc::clone(&ip_mgr),
+    );
     // start v4 server
     debug!("starting v4 server");
     let mut v4: Server<v4::Message> =
