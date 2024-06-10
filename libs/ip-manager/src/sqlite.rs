@@ -301,6 +301,10 @@ impl Storage for SqliteDb {
         )
         .await
     }
+
+    async fn select_all(&self) -> Result<Vec<State>, Self::Error> {
+        util::select_all(&self.inner).await
+    }
 }
 
 mod util {
@@ -426,6 +430,24 @@ mod util {
             }))
     }
 
+    /// select all values in leases table and return them
+    pub async fn select_all(pool: &SqlitePool) -> Result<Vec<State>, sqlx::Error> {
+        Ok(sqlx::query!("SELECT * FROM leases")
+            .fetch_all(pool)
+            .await?
+            .into_iter()
+            .map(|cur| {
+                let info = ClientInfo {
+                    ip: IpAddr::V4(Ipv4Addr::from(cur.ip as u32)),
+                    id: cur.client_id.map(|v| v.to_vec()),
+                    network: IpAddr::V4(Ipv4Addr::from(cur.network as u32)),
+                    expires_at: to_systime(cur.expires_at),
+                };
+                into_clientinfo(info, cur.leased, cur.probation)
+            })
+            .collect())
+    }
+
     /// return a count of all rows where leased & probation & un-expired
     pub async fn count(
         pool: &SqlitePool,
@@ -450,11 +472,11 @@ mod util {
         now: i64,
     ) -> Result<Option<IpAddr>, sqlx::Error> {
         Ok(sqlx::query!(
-            "SELECT ip 
-            FROM 
-                leases 
-            WHERE 
-                client_id = ?1 AND expires_at > ?2 
+            "SELECT ip
+            FROM
+                leases
+            WHERE
+                client_id = ?1 AND expires_at > ?2
             LIMIT 1",
             id,
             now
@@ -575,7 +597,7 @@ mod util {
                     SELECT ip
                     FROM leases
                     WHERE
-                        ((client_id = ?2 AND ip = ?3) 
+                        ((client_id = ?2 AND ip = ?3)
                             OR (expires_at < ?1 AND ip = ?3))
                     ORDER BY ip LIMIT 1
                 )
@@ -671,7 +693,7 @@ mod util {
             UPDATE leases
             SET
                 client_id = ?2, expires_at = ?3, leased = ?4, probation = ?5
-            WHERE 
+            WHERE
                 ip = ?1
             RETURNING *
             "#,
