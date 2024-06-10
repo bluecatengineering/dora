@@ -38,12 +38,27 @@ use std::{
 const PING_TTL: u64 = 60;
 pub type ClientId = Option<Vec<u8>>;
 
-#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, sqlx::FromRow)]
 pub struct ClientInfo {
     ip: IpAddr,
     id: ClientId,
     network: IpAddr,
     expires_at: SystemTime,
+}
+
+impl ClientInfo {
+    pub fn ip(&self) -> IpAddr {
+        self.ip
+    }
+    pub fn id(&self) -> Option<&[u8]> {
+        self.id.as_deref()
+    }
+    pub fn network(&self) -> IpAddr {
+        self.network
+    }
+    pub fn expires_at(&self) -> SystemTime {
+        self.expires_at
+    }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -88,6 +103,7 @@ pub trait Storage: Send + Sync + 'static {
 
     async fn get(&self, ip: IpAddr) -> Result<Option<State>, Self::Error>;
     async fn get_id(&self, id: &[u8]) -> Result<Option<IpAddr>, Self::Error>;
+    async fn select_all(&self) -> Result<Vec<State>, Self::Error>;
     async fn release_ip(&self, ip: IpAddr, id: &[u8]) -> Result<Option<ClientInfo>, Self::Error>;
     async fn delete(&self, ip: IpAddr) -> Result<(), Self::Error>;
 
@@ -129,7 +145,7 @@ pub trait Storage: Send + Sync + 'static {
     async fn count(&self, state: IpState) -> Result<usize, Self::Error>;
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum State {
     Reserved(ClientInfo),
     Leased(ClientInfo),
@@ -403,6 +419,15 @@ where
         self.ping_check(ip, network).await?;
 
         Ok(())
+    }
+
+    /// select all leases in array, returning as a vec
+    pub async fn select_all(&self) -> Result<Vec<State>, IpError<T::Error>> {
+        Ok(self.store.select_all().await?)
+    }
+
+    pub async fn get(&self, ip: IpAddr) -> Result<Option<State>, IpError<T::Error>> {
+        Ok(self.store.get(ip).await?)
     }
 
     /// sees if there is an un-expired IP associated with this ID
@@ -758,6 +783,61 @@ mod tests {
             .await?;
         let ip = mgr.lookup_id(client_id).await?;
         assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)));
+
+        Ok(())
+    }
+
+    // add some leases then select *
+    #[tokio::test]
+    #[traced_test]
+    async fn test_select_all() -> Result<()> {
+        let mgr = IpManager::new(SqliteDb::new("sqlite::memory:").await?)?;
+        let range = NetRange::new(
+            Ipv4Addr::new(192, 168, 1, 100)..=Ipv4Addr::new(192, 168, 1, 255),
+            LeaseTime::new(
+                Duration::from_secs(5),
+                Duration::from_secs(3),
+                Duration::from_secs(10),
+            ),
+        );
+        let mut network = Network::default();
+        network
+            .set_subnet("192.168.1.0/24".parse()?)
+            .set_ranges(vec![range.clone()]);
+        let mut res = vec![];
+
+        let expires_at = SystemTime::now() + Duration::from_secs(30);
+        for i in 0..5 {
+            let client_id = &[1, 1, 1, 1, 1, 1 + i];
+            // reserve from range
+            let ip = mgr
+                .reserve_first(&range, &network, client_id, expires_at, None)
+                .await?;
+            assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100 + i)));
+
+            // make lease
+            mgr.try_lease(ip, client_id, expires_at, &network).await?;
+            let state = mgr.get(ip).await?.expect("not found");
+            assert_eq!(
+                state.as_ref().ip(),
+                IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100 + i))
+            );
+            assert_eq!(state.as_ref().id().unwrap(), &[1, 1, 1, 1, 1, 1 + i]);
+
+            res.push(State::Leased(ClientInfo {
+                ip: state.as_ref().ip(),
+                id: Some(client_id.to_vec().clone()),
+                // systtime we get back has no nano seconds
+                expires_at: state.as_ref().expires_at(),
+                network: network.subnet().into(),
+            }));
+        }
+
+        let leases = mgr.select_all().await?;
+        assert_eq!(
+            leases.into_iter().collect::<HashSet<_>>(),
+            res.into_iter().collect()
+        );
 
         Ok(())
     }

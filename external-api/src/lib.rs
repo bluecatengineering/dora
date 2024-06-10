@@ -113,6 +113,7 @@ impl<S: Storage> ExternalApi<S> {
             .route("/metrics", routing::get(handlers::metrics))
             .route("/metrics-text", routing::get(handlers::metrics_text))
             .route("/leases", routing::get(handlers::leases::<S>))
+            .route("/config", routing::get(handlers::config))
             .layer(Extension(state))
             .layer(Extension(ip_mgr))
             .layer(Extension(cfg));
@@ -154,6 +155,7 @@ mod handlers {
 
     use std::sync::Arc;
 
+    use anyhow::Context;
     use axum::{
         body::Body,
         extract::Extension,
@@ -180,8 +182,21 @@ mod handlers {
         Extension(cfg): Extension<Arc<DhcpConfig>>,
         Extension(ip_mgr): Extension<Arc<IpManager<S>>>,
     ) -> ServerResult<impl IntoResponse> {
+        let leases = ip_mgr.select_all().await;
         todo!();
         Ok(())
+    }
+
+    pub(crate) async fn config(
+        Extension(cfg): Extension<Arc<DhcpConfig>>,
+    ) -> ServerResult<impl IntoResponse> {
+        // TODO: if serializing worked we could get DhcpConfig back into JSON/YAML but there's
+        // a lot of logic left to make that particular transform. So just read from disk
+        let path = cfg.path().context("no path specified for config")?;
+        let cfg = tokio::fs::read_to_string(path)
+            .await
+            .with_context(|| format!("failed to find config at {}", path.display()))?;
+        Ok(serde_json::to_string_pretty(&cfg)?)
     }
 
     pub(crate) async fn metrics() -> ServerResult<impl IntoResponse> {
