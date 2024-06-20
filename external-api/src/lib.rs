@@ -112,7 +112,7 @@ impl<S: Storage> ExternalApi<S> {
             .route("/ping", routing::get(handlers::ping))
             .route("/metrics", routing::get(handlers::metrics))
             .route("/metrics-text", routing::get(handlers::metrics_text))
-            .route("/leases", routing::get(handlers::leases::<S>))
+            .route("/v1/leases", routing::get(handlers::leases::<S>))
             .route("/config", routing::get(handlers::config))
             .layer(Extension(state))
             .layer(Extension(ip_mgr))
@@ -153,7 +153,7 @@ impl<S: Storage> ExternalApi<S> {
 
 mod handlers {
 
-    use std::sync::Arc;
+    use std::{collections::HashMap, sync::Arc, time::UNIX_EPOCH};
 
     use anyhow::Context;
     use axum::{
@@ -163,9 +163,11 @@ mod handlers {
         http::{Response, StatusCode},
         response::IntoResponse,
     };
+    use chrono::{DateTime, Utc};
     use config::DhcpConfig;
     use dora_core::metrics::{START_TIME, UPTIME};
     use ip_manager::{IpManager, Storage};
+    use ipnet::Ipv4Net;
     use prometheus::{Encoder, ProtobufEncoder, TextEncoder};
     use tracing::error;
 
@@ -182,9 +184,67 @@ mod handlers {
         Extension(cfg): Extension<Arc<DhcpConfig>>,
         Extension(ip_mgr): Extension<Arc<IpManager<S>>>,
     ) -> ServerResult<impl IntoResponse> {
-        let leases = ip_mgr.select_all().await;
-        todo!();
-        Ok(())
+        use crate::models::{LeaseInfo, LeaseNetworks, LeaseState, Leases};
+        use ip_manager::State as S;
+
+        let mut cfg = (*cfg).clone();
+        let networks = ip_mgr
+            .select_all()
+            .await?
+            .into_iter()
+            .map(|lease| {
+                let info = lease.as_ref();
+                let ip = info.ip();
+                let id = info.id().map(hex::encode);
+                let secs = info.expires_at().duration_since(UNIX_EPOCH)?.as_secs();
+                let network = info.network();
+                let expires_at_epoch = secs;
+                let expires_at_utc = DateTime::<Utc>::from_timestamp(
+                    info.expires_at().duration_since(UNIX_EPOCH)?.as_secs() as i64,
+                    0,
+                )
+                .context("failed to create UTC datetime")?
+                .to_rfc3339();
+                let lease_info = LeaseInfo {
+                    ip,
+                    id,
+                    network,
+                    expires_at_epoch,
+                    expires_at_utc,
+                };
+
+                let netv4 = match network {
+                    std::net::IpAddr::V4(ip) => ip,
+                    std::net::IpAddr::V6(_) => {
+                        return Err(anyhow::anyhow!("no dynamic ipv6 at this time"))
+                    }
+                };
+                if let Some(net) = cfg.v4().network(netv4) {
+                    let lease = match lease {
+                        S::Reserved(_) => LeaseState::Reserved(lease_info),
+                        S::Leased(_) => LeaseState::Leased(lease_info),
+                        S::Probated(_) => LeaseState::Probated(lease_info),
+                    };
+                    Ok((net, lease))
+                } else {
+                    Err(anyhow::anyhow!(
+                        "failed to find network in cfg for {lease_info:?}"
+                    ))
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .fold(
+                HashMap::<Ipv4Net, LeaseNetworks>::new(),
+                |mut map, (net, lease)| {
+                    let entry = map.entry(net.full_subnet()).or_default();
+                    entry.ips.push(lease);
+
+                    map
+                },
+            );
+
+        Ok(axum::Json(Leases { networks }))
     }
 
     pub(crate) async fn config(
@@ -196,7 +256,7 @@ mod handlers {
         let cfg = tokio::fs::read_to_string(path)
             .await
             .with_context(|| format!("failed to find config at {}", path.display()))?;
-        Ok(serde_json::to_string_pretty(&cfg)?)
+        Ok(axum::Json(cfg))
     }
 
     pub(crate) async fn metrics() -> ServerResult<impl IntoResponse> {
@@ -242,10 +302,12 @@ mod handlers {
 
 /// Various models for API responses
 pub mod models {
+    use std::{collections::HashMap, fmt, net::IpAddr, sync::Arc};
+
     use axum::response::IntoResponse;
+    use ipnet::Ipv4Net;
     use parking_lot::Mutex;
     use serde::{Deserialize, Serialize};
-    use std::{fmt, sync::Arc};
 
     /// The overall health of the system
     pub type State = Arc<Mutex<Health>>;
@@ -270,6 +332,31 @@ pub mod models {
                 }
             )
         }
+    }
+
+    #[derive(Serialize, Deserialize, Default, Debug, PartialEq, Clone, Eq)]
+    pub struct Leases {
+        pub networks: HashMap<Ipv4Net, LeaseNetworks>,
+    }
+
+    #[derive(Serialize, Deserialize, Default, Debug, PartialEq, Clone, Eq)]
+    pub struct LeaseNetworks {
+        pub ips: Vec<LeaseState>,
+    }
+
+    #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Eq)]
+    pub enum LeaseState {
+        Reserved(LeaseInfo),
+        Leased(LeaseInfo),
+        Probated(LeaseInfo),
+    }
+    #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Eq)]
+    pub struct LeaseInfo {
+        pub ip: IpAddr,
+        pub id: Option<String>,
+        pub network: IpAddr,
+        pub expires_at_epoch: u64,
+        pub expires_at_utc: String,
     }
 
     pub(crate) fn blank_health() -> State {

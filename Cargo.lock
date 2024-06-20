@@ -1067,9 +1067,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "chrono",
  "config",
  "dora-core",
+ "hex",
  "ip-manager",
+ "ipnet",
  "parking_lot 0.12.1",
  "prometheus",
  "reqwest 0.12.4",
