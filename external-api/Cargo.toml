@@ -15,6 +15,8 @@ config = { path = "../libs/config" }
 # libs
 anyhow = { workspace = true }
 axum = "0.7.5"
+chrono = "0.4.38"
+hex = "0.4.3"
 tokio = { workspace = true }
 tracing-futures = { workspace = true }
 tracing = { workspace = true }
@@ -22,6 +24,7 @@ parking_lot = "0.12"
 serde = { workspace = true }
 serde_json = { workspace = true }
 prometheus = { workspace = true }
+ipnet = { workspace = true }
 
 
 [dev-dependencies]
