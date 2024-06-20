@@ -205,6 +205,11 @@ impl Config {
         })
     }
 
+    /// return hashmap of networks
+    pub fn networks(&self) -> &HashMap<Ipv4Net, Network> {
+        &self.networks
+    }
+
     /// find the interface at the index `iface_index`
     pub fn find_interface(&self, iface_index: u32) -> Option<&NetworkInterface> {
         self.interfaces.iter().find(|e| e.index == iface_index)
@@ -355,6 +360,9 @@ impl Network {
     }
     pub fn subnet(&self) -> Ipv4Addr {
         self.subnet.network()
+    }
+    pub fn full_subnet(&self) -> Ipv4Net {
+        self.subnet
     }
     pub fn authoritative(&self) -> bool {
         self.authoritative
