@@ -16,8 +16,7 @@ topo_sort = { path = "../libs/topo_sort" }
 async-trait = { workspace = true }
 anyhow = { workspace = true }
 bytes = { workspace = true }
-chrono = "0.4"
-chrono-tz = "0.6"
+jiff = { workspace = true, features = ["logging"] }
 dhcproto = { workspace = true }
 futures = { workspace = true }
 lazy_static = "1.4"

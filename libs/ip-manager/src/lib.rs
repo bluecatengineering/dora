@@ -16,8 +16,6 @@ use config::v4::{NetRange, Network};
 use icmp_ping::{Icmpv4, Listener, PingReply};
 
 use async_trait::async_trait;
-use chrono::DateTime;
-use chrono::{offset::Utc, SecondsFormat};
 use thiserror::Error;
 use tracing::{debug, error, info, trace, warn};
 
@@ -328,11 +326,17 @@ where
                             // ping success so insert probated IP
                             Err(err) => {
                                 let probation_time = SystemTime::now() + network.probation_period();
-                                info!(
-                                    ?err,
-                                    probation_time = %DateTime::<Utc>::from(probation_time).to_rfc3339_opts(SecondsFormat::Secs, true),
-                                    "ping succeeded. address is in use. marking IP on probation"
-                                );
+
+                                if let Ok(probation_time) =
+                                    jiff::Timestamp::try_from(probation_time)
+                                {
+                                    info!(
+                                        ?err,
+                                        probation_time = %probation_time.to_string(),
+                                        "ping succeeded. address is in use. marking IP on probation"
+                                    );
+                                }
+
                                 // update regardless of expiry/id because something is using the IP
                                 if let Err(err) = self
                                     .store

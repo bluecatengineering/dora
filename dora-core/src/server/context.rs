@@ -1,6 +1,6 @@
 //! context of current server message
-use chrono::{DateTime, Utc};
 use dhcproto::{v4, v6, Decodable, Decoder, Encodable};
+use jiff::Zoned;
 use pnet::ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
 use tracing::{error, trace};
 use unix_udp_sock::RecvMeta;
@@ -32,7 +32,7 @@ pub struct MsgContext<T> {
     /// address response sent to
     dst_addr: Option<SocketAddr>,
     /// time this context was created
-    time: DateTime<Utc>,
+    time: Zoned,
     /// decoded from msg
     msg: T,
     /// decoded response msg  -- **CAREFUL** do not call `take()` on this before
@@ -108,11 +108,11 @@ impl<T> MsgContext<T> {
         self.msg_buf = msg;
     }
 
-    /// Get the `DateTime` that we first created this `MsgContext`
+    /// Get the date & time that we first created this `MsgContext`
     ///
-    /// [`DateTime`]: chrono::DateTime
-    pub fn time(&self) -> DateTime<Utc> {
-        self.time
+    /// [`Zoned`]: jiff::zoned
+    pub fn time(&self) -> &Zoned {
+        &self.time
     }
 
     /// Store a value in the current `MsgContext` based on a type.
@@ -206,7 +206,7 @@ impl<T: Encodable + Decodable> MsgContext<T> {
             src_addr: meta.addr,
             meta,
             dst_addr: None,
-            time: Utc::now(),
+            time: Zoned::now(),
             msg,
             type_map: TypeMap::new(),
             resp_msg: None,

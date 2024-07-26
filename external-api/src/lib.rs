@@ -255,7 +255,7 @@ mod tests {
         let r = reqwest::get("http://0.0.0.0:8889/health")
             .await?
             .error_for_status();
-        // initial health state will be BAD i.e. 500
+        // initial health; state will be BAD i.e. 500
         match r {
             Ok(_) => {}
             Err(err) => {

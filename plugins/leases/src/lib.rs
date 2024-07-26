@@ -21,9 +21,8 @@ use client_protection::RenewThreshold;
 use ddns::{dhcid::DhcId, DdnsUpdate};
 use dora_core::{
     anyhow::anyhow,
-    chrono::{DateTime, SecondsFormat, Utc},
     dhcproto::v4::{DhcpOption, Message, MessageType, OptionCode},
-    metrics,
+    jiff, metrics,
     prelude::*,
     tracing::warn,
 };
@@ -217,7 +216,7 @@ where
                         debug!(
                             ?ip,
                             ?client_id,
-                            expires_at = %print_time(expires_at),
+                            expires_at = ?print_time(expires_at),
                             range = ?range.addrs(),
                             subnet = ?network.subnet(),
                            "reserved IP for client-- sending offer"
@@ -248,7 +247,7 @@ where
                     debug!(
                         ?ip,
                         ?client_id,
-                        expires_at = %print_time(expires_at),
+                        expires_at = ?print_time(expires_at),
                         range = ?range.addrs(),
                         subnet = ?network.subnet(),
                         "reserved IP for client-- sending offer"
@@ -350,7 +349,7 @@ where
                     debug!(
                         ?ip,
                         ?client_id,
-                        expires_at = %print_time(expires_at),
+                        expires_at = ?print_time(expires_at),
                         range = ?range.addrs(),
                         subnet = ?network.subnet(),
                         "sending LEASE"
@@ -421,7 +420,7 @@ where
         self.cache_remove(ctx.msg().chaddr());
         debug!(
             ?declined_ip,
-            expires_at = %print_time(expires_at),
+            expires_at = ?print_time(expires_at),
             "added declined IP with probation set"
         );
         Ok(Action::Continue)
@@ -432,8 +431,8 @@ where
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub struct ExpiresAt(pub SystemTime);
 
-fn print_time(expires_at: SystemTime) -> String {
-    DateTime::<Utc>::from(expires_at).to_rfc3339_opts(SecondsFormat::Secs, true)
+fn print_time(expires_at: SystemTime) -> Result<String> {
+    Ok(jiff::Timestamp::try_from(expires_at)?.to_string())
 }
 
 /// If opt 61 (client id) exists return that, otherwise return `chaddr` from the message
@@ -461,7 +460,7 @@ mod tests {
     #[test]
     fn test_time_print() {
         assert_eq!(
-            print_time(SystemTime::UNIX_EPOCH),
+            print_time(SystemTime::UNIX_EPOCH).unwrap(),
             "1970-01-01T00:00:00Z".to_owned()
         );
     }
