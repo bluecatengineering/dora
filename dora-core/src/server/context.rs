@@ -41,7 +41,7 @@ pub struct MsgContext<T> {
     /// a type map for use by plugins to store values
     type_map: TypeMap,
     /// unique id we assign to each `MsgContext`
-    id: usize,
+    id: u64,
     /// reference to `State`
     state: Arc<State>,
     /// whether the `MsgContext` counts towards `state.live_msgs`
@@ -79,7 +79,7 @@ impl<T> Drop for MsgContext<T> {
 
 impl<T> MsgContext<T> {
     /// Get the id
-    pub fn id(&self) -> usize {
+    pub fn id(&self) -> u64 {
         self.id
     }
 
