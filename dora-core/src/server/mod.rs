@@ -220,7 +220,10 @@ struct RunInner<T> {
 
 impl RunInner<v4::Message> {
     /// Process handlers
-    #[instrument(name = "v4", level = "debug", skip_all)]
+    #[instrument(name = "v4", level = "debug", fields(
+        id = self.ctx.id(),
+        ifindex = self.ctx.meta().ifindex
+    ), skip_all)]
     async fn run(mut self) -> Result<()> {
         let start = Instant::now();
         if let Err(err) = self.ctx.recv_metrics() {
@@ -328,7 +331,10 @@ impl RunTask<v6::Message> {
 
 impl RunInner<v6::Message> {
     /// Process handlers
-    #[instrument(name = "v6", level = "debug", skip_all)]
+    #[instrument(name = "v6", level = "debug", fields(
+        id = self.ctx.id(),
+        ifindex = self.ctx.meta().ifindex
+    ), skip_all)]
     async fn run(mut self) -> Result<()> {
         let start = Instant::now();
         if let Err(err) = self.ctx.recv_metrics() {

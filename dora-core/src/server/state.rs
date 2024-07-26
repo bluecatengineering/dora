@@ -3,7 +3,7 @@
 use tokio::sync::Semaphore;
 
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicU64, Ordering},
     Arc,
 };
 
@@ -17,7 +17,7 @@ pub struct State {
     /// max live message count
     live_limit: usize,
     /// id to assign incoming messages
-    next_id: AtomicUsize,
+    next_id: AtomicU64,
 }
 
 impl State {
@@ -26,7 +26,7 @@ impl State {
         State {
             live_msgs: Arc::new(Semaphore::new(max_live)),
             live_limit: max_live,
-            next_id: AtomicUsize::new(0),
+            next_id: AtomicU64::new(0),
         }
     }
 
@@ -58,7 +58,7 @@ impl State {
 
     /// Increment the context id
     #[inline]
-    pub fn inc_id(&self) -> usize {
+    pub fn inc_id(&self) -> u64 {
         self.next_id.fetch_add(1, Ordering::Acquire)
     }
 

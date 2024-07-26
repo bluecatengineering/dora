@@ -17,7 +17,7 @@ thiserror = { workspace = true }
 tracing = { workspace = true, features = [
     "log",
 ] } # TODO: do we need the log feature?
-chrono = "0.4.19"
+jiff = { workspace = true }
 moka = { version = "0.10.0", features = ["future"] }
 # TODO: hopefully the rustls feature can go away, the lib requires it
 sqlx = { version = "0.5.13", features = [

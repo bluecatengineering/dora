@@ -29,6 +29,7 @@ bytes = "1.1"
 clap = { version = "4.5.4", features = ["derive", "env"] }
 dhcproto = "0.11.0"
 futures = { version = "0.3", default-features = false, features = ["std"] }
+jiff = { version = "0.1.1" }
 ipnet = { features = ["serde"], version = "2.4.0" }
 pnet = { features = ["serde", "std"], version = "0.34.0" }
 prometheus = "0.13.0"
