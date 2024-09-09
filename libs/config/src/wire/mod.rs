@@ -67,7 +67,7 @@ pub const fn default_rapid_commit() -> bool {
 }
 
 pub fn default_cache_threshold() -> u32 {
-    25
+    0
 }
 
 impl From<MinMax> for LeaseTime {
