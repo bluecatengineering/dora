@@ -13,7 +13,15 @@ use dora_core::{
     trust_dns_proto::{xfer::FirstAnswer, DnsHandle},
 };
 use trust_dns_client::{
-    client::AsyncClient, op::ResponseCode, rr::dnssec::tsig::TSigner, udp::UdpClientStream,
+    client::{AsyncClient, ClientConnection, Signer},
+    error::ClientError,
+    op::ResponseCode,
+    rr::{
+        dnssec::{tsig::TSigner, Algorithm, KeyPair, Private, SigSigner},
+        rdata::KEY,
+    },
+    tcp::TcpClientConnection,
+    udp::UdpClientStream,
 };
 
 use crate::dhcid::DhcId;
@@ -24,7 +32,11 @@ pub struct Updater {
 }
 
 impl Updater {
-    pub async fn new(dst: SocketAddr, tsig: Option<TSigner>) -> Result<Self, UpdateError> {
+    pub async fn new_udp<S>(dst: S, tsig: Option<TSigner>) -> Result<Self, UpdateError>
+    where
+        S: Into<SocketAddr>,
+    {
+        let dst = dst.into();
         // todo: create stream per forward/reverse server
         let stream = UdpClientStream::<UdpSocket, TSigner>::with_timeout_and_signer_and_bind_addr(
             dst,
@@ -37,10 +49,61 @@ impl Updater {
 
         Ok(Self { client, handle })
     }
+
+    pub async fn new_udp_sig0<S, K, N>(
+        dst: S,
+        signer_name: N,
+        key: KeyPair<Private>,
+        public_key: K,
+        algorithm: Algorithm,
+    ) -> Result<Self, UpdateError>
+    where
+        S: Into<SocketAddr>,
+        K: Into<Vec<u8>>,
+        N: AsRef<str>,
+    {
+        let dst = dst.into();
+        let signer_name = signer_name.as_ref();
+        let public_key = public_key.into();
+        let sig0key = KEY::new(
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            algorithm,
+            public_key,
+        );
+
+        let sig = SigSigner::sig0(sig0key, key, Name::from_str_relaxed(signer_name)?);
+        // todo: create stream per forward/reverse server
+        let stream = UdpClientStream::<UdpSocket, Signer>::with_timeout_and_signer_and_bind_addr(
+            dst,
+            Duration::from_secs(5),
+            Some(Arc::new(Signer::Sig0(Box::new(sig)))),
+            None,
+        );
+        let (client, bg) = AsyncClient::connect(stream).await?;
+        let handle = tokio::spawn(bg);
+
+        Ok(Self { client, handle })
+    }
+
+    pub async fn new_tcp_tsig<S: Into<SocketAddr>>(
+        dst: S,
+        tsig: Option<TSigner>,
+    ) -> Result<Self, UpdateError> {
+        let dst = dst.into();
+        let stream = TcpClientConnection::with_timeout(dst, Duration::from_secs(5))?
+            .new_stream(tsig.map(|tsig| Arc::new(Signer::TSIG(tsig))));
+        let (client, bg) = AsyncClient::connect(stream).await?;
+        let handle = tokio::spawn(bg);
+
+        Ok(Self { client, handle })
+    }
     pub async fn forward(
         &mut self,
         zone: Name,
-        domain: Name,
+        name: Name,
         duid: DhcId,
         leased: Ipv4Addr,
         lease_length: u32,
@@ -49,7 +112,7 @@ impl Updater {
         let message = update(
             // todo: get zone origin
             zone.clone(),
-            domain.clone(),
+            name.clone(),
             duid.clone(),
             leased,
             ttl,
@@ -60,13 +123,13 @@ impl Updater {
             Ok(())
         } else if resp.response_code() == ResponseCode::YXDomain {
             debug!(?resp, "got back YXDOMAIN, sending update with dhcid prereq");
-            let new_msg = update_present(zone.clone(), domain.clone(), duid, leased, ttl, false)?;
+            let new_msg = update_present(zone.clone(), name.clone(), duid, leased, ttl, false)?;
             let yx_resp = self.client.send(new_msg).first_answer().await?;
             if yx_resp.response_code() == ResponseCode::NoError {
-                info!(?domain, "got NOERROR, updated DNS");
+                info!(?name, "got NOERROR, updated DNS");
                 Ok(())
             } else {
-                error!(?domain, "failed to updated dns");
+                error!(?name, "failed to updated dns");
                 Err(UpdateError::ResponseCode(yx_resp.response_code()))
             }
         } else {
@@ -76,14 +139,14 @@ impl Updater {
     pub async fn reverse(
         &mut self,
         zone: Name,
-        domain: Name,
+        name: Name,
         duid: DhcId,
         leased: Ipv4Addr,
         lease_length: u32,
     ) -> Result<(), UpdateError> {
         let ttl = calculate_ttl(lease_length);
 
-        let message = delete(zone, domain.clone(), duid.clone(), leased, ttl, false)?;
+        let message = delete(zone, name.clone(), duid.clone(), leased, ttl, false)?;
         let resp = self.client.send(message).first_answer().await?;
         if resp.response_code() == ResponseCode::NoError {
             Ok(())
@@ -100,7 +163,7 @@ impl Drop for Updater {
 }
 
 pub fn update(
-    zone_origin: Name,
+    zone: Name,
     name: Name,
     duid: DhcId,
     leased: Ipv4Addr,
@@ -112,7 +175,7 @@ pub fn update(
         rr::{rdata::NULL, DNSClass, RData, Record, RecordType},
     };
 
-    let mut message = update_msg(zone_origin, use_edns);
+    let mut message = update_msg(zone, use_edns);
 
     let mut prerequisite = Record::with(name.clone(), RecordType::ANY, 0);
     prerequisite.set_dns_class(DNSClass::NONE);
@@ -278,7 +341,9 @@ pub enum UpdateError {
     #[error("got {0:?} instead of NoError")]
     ResponseCode(ResponseCode),
     #[error("got {0:?} instead of NoError")]
-    ClientError(#[from] NameError),
+    Client(#[from] NameError),
+    #[error("got {0:?} from tcp client")]
+    TcpClient(#[from] ClientError),
 }
 
 #[cfg(test)]

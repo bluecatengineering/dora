@@ -39,7 +39,7 @@ async fn main() -> Result<()> {
         anyhow::bail!("failed to create tsigner")
     };
 
-    let mut client = Updater::new(([127, 0, 0, 1], 53).into(), None).await?;
+    let mut client = Updater::new_udp(([127, 0, 0, 1], 53), None).await?;
     // forward
     dbg!(
         client

@@ -191,7 +191,7 @@ impl DdnsUpdate {
                 let zone = srv.name.clone();
                 // todo: likely re-creating the same client for each update
                 // should cache this in parent type
-                let mut client = Updater::new(srv.ip, tsig).await?;
+                let mut client = Updater::new_udp(srv.ip, tsig).await?;
 
                 // todo: zone origin same as domain?
                 match client
@@ -217,8 +217,8 @@ impl DdnsUpdate {
                     None
                 };
                 let zone = srv.name.clone();
-                // todo: should cache this in parent type
-                let mut client = Updater::new(srv.ip, tsig).await?;
+                // todo: should cache this in parent type, add sig0 and tcp support
+                let mut client = Updater::new_udp(srv.ip, tsig).await?;
 
                 match client
                     .reverse(zone, domain.clone(), duid.clone(), leased, *lease_length)
@@ -257,7 +257,7 @@ pub fn tsigner(key_name: &str, config: &Ddns) -> Result<TSigner, TsigError> {
     Ok(TSigner::new(
         key.data.as_bytes().to_owned(),
         key.algorithm.clone(),
-        Name::from_ascii(key_name).unwrap(), // TODO: remove unwrap
+        Name::from_ascii(key_name)?, // TODO: remove unwrap
         // ??
         300,
     )?)
