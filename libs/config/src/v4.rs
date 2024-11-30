@@ -533,7 +533,7 @@ impl<'a> NetRangeIter<'a> {
     }
 }
 
-impl<'a> Iterator for NetRangeIter<'a> {
+impl Iterator for NetRangeIter<'_> {
     type Item = Ipv4Addr;
 
     // skips any IPs in exclusions

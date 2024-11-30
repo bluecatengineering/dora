@@ -31,8 +31,7 @@ fn main() -> Result<()> {
     // parses from cli or environment var
     let config = cli::Config::parse();
     let trace_config = trace::Config::parse(&config.dora_log)?;
-    debug!(?config);
-    debug!(?trace_config);
+    debug!(?config, ?trace_config);
     if let Err(err) = dotenv::dotenv() {
         debug!(?err, ".env file not loaded");
     }
