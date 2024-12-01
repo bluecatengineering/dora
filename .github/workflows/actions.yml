@@ -117,6 +117,11 @@ jobs:
       matrix:
         rust:
           - nightly
+    env:
+      CARGO_INCREMENTAL: "0"
+      RUSTFLAGS: "-Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests -Cpanic=abort"
+      RUSTDOCFLAGS: "-Cpanic=abort"
+      SQLX_OFFLINE: true
     steps:
       - name: Checkout sources
         uses: actions/checkout@v2
@@ -127,21 +132,18 @@ jobs:
           toolchain: ${{ matrix.rust }}
           override: true
           components: llvm-tools-preview
+      - id: tools
+        name: Install Tools
+        uses: taiki-e/install-action@v2
+        with:
+          tool: grcov
       - name: Run coverage
-        uses: actions-rs/cargo@v1
+        uses: alekitto/grcov@v0.2
+        id: coverage
         with:
           command: test
           args: --all-features --exclude register_derive_impl --workspace --no-fail-fast
         env:
-          CARGO_INCREMENTAL: "0"
-          RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Cinstrument-coverage -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests"
-          RUSTDOCFLAGS: "-Zprofile -Ccodegen-units=1 -Cinstrument-coverage -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests"
-          SQLX_OFFLINE: true
-      - name: rust-grcov
-        id: coverage
-        uses: actions-rs/grcov@v0.1.5
-        env:
-          SQLX_OFFLINE: true
           NODE_COVERALLS_DEBUG: true
       - name: Coveralls upload
         uses: coverallsapp/github-action@master
