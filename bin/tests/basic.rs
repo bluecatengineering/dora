@@ -271,7 +271,6 @@ fn static_opt_dora() -> Result<()> {
 #[test]
 #[traced_test]
 fn discover_req_addr() -> Result<()> {
-    dbg!("fooab");
     let chaddr = utils::rand_mac();
     let _srv = DhcpServerEnv::start(
         "basic.yaml",
@@ -281,15 +280,12 @@ fn discover_req_addr() -> Result<()> {
         "dhcpsrv",
         "192.168.2.1",
     );
-    dbg!(&chaddr);
-    dbg!("foo");
     // use veth_cli created in start()
     let settings = ClientSettingsBuilder::default()
         .iface_name("dhcpcli")
         .target("192.168.2.1".parse::<std::net::IpAddr>().unwrap())
         .port(9900_u16)
         .build()?;
-    tracing::info!("here");
     // create a client that sends dhcpv4 messages
     let mut client = Client::<v4::Message>::new(settings);
     // create DISCOVER msg with a requested IP
@@ -299,11 +295,9 @@ fn discover_req_addr() -> Result<()> {
         .chaddr(chaddr)
         .build()?;
     let resp = client.run(MsgType::Discover(msg_args))?;
-    tracing::info!("here");
 
     assert_eq!(resp.opts().msg_type().unwrap(), v4::MessageType::Offer);
     assert_eq!(resp.yiaddr(), "192.168.2.140".parse::<Ipv4Addr>()?);
-    tracing::info!("here");
 
     // create REQUEST & send
     let sident = utils::get_sident(&resp)?;
