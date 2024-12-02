@@ -16,13 +16,13 @@
 #![deny(rustdoc::broken_intra_doc_links)]
 #![allow(clippy::cognitive_complexity, clippy::too_many_arguments)]
 
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use anyhow::{Result, bail};
 use axum::{Router, extract::Extension, routing};
 
 use ip_manager::{IpManager, Storage};
-use tokio::{net::TcpListener, sync::mpsc, task::JoinHandle};
+use tokio::{net::TcpListener, signal, sync::mpsc, task::JoinHandle};
 use tracing::{error, info, trace};
 
 pub use crate::models::{Health, State};
@@ -100,27 +100,33 @@ impl<S: Storage> ExternalApi<S> {
         cfg: Arc<DhcpConfig>,
         ip_mgr: Arc<IpManager<S>>,
     ) -> Result<()> {
-        let tcp = TcpListener::bind(&addr).await?;
+        const TIMEOUT: u64 = 30;
+        use tower_http::{timeout::TimeoutLayer, trace::TraceLayer};
         // Provides:
         // /health
         // /ping
         // /metrics
         // /metrics-text
         // /leases
-        let app = Router::new()
+        let service = Router::new()
             .route("/health", routing::get(handlers::ok))
             .route("/ping", routing::get(handlers::ping))
             .route("/metrics", routing::get(handlers::metrics))
             .route("/metrics-text", routing::get(handlers::metrics_text))
             .route("/v1/leases", routing::get(handlers::leases::<S>))
             .route("/config", routing::get(handlers::config))
+            .layer(TraceLayer::new_for_http())
+            .layer(TimeoutLayer::new(Duration::from_secs(TIMEOUT)))
             .layer(Extension(state))
             .layer(Extension(ip_mgr))
             .layer(Extension(cfg));
 
-        tracing::debug!("external API listening on {}", addr);
+        let tcp = TcpListener::bind(&addr).await?;
+        tracing::debug!(%addr, "external API listening");
 
-        axum::serve(tcp, app).await?;
+        axum::serve(tcp, service)
+            .with_graceful_shutdown(shutdown_signal())
+            .await?;
         bail!("external API returned-- should not happen")
     }
 
@@ -148,6 +154,12 @@ impl<S: Storage> ExternalApi<S> {
         ExternalApiGuard {
             task_handle: self.start(),
         }
+    }
+}
+
+async fn shutdown_signal() {
+    if let Err(err) = signal::ctrl_c().await {
+        error!(?err, "error in graceful shutdown");
     }
 }
 
@@ -183,7 +195,7 @@ mod handlers {
     pub(crate) async fn leases<S: Storage>(
         Extension(cfg): Extension<Arc<DhcpConfig>>,
         Extension(ip_mgr): Extension<Arc<IpManager<S>>>,
-    ) -> ServerResult<impl IntoResponse> {
+    ) -> ServerResult<axum::Json<crate::models::Leases>> {
         use crate::models::{LeaseInfo, LeaseNetworks, LeaseState, Leases};
         use ip_manager::State as S;
 
