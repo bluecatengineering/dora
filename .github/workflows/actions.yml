@@ -119,8 +119,7 @@ jobs:
           - stable
     env:
       CARGO_INCREMENTAL: "0"
-      RUSTFLAGS: "-Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort"
-      RUSTDOCFLAGS: "-Cpanic=abort"
+      RUSTFLAGS: "-Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off"
       SQLX_OFFLINE: true
     steps:
       - name: Checkout sources
