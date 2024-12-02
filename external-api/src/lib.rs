@@ -16,15 +16,16 @@
 #![deny(rustdoc::broken_intra_doc_links)]
 #![allow(clippy::cognitive_complexity, clippy::too_many_arguments)]
 
+use std::{net::SocketAddr, sync::Arc, time::Duration};
+
 use anyhow::{bail, Result};
 use axum::{extract::Extension, routing, Router};
 use ip_manager::{IpManager, Storage};
-use tokio::{net::TcpListener, sync::mpsc, task::JoinHandle};
+use tokio::{net::TcpListener, signal, sync::mpsc, task::JoinHandle};
 use tracing::{error, info, trace};
 
-use std::{net::SocketAddr, sync::Arc};
-
 pub use crate::models::{Health, State};
+use config::DhcpConfig;
 
 /// The task runner for the [`ExternalApi`]
 ///
@@ -50,11 +51,12 @@ pub struct ExternalApi<S> {
     addr: SocketAddr,
     state: State,
     ip_mgr: Arc<IpManager<S>>,
+    cfg: Arc<DhcpConfig>,
 }
 
 impl<S: Storage> ExternalApi<S> {
     /// Create a new ExternalApi instance
-    pub fn new(addr: SocketAddr, ip_mgr: Arc<IpManager<S>>) -> Self {
+    pub fn new(addr: SocketAddr, cfg: Arc<DhcpConfig>, ip_mgr: Arc<IpManager<S>>) -> Self {
         trace!("starting external api");
         let (tx, rx) = mpsc::channel(10);
         let state = models::blank_health();
@@ -64,6 +66,7 @@ impl<S: Storage> ExternalApi<S> {
             addr,
             state,
             ip_mgr,
+            cfg,
         }
     }
 
@@ -90,24 +93,39 @@ impl<S: Storage> ExternalApi<S> {
     }
 
     /// serve the HTTP external api
-    async fn run(addr: SocketAddr, state: State, ip_mgr: Arc<IpManager<S>>) -> Result<()> {
-        let tcp = TcpListener::bind(&addr).await?;
+    async fn run(
+        addr: SocketAddr,
+        state: State,
+        cfg: Arc<DhcpConfig>,
+        ip_mgr: Arc<IpManager<S>>,
+    ) -> Result<()> {
+        const TIMEOUT: u64 = 30;
+        use tower_http::{timeout::TimeoutLayer, trace::TraceLayer};
         // Provides:
         // /health
         // /ping
         // /metrics
         // /metrics-text
-        let app = Router::new()
+        // /leases
+        let service = Router::new()
             .route("/health", routing::get(handlers::ok))
             .route("/ping", routing::get(handlers::ping))
             .route("/metrics", routing::get(handlers::metrics))
             .route("/metrics-text", routing::get(handlers::metrics_text))
+            .route("/v1/leases", routing::get(handlers::leases::<S>))
+            .route("/config", routing::get(handlers::config))
+            .layer(TraceLayer::new_for_http())
+            .layer(TimeoutLayer::new(Duration::from_secs(TIMEOUT)))
             .layer(Extension(state))
-            .layer(Extension(ip_mgr));
+            .layer(Extension(ip_mgr))
+            .layer(Extension(cfg));
 
-        tracing::debug!("external API listening on {}", addr);
+        let tcp = TcpListener::bind(&addr).await?;
+        tracing::debug!(%addr, "external API listening");
 
-        axum::serve(tcp, app).await?;
+        axum::serve(tcp, service)
+            .with_graceful_shutdown(shutdown_signal())
+            .await?;
         bail!("external API returned-- should not happen")
     }
 
@@ -117,12 +135,14 @@ impl<S: Storage> ExternalApi<S> {
         let state = self.state.clone();
         let addr = self.addr;
         let ip_mgr = self.ip_mgr.clone();
+        let cfg = self.cfg.clone();
         // if tx is not cloned, health listen will never update since ExternalApi is owner
 
         tokio::spawn(async move {
-            if let Err(err) =
-                tokio::try_join!(ExternalApi::run(addr, state, ip_mgr), self.listen_status())
-            {
+            if let Err(err) = tokio::try_join!(
+                ExternalApi::run(addr, state, cfg, ip_mgr),
+                self.listen_status()
+            ) {
                 error!(?err, "health task returning, this should not happen")
             }
         })
@@ -136,9 +156,17 @@ impl<S: Storage> ExternalApi<S> {
     }
 }
 
+async fn shutdown_signal() {
+    if let Err(err) = signal::ctrl_c().await {
+        error!(?err, "error in graceful shutdown");
+    }
+}
+
 mod handlers {
 
-    use crate::models::{Health, State};
+    use std::{collections::HashMap, sync::Arc, time::UNIX_EPOCH};
+
+    use anyhow::Context;
     use axum::{
         body::Body,
         extract::Extension,
@@ -146,20 +174,103 @@ mod handlers {
         http::{Response, StatusCode},
         response::IntoResponse,
     };
+    use chrono::{DateTime, Utc};
+    use config::DhcpConfig;
     use dora_core::metrics::{START_TIME, UPTIME};
+    use ip_manager::{IpManager, Storage};
+    use ipnet::Ipv4Net;
     use prometheus::{Encoder, ProtobufEncoder, TextEncoder};
     use tracing::error;
 
-    pub(crate) async fn ok(
-        Extension(state): Extension<State>,
-    ) -> Result<impl IntoResponse, std::convert::Infallible> {
+    use crate::models::{Health, ServerResult, State};
+
+    pub(crate) async fn ok(Extension(state): Extension<State>) -> ServerResult<impl IntoResponse> {
         Ok(match *state.lock() {
             Health::Good => StatusCode::OK,
             Health::Bad => StatusCode::INTERNAL_SERVER_ERROR,
         })
     }
 
-    pub(crate) async fn metrics() -> Result<impl IntoResponse, std::convert::Infallible> {
+    pub(crate) async fn leases<S: Storage>(
+        Extension(cfg): Extension<Arc<DhcpConfig>>,
+        Extension(ip_mgr): Extension<Arc<IpManager<S>>>,
+    ) -> ServerResult<axum::Json<crate::models::Leases>> {
+        use crate::models::{LeaseInfo, LeaseNetworks, LeaseState, Leases};
+        use ip_manager::State as S;
+
+        let mut cfg = (*cfg).clone();
+        let networks = ip_mgr
+            .select_all()
+            .await?
+            .into_iter()
+            .map(|lease| {
+                let info = lease.as_ref();
+                let ip = info.ip();
+                let id = info.id().map(hex::encode);
+                let secs = info.expires_at().duration_since(UNIX_EPOCH)?.as_secs();
+                let network = info.network();
+                let expires_at_epoch = secs;
+                let expires_at_utc = DateTime::<Utc>::from_timestamp(
+                    info.expires_at().duration_since(UNIX_EPOCH)?.as_secs() as i64,
+                    0,
+                )
+                .context("failed to create UTC datetime")?
+                .to_rfc3339();
+                let lease_info = LeaseInfo {
+                    ip,
+                    id,
+                    network,
+                    expires_at_epoch,
+                    expires_at_utc,
+                };
+
+                let netv4 = match network {
+                    std::net::IpAddr::V4(ip) => ip,
+                    std::net::IpAddr::V6(_) => {
+                        return Err(anyhow::anyhow!("no dynamic ipv6 at this time"))
+                    }
+                };
+                if let Some(net) = cfg.v4().network(netv4) {
+                    let lease = match lease {
+                        S::Reserved(_) => LeaseState::Reserved(lease_info),
+                        S::Leased(_) => LeaseState::Leased(lease_info),
+                        S::Probated(_) => LeaseState::Probated(lease_info),
+                    };
+                    Ok((net, lease))
+                } else {
+                    Err(anyhow::anyhow!(
+                        "failed to find network in cfg for {lease_info:?}"
+                    ))
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .fold(
+                HashMap::<Ipv4Net, LeaseNetworks>::new(),
+                |mut map, (net, lease)| {
+                    let entry = map.entry(net.full_subnet()).or_default();
+                    entry.ips.push(lease);
+
+                    map
+                },
+            );
+
+        Ok(axum::Json(Leases { networks }))
+    }
+
+    pub(crate) async fn config(
+        Extension(cfg): Extension<Arc<DhcpConfig>>,
+    ) -> ServerResult<impl IntoResponse> {
+        // TODO: if serializing worked we could get DhcpConfig back into JSON/YAML but there's
+        // a lot of logic left to make that particular transform. So just read from disk
+        let path = cfg.path().context("no path specified for config")?;
+        let cfg = tokio::fs::read_to_string(path)
+            .await
+            .with_context(|| format!("failed to find config at {}", path.display()))?;
+        Ok(axum::Json(cfg))
+    }
+
+    pub(crate) async fn metrics() -> ServerResult<impl IntoResponse> {
         UPTIME.set(START_TIME.elapsed().as_secs() as i64);
         let encoder = ProtobufEncoder::new();
         let mut buf = Vec::new();
@@ -171,14 +282,13 @@ mod handlers {
                 error!(?err, "error protobuf encoding prometheus metrics");
                 Ok(resp
                     .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .body(Body::empty())
-                    .unwrap())
+                    .body(Body::empty())?)
             }
-            Ok(_) => Ok(resp.status(StatusCode::OK).body(Body::from(buf)).unwrap()),
+            Ok(_) => Ok(resp.status(StatusCode::OK).body(Body::from(buf))?),
         }
     }
 
-    pub(crate) async fn metrics_text() -> Result<impl IntoResponse, std::convert::Infallible> {
+    pub(crate) async fn metrics_text() -> ServerResult<impl IntoResponse> {
         UPTIME.set(START_TIME.elapsed().as_secs() as i64);
         let encoder = TextEncoder::new();
         let mut buf = String::new();
@@ -190,10 +300,9 @@ mod handlers {
                 error!(?err, "error text encoding prometheus metrics");
                 Ok(resp
                     .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .body(Body::empty())
-                    .unwrap())
+                    .body(Body::empty())?)
             }
-            Ok(_) => Ok(resp.status(StatusCode::OK).body(Body::from(buf)).unwrap()),
+            Ok(_) => Ok(resp.status(StatusCode::OK).body(Body::from(buf))?),
         }
     }
 
@@ -204,9 +313,12 @@ mod handlers {
 
 /// Various models for API responses
 pub mod models {
+    use std::{collections::HashMap, fmt, net::IpAddr, sync::Arc};
+
+    use axum::response::IntoResponse;
+    use ipnet::Ipv4Net;
     use parking_lot::Mutex;
     use serde::{Deserialize, Serialize};
-    use std::{fmt, sync::Arc};
 
     /// The overall health of the system
     pub type State = Arc<Mutex<Health>>;
@@ -233,8 +345,59 @@ pub mod models {
         }
     }
 
+    #[derive(Serialize, Deserialize, Default, Debug, PartialEq, Clone, Eq)]
+    pub struct Leases {
+        pub networks: HashMap<Ipv4Net, LeaseNetworks>,
+    }
+
+    #[derive(Serialize, Deserialize, Default, Debug, PartialEq, Clone, Eq)]
+    pub struct LeaseNetworks {
+        pub ips: Vec<LeaseState>,
+    }
+
+    #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Eq)]
+    pub enum LeaseState {
+        Reserved(LeaseInfo),
+        Leased(LeaseInfo),
+        Probated(LeaseInfo),
+    }
+    #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Eq)]
+    pub struct LeaseInfo {
+        pub ip: IpAddr,
+        pub id: Option<String>,
+        pub network: IpAddr,
+        pub expires_at_epoch: u64,
+        pub expires_at_utc: String,
+    }
+
     pub(crate) fn blank_health() -> State {
         Arc::new(Mutex::new(Health::Bad))
+    }
+
+    // error type
+    /// Make our own error that wraps `anyhow::Error`.
+    #[derive(Debug)]
+    pub struct ServerError(anyhow::Error);
+    /// return error result
+    pub type ServerResult<T> = Result<T, ServerError>;
+
+    impl IntoResponse for ServerError {
+        fn into_response(self) -> axum::response::Response {
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{}", self.0),
+            )
+                .into_response()
+        }
+    }
+
+    impl<E> From<E> for ServerError
+    where
+        E: Into<anyhow::Error>,
+    {
+        fn from(err: E) -> Self {
+            Self(err.into())
+        }
     }
 }
 
@@ -248,7 +411,8 @@ mod tests {
     #[tokio::test]
     async fn test_health() -> anyhow::Result<()> {
         let mgr = Arc::new(IpManager::new(SqliteDb::new("sqlite::memory:").await?)?);
-        let api = ExternalApi::new("0.0.0.0:8889".parse().unwrap(), mgr);
+        let cfg = Arc::new(DhcpConfig::default());
+        let api = ExternalApi::new("0.0.0.0:8889".parse().unwrap(), cfg, mgr);
         let _handle = api.serve();
         // wait for server to come up
         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -271,7 +435,8 @@ mod tests {
     #[tokio::test]
     async fn test_metrics() -> anyhow::Result<()> {
         let mgr = Arc::new(IpManager::new(SqliteDb::new("sqlite::memory:").await?)?);
-        let api = ExternalApi::new("0.0.0.0:8888".parse().unwrap(), mgr);
+        let cfg = Arc::new(DhcpConfig::default());
+        let api = ExternalApi::new("0.0.0.0:8888".parse().unwrap(), cfg, mgr);
         let _handle = api.serve();
         // wait for server to come up
         tokio::time::sleep(Duration::from_secs(1)).await;
