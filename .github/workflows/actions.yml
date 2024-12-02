@@ -116,7 +116,7 @@ jobs:
     strategy:
       matrix:
         rust:
-          - nightly
+          - stable
     env:
       CARGO_INCREMENTAL: "0"
       RUSTFLAGS: "-Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests -Cpanic=abort"
@@ -132,22 +132,22 @@ jobs:
           toolchain: ${{ matrix.rust }}
           override: true
           components: llvm-tools-preview
-      - id: tools
-        name: Install Tools
-        uses: taiki-e/install-action@v2
-        with:
-          tool: grcov
-      - name: Run coverage
-        uses: alekitto/grcov@v0.2
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Generate code coverage
         id: coverage
-        with:
-          command: test
-          args: --all-features --exclude register_derive_impl --workspace --no-fail-fast
+        run: cargo llvm-cov --all-features --exclude register_derive_impl --workspace --no-fail-fast --lcov --output-path lcov.info
         env:
           NODE_COVERALLS_DEBUG: true
-      - name: Coveralls upload
-        uses: coverallsapp/github-action@master
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          path-to-lcov: ${{ steps.coverage.outputs.report }}
-          debug: true
+          # token: ${{ secrets.CODECOV_TOKEN }} # not required for public repos
+          files: lcov.info
+          fail_ci_if_error: true
+      # - name: Coveralls upload
+      #   uses: coverallsapp/github-action@master
+      #   with:
+      #     github-token: ${{ secrets.GITHUB_TOKEN }}
+      #     path-to-lcov: ${{ steps.coverage.outputs.report }}
+      #     debug: true
