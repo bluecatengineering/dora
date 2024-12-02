@@ -138,15 +138,15 @@ jobs:
         run: cargo llvm-cov --all-features --exclude register_derive_impl --workspace --no-fail-fast --lcov --output-path lcov.info
         env:
           NODE_COVERALLS_DEBUG: true
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v3
-        with:
-          # token: ${{ secrets.CODECOV_TOKEN }} # not required for public repos
-          files: lcov.info
-          fail_ci_if_error: true
-      # - name: Coveralls upload
-      #   uses: coverallsapp/github-action@master
+      # - name: Upload coverage to Codecov
+      #   uses: codecov/codecov-action@v3
       #   with:
-      #     github-token: ${{ secrets.GITHUB_TOKEN }}
-      #     path-to-lcov: ${{ steps.coverage.outputs.report }}
-      #     debug: true
+      #     # token: ${{ secrets.CODECOV_TOKEN }} # not required for public repos
+      #     files: lcov.info
+      #     fail_ci_if_error: true
+      - name: Coveralls upload
+        uses: coverallsapp/github-action@master
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path-to-lcov: lcov.info
+          debug: true
