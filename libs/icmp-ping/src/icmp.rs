@@ -35,7 +35,7 @@ pub struct EchoRequest<'a> {
     pub payload: &'a [u8],
 }
 
-impl<'a> PartialEq for EchoRequest<'a> {
+impl PartialEq for EchoRequest<'_> {
     fn eq(&self, other: &Self) -> bool {
         // ident potentially will be altered by the kernel because we use DGRAM
         self.seq_cnt == other.seq_cnt && self.payload == other.payload
@@ -49,7 +49,7 @@ impl PartialEq<EchoReply> for EchoRequest<'_> {
     }
 }
 
-impl<'a> Encode<Icmpv4> for EchoRequest<'a> {
+impl Encode<Icmpv4> for EchoRequest<'_> {
     fn encode(&self, buffer: &mut [u8]) -> Result<(), Error> {
         let mut packet =
             icmp::echo_request::MutableEchoRequestPacket::new(buffer).ok_or(Error::InvalidSize)?;
@@ -65,7 +65,7 @@ impl<'a> Encode<Icmpv4> for EchoRequest<'a> {
     }
 }
 
-impl<'a> Encode<Icmpv6> for EchoRequest<'a> {
+impl Encode<Icmpv6> for EchoRequest<'_> {
     fn encode(&self, buffer: &mut [u8]) -> Result<(), Error> {
         // icmpv6::MutableIcmpv6Packet does not have a way to set ident and seq_cnt, so we'll do it manually here
         // set type

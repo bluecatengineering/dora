@@ -1,4 +1,4 @@
-FROM rust:1.77.2 as builder
+FROM rust:1.83.0 as builder
 # set workdir
 WORKDIR /usr/src/dora
 COPY . .

@@ -167,7 +167,7 @@ pub struct PacketDetails<'a> {
 }
 
 // useful for testing
-impl<'a> Default for PacketDetails<'a> {
+impl Default for PacketDetails<'_> {
     fn default() -> Self {
         Self {
             iface: "eth0",
@@ -305,7 +305,7 @@ fn split(a: String, del: &str, n: usize) -> Val {
         a.split(del)
             .nth(n - 1)
             .map(ToString::to_string)
-            .unwrap_or(String::new()),
+            .unwrap_or_default(),
     )
 }
 

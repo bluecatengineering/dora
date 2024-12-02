@@ -286,7 +286,6 @@ fn discover_req_addr() -> Result<()> {
         .target("192.168.2.1".parse::<std::net::IpAddr>().unwrap())
         .port(9900_u16)
         .build()?;
-
     // create a client that sends dhcpv4 messages
     let mut client = Client::<v4::Message>::new(settings);
     // create DISCOVER msg with a requested IP
