@@ -918,6 +918,7 @@ dependencies = [
  "rand",
  "socket2 0.5.6",
  "static-addr",
+ "tokio-util",
  "tracing-futures",
  "tracing-test",
 ]
@@ -1079,6 +1080,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tokio-util",
  "tower-http",
  "tracing",
  "tracing-futures",
@@ -4010,9 +4012,9 @@ checksum = "39ec24b3121d976906ece63c9daad25b85969647682eee313cb5779fdd69e14e"
 
 [[package]]
 name = "unix-udp-sock"
-version = "0.7.1"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "514648ac1c7350463f958dd9674f7ea14c38d6feaeea61065ee01233bb0a14eb"
+checksum = "5d1f79de092673cbaec8699aef6be4064cbc189b3271e70e8939c8b5e86847b3"
 dependencies = [
  "bytes",
  "futures-core",

@@ -427,6 +427,38 @@ mod tests {
             assert_eq!(res.reply.seq_cnt, i);
         }
 
+        assert!(pinger.map.lock().is_empty());
+
+        let pinger = Arc::new(listener.pinger("127.0.0.1".parse().unwrap()));
+        let barrier = Arc::new(tokio::sync::Barrier::new(2));
+
+        // start 2 at the same time
+        let a = tokio::spawn({
+            let pinger = pinger.clone();
+            let barrier = barrier.clone();
+            async move {
+                barrier.wait().await;
+                for i in 0..5 {
+                    let res = pinger.ping(i).await?;
+                    assert_eq!(res.reply.seq_cnt, i);
+                }
+                Ok::<_, errors::Error>(())
+            }
+        });
+        let b = tokio::spawn({
+            let pinger = pinger.clone();
+            let barrier = barrier.clone();
+            async move {
+                barrier.wait().await;
+                for i in 0..5 {
+                    let res = pinger.ping(i).await?;
+                    assert_eq!(res.reply.seq_cnt, i);
+                }
+                Ok::<_, errors::Error>(())
+            }
+        });
+        let _ = tokio::try_join!(a, b).unwrap();
+
         Ok(())
     }
 
@@ -440,6 +472,7 @@ mod tests {
                 let res = pinger.ping(i).await?;
                 assert_eq!(res.reply.seq_cnt, i);
             }
+            assert!(pinger.map.lock().is_empty());
             Ok::<_, errors::Error>(())
         });
         let pinger = listener.pinger("8.8.8.8".parse().unwrap());
@@ -448,6 +481,7 @@ mod tests {
                 let res = pinger.ping(i).await?;
                 assert_eq!(res.reply.seq_cnt, i);
             }
+            assert!(pinger.map.lock().is_empty());
             Ok::<_, errors::Error>(())
         });
         let pinger = listener.pinger("1.0.0.1".parse().unwrap());
@@ -456,9 +490,11 @@ mod tests {
                 let res = pinger.ping(i).await?;
                 assert_eq!(res.reply.seq_cnt, i);
             }
+            assert!(pinger.map.lock().is_empty());
             Ok::<_, errors::Error>(())
         });
         let _ = tokio::try_join!(a, b, c).unwrap();
+
         Ok(())
     }
 }
