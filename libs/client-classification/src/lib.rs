@@ -226,12 +226,14 @@ pub fn eval(expr: &Expr, args: &Args) -> Result<Val, EvalErr> {
             Val::String(s) => Val::Bytes(s.as_bytes().to_vec()),
             Val::Bytes(b) => Val::Bytes(b),
             Val::Int(i) => Val::Bytes(i.to_be_bytes().to_vec()),
+            Val::Empty => Val::Empty,
             err => return Err(EvalErr::ExpectedBytes(err)),
         },
         E::ToText(lhs) => match eval(lhs, args)? {
             Val::String(s) => Val::String(s),
             Val::Bytes(b) => Val::String(std::str::from_utf8(&b)?.to_owned()),
             Val::Int(i) => Val::String(i.to_string()),
+            Val::Empty => Val::Empty,
             err => return Err(EvalErr::ExpectedString(err)),
         },
         E::SubOpt(lhs, o) => {
@@ -402,6 +404,25 @@ mod tests {
     use super::*;
     use crate::ast::*;
     use std::{collections::HashMap, net::Ipv4Addr};
+
+    #[test]
+    fn test_text_foo() {
+        let args = Args {
+            chaddr: "001122334455".as_bytes(),
+            opts: HashMap::new(),
+            msg: &{
+                let mut msg = v4::Message::default();
+                msg.opts_mut()
+                    .insert(v4::DhcpOption::MessageType(v4::MessageType::Discover));
+                msg
+            },
+            member: HashSet::new(),
+            pkt: PacketDetails::default(),
+        };
+
+        let val = eval(&ast::parse("option[60].text == 'foobar'").unwrap(), &args).unwrap();
+        assert_eq!(val, Val::Bool(false));
+    }
 
     #[test]
     fn test_opt_exists() {

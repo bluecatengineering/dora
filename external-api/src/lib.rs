@@ -22,7 +22,8 @@ use anyhow::{Result, bail};
 use axum::{Router, extract::Extension, routing};
 
 use ip_manager::{IpManager, Storage};
-use tokio::{net::TcpListener, signal, sync::mpsc, task::JoinHandle};
+use tokio::{net::TcpListener, sync::mpsc, task::JoinHandle};
+use tokio_util::sync::CancellationToken;
 use tracing::{error, info, trace};
 
 pub use crate::models::{Health, State};
@@ -99,6 +100,7 @@ impl<S: Storage> ExternalApi<S> {
         state: State,
         cfg: Arc<DhcpConfig>,
         ip_mgr: Arc<IpManager<S>>,
+        token: CancellationToken,
     ) -> Result<()> {
         const TIMEOUT: u64 = 30;
         use tower_http::{timeout::TimeoutLayer, trace::TraceLayer};
@@ -125,14 +127,16 @@ impl<S: Storage> ExternalApi<S> {
         tracing::debug!(%addr, "external API listening");
 
         axum::serve(tcp, service)
-            .with_graceful_shutdown(shutdown_signal())
+            .with_graceful_shutdown(async move {
+                token.cancelled().await;
+            })
             .await?;
         bail!("external API returned-- should not happen")
     }
 
     /// Kick off the HTTP service and start listening on all channels for
     /// changes
-    pub fn start(mut self) -> JoinHandle<()> {
+    pub fn start(mut self, token: CancellationToken) -> JoinHandle<()> {
         let state = self.state.clone();
         let addr = self.addr;
         let ip_mgr = self.ip_mgr.clone();
@@ -141,7 +145,7 @@ impl<S: Storage> ExternalApi<S> {
 
         tokio::spawn(async move {
             if let Err(err) = tokio::try_join!(
-                ExternalApi::run(addr, state, cfg, ip_mgr),
+                ExternalApi::run(addr, state, cfg, ip_mgr, token),
                 self.listen_status()
             ) {
                 error!(?err, "health task returning, this should not happen")
@@ -150,16 +154,10 @@ impl<S: Storage> ExternalApi<S> {
     }
 
     /// Start the `ExternalApiRunner`
-    pub fn serve(self) -> ExternalApiGuard {
+    pub fn serve(self, token: CancellationToken) -> ExternalApiGuard {
         ExternalApiGuard {
-            task_handle: self.start(),
+            task_handle: self.start(token),
         }
-    }
-}
-
-async fn shutdown_signal() {
-    if let Err(err) = signal::ctrl_c().await {
-        error!(?err, "error in graceful shutdown");
     }
 }
 
@@ -414,7 +412,8 @@ mod tests {
         let mgr = Arc::new(IpManager::new(SqliteDb::new("sqlite::memory:").await?)?);
         let cfg = Arc::new(DhcpConfig::default());
         let api = ExternalApi::new("0.0.0.0:8889".parse().unwrap(), cfg, mgr);
-        let _handle = api.serve();
+        let token = CancellationToken::new();
+        let _handle = api.serve(token);
         // wait for server to come up
         tokio::time::sleep(Duration::from_secs(1)).await;
         let r = reqwest::get("http://0.0.0.0:8889/health")
@@ -438,7 +437,8 @@ mod tests {
         let mgr = Arc::new(IpManager::new(SqliteDb::new("sqlite::memory:").await?)?);
         let cfg = Arc::new(DhcpConfig::default());
         let api = ExternalApi::new("0.0.0.0:8888".parse().unwrap(), cfg, mgr);
-        let _handle = api.serve();
+        let token = CancellationToken::new();
+        let _handle = api.serve(token);
         // wait for server to come up
         tokio::time::sleep(Duration::from_secs(1)).await;
         let bytes = reqwest::get("http://0.0.0.0:8888/metrics")

@@ -64,7 +64,7 @@ lazy_static! {
     pub static ref DHCPV6_BYTES_SENT: IntCounter = register_int_counter!("dhcpv6_bytes_sent", "DHCPv4 bytes sent").unwrap();
 
     /// bytes recv DHCPv4
-    pub static ref DHCPV4_BYTES_RECV: IntCounter = register_int_counter!("dhcpv6_bytes_recv", "DHCPv6 bytes recv").unwrap();
+    pub static ref DHCPV4_BYTES_RECV: IntCounter = register_int_counter!("dhcpv4_bytes_recv", "DHCPv4 bytes recv").unwrap();
     /// bytes recv DHCPv6
     pub static ref DHCPV6_BYTES_RECV: IntCounter = register_int_counter!("dhcpv6_bytes_recv", "DHCPv6 bytes recv").unwrap();
 
