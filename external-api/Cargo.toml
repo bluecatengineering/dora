@@ -10,17 +10,23 @@ license = "MPL-2.0"
 [dependencies]
 dora-core = { path = "../dora-core" }
 ip-manager = { path = "../libs/ip-manager" }
+config = { path = "../libs/config" }
 
 # libs
 anyhow = { workspace = true }
 axum = "0.7.5"
+chrono = "0.4.38"
+hex = "0.4.3"
 tokio = { workspace = true }
+tower-http = { version = "0.6.2", features = ["trace", "timeout"] }
+tokio-util = { workspace = true }
 tracing-futures = { workspace = true }
 tracing = { workspace = true }
 parking_lot = "0.12"
 serde = { workspace = true }
 serde_json = { workspace = true }
 prometheus = { workspace = true }
+ipnet = { workspace = true }
 
 
 [dev-dependencies]

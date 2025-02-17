@@ -16,6 +16,7 @@ static-addr = { path = "../plugins/static-addr" }
 # libs
 ip-manager = { path = "../libs/ip-manager" }
 config = { path = "../libs/config" }
+tokio-util = { workspace = true }
 # external
 anyhow = { workspace = true }
 tracing-futures = { workspace = true }
