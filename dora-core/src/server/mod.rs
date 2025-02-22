@@ -147,7 +147,7 @@ where
                 Ok(Action::Respond) => return Some(()),
                 Ok(Action::NoResponse) => {
                     // remove the resp_msg if we don't plan to send a response
-                    ctx.resp_msg_mut().take();
+                    ctx.resp_msg_take();
                     return None;
                 }
                 Err(ref err) => {

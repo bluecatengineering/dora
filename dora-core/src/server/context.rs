@@ -259,6 +259,10 @@ impl<T: Encodable + Decodable> MsgContext<T> {
     pub fn set_resp_msg(&mut self, msg: T) {
         self.resp_msg = Some(msg);
     }
+    /// take response message and replace with None
+    pub fn resp_msg_take(&mut self) -> Option<T> {
+        self.resp_msg.take()
+    }
     /// The mutable deserialized contents of `resp_msg`
     pub fn resp_msg_mut(&mut self) -> Option<&mut T> {
         self.resp_msg.as_mut()
@@ -1028,8 +1032,9 @@ mod tests {
         assert_opt(&ctx, v4::DhcpOption::RelayAgentInformation(backup));
         Ok(())
     }
+
     #[test]
-    fn test_take() -> Result<()> {
+    fn test_take() -> anyhow::Result<()> {
         let (mut msg, addr, state) = blank_msg()?;
         // opt codes we are requesting
         msg.opts_mut()
@@ -1057,7 +1062,7 @@ mod tests {
             &[1, 2, 3, 4, 5, 6],
         ));
 
-        ctx.resp_msg_mut().take();
+        ctx.resp_msg_take();
         assert_eq!(ctx.resp_msg, None);
         Ok(())
     }

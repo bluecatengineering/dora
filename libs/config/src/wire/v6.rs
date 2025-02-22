@@ -235,7 +235,7 @@ fn write_opt(enc: &mut Encoder<'_>, code: u16, opt: Opt) -> anyhow::Result<()> {
             encode_opt(&list, |n, e| e.write_u16(*n), enc)?;
         }
         Opt::Str(MaybeList::Val(s)) => {
-            enc.write_u16(s.as_bytes().len() as u16)?;
+            enc.write_u16(s.len() as u16)?;
             enc.write_slice(s.as_bytes())?;
         }
         Opt::Str(MaybeList::List(list)) => {

@@ -381,7 +381,7 @@ where
                 }
                 Err(err) => {
                     debug!(?err, "can't give out lease & not authoritative");
-                    ctx.resp_msg_mut().take();
+                    ctx.resp_msg_take();
                 }
             }
             Ok(Action::Continue)
