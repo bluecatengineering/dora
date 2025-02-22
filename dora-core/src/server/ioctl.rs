@@ -65,12 +65,14 @@ pub fn arp_set(
 /// # Panics
 /// if `bytes.len() > N`
 pub unsafe fn cpy_bytes<const N: usize>(bytes: &[u8]) -> [libc::c_char; N] {
-    let mut sa_data = [0; N];
-    let len = bytes.len();
+    unsafe {
+        let mut sa_data = [0; N];
+        let len = bytes.len();
 
-    sa_data[..len].copy_from_slice(std::slice::from_raw_parts(
-        bytes.as_ptr() as *const libc::c_char,
-        len,
-    ));
-    sa_data
+        sa_data[..len].copy_from_slice(std::slice::from_raw_parts(
+            bytes.as_ptr() as *const libc::c_char,
+            len,
+        ));
+        sa_data
+    }
 }

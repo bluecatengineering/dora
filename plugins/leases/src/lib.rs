@@ -18,7 +18,7 @@ use std::{
 };
 
 use client_protection::RenewThreshold;
-use ddns::{dhcid::DhcId, DdnsUpdate};
+use ddns::{DdnsUpdate, dhcid::DhcId};
 use dora_core::{
     anyhow::anyhow,
     chrono::{DateTime, SecondsFormat, Utc},
@@ -32,8 +32,8 @@ use register_derive::Register;
 use static_addr::StaticAddr;
 
 use config::{
-    v4::{NetRange, Network},
     DhcpConfig,
+    v4::{NetRange, Network},
 };
 use ip_manager::{IpError, IpManager, IpState, Storage};
 
@@ -266,7 +266,9 @@ where
                 }
             }
         }
-        warn!("leases plugin did not assign ip, check configuration or try clearing leases table. submit bugs to: github.com/bluecatengineering/dora");
+        warn!(
+            "leases plugin did not assign ip, check configuration or try clearing leases table. submit bugs to: github.com/bluecatengineering/dora"
+        );
         Ok(Action::NoResponse)
     }
 
@@ -379,7 +381,7 @@ where
                 }
                 Err(err) => {
                     debug!(?err, "can't give out lease & not authoritative");
-                    ctx.resp_msg_mut().take();
+                    ctx.resp_msg_take();
                 }
             }
             Ok(Action::Continue)
@@ -484,11 +486,12 @@ mod tests {
         leases.handle(&mut ctx).await?;
 
         // no requested IP put in message, NAK
-        assert!(ctx
-            .resp_msg()
-            .unwrap()
-            .opts()
-            .has_msg_type(v4::MessageType::Nak));
+        assert!(
+            ctx.resp_msg()
+                .unwrap()
+                .opts()
+                .has_msg_type(v4::MessageType::Nak)
+        );
         Ok(())
     }
 
@@ -515,11 +518,12 @@ mod tests {
         leases.handle(&mut ctx).await?;
         debug!(?ctx);
         // requested IP, OFFER
-        assert!(ctx
-            .resp_msg()
-            .unwrap()
-            .opts()
-            .has_msg_type(v4::MessageType::Offer));
+        assert!(
+            ctx.resp_msg()
+                .unwrap()
+                .opts()
+                .has_msg_type(v4::MessageType::Offer)
+        );
         assert_eq!(
             ctx.resp_msg().unwrap().yiaddr(),
             Ipv4Addr::new(192, 168, 0, 100)
@@ -550,11 +554,12 @@ mod tests {
         leases.handle(&mut ctx).await?;
         debug!(?ctx);
         // requested IP, OFFER
-        assert!(ctx
-            .resp_msg()
-            .unwrap()
-            .opts()
-            .has_msg_type(v4::MessageType::Offer));
+        assert!(
+            ctx.resp_msg()
+                .unwrap()
+                .opts()
+                .has_msg_type(v4::MessageType::Offer)
+        );
         assert_eq!(
             ctx.resp_msg().unwrap().yiaddr(),
             Ipv4Addr::new(192, 168, 0, 100)
@@ -575,11 +580,12 @@ mod tests {
             .insert(v4::DhcpOption::MessageType(v4::MessageType::Ack)); // ack is set in msg type plugin
 
         leases.handle(&mut ctx).await?;
-        assert!(ctx
-            .resp_msg()
-            .unwrap()
-            .opts()
-            .has_msg_type(v4::MessageType::Ack));
+        assert!(
+            ctx.resp_msg()
+                .unwrap()
+                .opts()
+                .has_msg_type(v4::MessageType::Ack)
+        );
         assert_eq!(
             ctx.resp_msg().unwrap().yiaddr(),
             Ipv4Addr::new(192, 168, 0, 100)
@@ -598,11 +604,12 @@ mod tests {
             .insert(v4::DhcpOption::MessageType(v4::MessageType::Ack)); // ack is set in msg type plugin
 
         leases.handle(&mut ctx).await?;
-        assert!(ctx
-            .resp_msg()
-            .unwrap()
-            .opts()
-            .has_msg_type(v4::MessageType::Ack));
+        assert!(
+            ctx.resp_msg()
+                .unwrap()
+                .opts()
+                .has_msg_type(v4::MessageType::Ack)
+        );
 
         Ok(())
     }

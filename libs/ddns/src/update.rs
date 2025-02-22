@@ -10,7 +10,7 @@ use dora_core::{
     tokio,
     tokio::{net::UdpSocket, task::JoinHandle},
     tracing::{debug, error, info},
-    trust_dns_proto::{xfer::FirstAnswer, DnsHandle},
+    trust_dns_proto::{DnsHandle, xfer::FirstAnswer},
 };
 use trust_dns_client::{
     client::AsyncClient, op::ResponseCode, rr::dnssec::tsig::TSigner, udp::UdpClientStream,
@@ -109,7 +109,7 @@ pub fn update(
 ) -> Result<trust_dns_client::op::Message, NameError> {
     use trust_dns_client::{
         op::UpdateMessage,
-        rr::{rdata::NULL, DNSClass, RData, Record, RecordType},
+        rr::{DNSClass, RData, Record, RecordType, rdata::NULL},
     };
 
     let mut message = update_msg(zone_origin, use_edns);
@@ -143,7 +143,7 @@ pub fn update_present(
 ) -> Result<trust_dns_client::op::Message, NameError> {
     use trust_dns_client::{
         op::UpdateMessage,
-        rr::{rdata::NULL, DNSClass, RData, Record, RecordType},
+        rr::{DNSClass, RData, Record, RecordType, rdata::NULL},
     };
     let mut message = update_msg(zone_origin, use_edns);
 
@@ -179,7 +179,7 @@ pub fn delete(
 ) -> Result<trust_dns_client::op::Message, NameError> {
     use trust_dns_client::{
         op::UpdateMessage,
-        rr::{rdata::NULL, RData, Record, RecordType},
+        rr::{RData, Record, RecordType, rdata::NULL},
     };
 
     let rev_ip = Name::from_str(&reverse_ip(leased)).unwrap();

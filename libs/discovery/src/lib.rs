@@ -16,7 +16,7 @@
     attr(deny(warnings, rust_2018_idioms), allow(dead_code, unused_variables))
 ))]
 use anyhow::{Context, Result};
-use trust_dns_resolver::{lookup::Ipv4Lookup, TokioAsyncResolver};
+use trust_dns_resolver::{TokioAsyncResolver, lookup::Ipv4Lookup};
 
 /// DNS service discovery
 #[derive(Debug)]

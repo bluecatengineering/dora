@@ -1,10 +1,10 @@
 use base64::Engine;
 use dora_core::dhcproto::{
-    v6::{DhcpOption, DhcpOptions, EncodeResult, OptionCode},
     Decodable, Decoder, Encodable, Encoder,
+    v6::{DhcpOption, DhcpOptions, EncodeResult, OptionCode},
 };
 use ipnet::Ipv6Net;
-use serde::{de, Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de};
 use tracing::warn;
 
 use std::{collections::HashMap, net::Ipv6Addr, ops::RangeInclusive};
@@ -235,7 +235,7 @@ fn write_opt(enc: &mut Encoder<'_>, code: u16, opt: Opt) -> anyhow::Result<()> {
             encode_opt(&list, |n, e| e.write_u16(*n), enc)?;
         }
         Opt::Str(MaybeList::Val(s)) => {
-            enc.write_u16(s.as_bytes().len() as u16)?;
+            enc.write_u16(s.len() as u16)?;
             enc.write_slice(s.as_bytes())?;
         }
         Opt::Str(MaybeList::List(list)) => {

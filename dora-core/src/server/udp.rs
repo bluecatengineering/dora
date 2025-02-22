@@ -5,7 +5,7 @@ use pin_project::pin_project;
 // use tokio::net::UdpSocket;
 use tokio_stream::Stream;
 use tokio_util::codec::BytesCodec; // , udp::UdpFramed};
-use unix_udp_sock::{framed::UdpFramed, UdpSocket};
+use unix_udp_sock::{UdpSocket, framed::UdpFramed};
 
 use std::{
     borrow::Borrow,

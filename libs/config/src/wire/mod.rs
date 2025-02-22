@@ -3,7 +3,7 @@ use std::{collections::HashMap, num::NonZeroU32, time::Duration};
 use ipnet::Ipv4Net;
 use serde::{Deserialize, Serialize};
 
-use crate::{wire::client_classes::ClientClasses, LeaseTime};
+use crate::{LeaseTime, wire::client_classes::ClientClasses};
 
 pub mod client_classes;
 pub mod v4;

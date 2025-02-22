@@ -1,6 +1,6 @@
-use pnet::packet::{icmp, icmpv6, ipv4, Packet, PrimitiveValues};
+use pnet::packet::{Packet, PrimitiveValues, icmp, icmpv6, ipv4};
 
-use crate::{Token, DEFAULT_TOKEN_SIZE};
+use crate::{DEFAULT_TOKEN_SIZE, Token};
 
 pub const ICMP_HEADER_SIZE: usize = 8;
 

@@ -5,7 +5,7 @@ use std::{
     str,
 };
 
-use dhcproto::{v4, Decoder};
+use dhcproto::{Decoder, v4};
 use thiserror::Error;
 
 pub mod ast;

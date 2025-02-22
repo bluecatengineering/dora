@@ -7,12 +7,12 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use dora_core::{
     anyhow::Result,
     dhcproto::{
         v4::HType,
-        v6::{duid::Duid, DhcpOptions},
+        v6::{DhcpOptions, duid::Duid},
     },
     pnet::ipnetwork::{IpNetwork, Ipv6Network},
     pnet::{self, datalink::NetworkInterface},
@@ -21,9 +21,8 @@ use ipnet::Ipv6Net;
 use tracing::debug;
 
 use crate::{
-    generate_random_bytes,
+    LeaseTime, PersistIdentifier, generate_random_bytes,
     wire::{self, v6::ServerDuidInfo},
-    LeaseTime, PersistIdentifier,
 };
 /// the default path to  server identifier file path
 pub static DEFAULT_SERVER_ID_FILE_PATH: &str = "/var/lib/dora/server_id";
@@ -402,7 +401,7 @@ impl TryFrom<wire::v6::Config> for Config {
 
 #[cfg(test)]
 mod tests {
-    use crate::{v4::Config, PersistIdentifier};
+    use crate::{PersistIdentifier, v4::Config};
     use std::path::Path;
 
     pub static TEST_SERVER_ID_FILE_PATH: &str = "./server_id"; //can not use include_str because sometimes it doesn't exist.

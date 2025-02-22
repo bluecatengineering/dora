@@ -16,8 +16,8 @@
 #![deny(rustdoc::broken_intra_doc_links)]
 #![allow(clippy::cognitive_complexity, clippy::too_many_arguments)]
 
-use anyhow::{bail, Result};
-use axum::{extract::Extension, routing, Router};
+use anyhow::{Result, bail};
+use axum::{Router, extract::Extension, routing};
 use ip_manager::{IpManager, Storage};
 use tokio::{net::TcpListener, sync::mpsc, task::JoinHandle};
 use tracing::{error, info, trace};

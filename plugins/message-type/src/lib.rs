@@ -22,7 +22,7 @@ use dora_core::{
 use register_derive::Register;
 use std::{fmt::Debug, net::Ipv4Addr};
 
-use config::{client_classes, DhcpConfig};
+use config::{DhcpConfig, client_classes};
 
 #[derive(Register)]
 #[register(msg(Message))]
@@ -308,7 +308,7 @@ pub mod util {
                 IpAddr::V6(_ip) => {
                     return Err(anyhow::anyhow!(
                         "dst_ip recvd an ipv6 address for ipv4 message"
-                    ))
+                    ));
                 }
             },
             len: meta.len,
@@ -334,7 +334,7 @@ pub mod util {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
     use anyhow::Result;
-    use dhcproto::{v4, Encodable};
+    use dhcproto::{Encodable, v4};
     use dora_core::server::msg::SerialMsg;
     use unix_udp_sock::RecvMeta;
 
@@ -499,11 +499,12 @@ mod tests {
         )?;
         plugin.handle(&mut ctx).await?;
 
-        assert!(ctx
-            .resp_msg()
-            .unwrap()
-            .opts()
-            .has_msg_type(v4::MessageType::Ack));
+        assert!(
+            ctx.resp_msg()
+                .unwrap()
+                .opts()
+                .has_msg_type(v4::MessageType::Ack)
+        );
         Ok(())
     }
 
@@ -520,11 +521,12 @@ mod tests {
         )?;
         plugin.handle(&mut ctx).await?;
 
-        assert!(ctx
-            .resp_msg()
-            .unwrap()
-            .opts()
-            .has_msg_type(v4::MessageType::Offer));
+        assert!(
+            ctx.resp_msg()
+                .unwrap()
+                .opts()
+                .has_msg_type(v4::MessageType::Offer)
+        );
         Ok(())
     }
 
@@ -587,14 +589,18 @@ mod tests {
         {
             assert_eq!(addr1, addr2);
         } else {
-            panic!("Server identifier and server identifier override are not both Ipv4Addrs:\n\nOpt 54 = {:?}\nOpt 82 Subopt 11 = {:?}\n\n", resp_server_id, msg_server_id_override);
+            panic!(
+                "Server identifier and server identifier override are not both Ipv4Addrs:\n\nOpt 54 = {:?}\nOpt 82 Subopt 11 = {:?}\n\n",
+                resp_server_id, msg_server_id_override
+            );
         }
         // ensure we respond with an offer
-        assert!(ctx
-            .resp_msg()
-            .unwrap()
-            .opts()
-            .has_msg_type(v4::MessageType::Offer));
+        assert!(
+            ctx.resp_msg()
+                .unwrap()
+                .opts()
+                .has_msg_type(v4::MessageType::Offer)
+        );
         Ok(())
     }
 

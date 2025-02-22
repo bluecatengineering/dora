@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use common::{builder::*, client::Client, env::DhcpServerEnv};
 use dora_core::{dhcproto::v4, prelude::MacAddr, tracing};
 use tracing_test::traced_test;

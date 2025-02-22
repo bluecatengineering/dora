@@ -60,13 +60,16 @@ fn parse_schema(args: &Args) -> Result<()> {
             .with_draft(jsonschema::Draft::Draft7)
             .compile(&parsed)
             .expect("failed to compile schema"); // can't use ? static lifetime on error
-                                                 // TODO: jsonschema crate has garbage error types!
-        return if let Err(errs) = validator.validate(&input) {
-            errs.for_each(|err| eprintln!("{err}"));
-            Err(anyhow::anyhow!("failed to validate schema"))
-        } else {
-            println!("json schema validated");
-            Ok(())
+        // TODO: jsonschema crate has garbage error types!
+        return match validator.validate(&input) {
+            Err(errs) => {
+                errs.for_each(|err| eprintln!("{err}"));
+                Err(anyhow::anyhow!("failed to validate schema"))
+            }
+            _ => {
+                println!("json schema validated");
+                Ok(())
+            }
         };
     }
     Ok(())

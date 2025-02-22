@@ -1,6 +1,6 @@
 //! context of current server message
 use chrono::{DateTime, Utc};
-use dhcproto::{v4, v6, Decodable, Decoder, Encodable};
+use dhcproto::{Decodable, Decoder, Encodable, v4, v6};
 use pnet::ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
 use tracing::{error, trace};
 use unix_udp_sock::RecvMeta;
@@ -15,7 +15,7 @@ use std::{
 
 use crate::{
     metrics::{self, RECV_TYPE_COUNT, SENT_TYPE_COUNT, V6_RECV_TYPE_COUNT, V6_SENT_TYPE_COUNT},
-    server::{msg::SerialMsg, typemap::TypeMap, State},
+    server::{State, msg::SerialMsg, typemap::TypeMap},
 };
 
 /// Context is what will be passed to the [handler] traits and mutated by
@@ -258,6 +258,10 @@ impl<T: Encodable + Decodable> MsgContext<T> {
     /// sets the resp_msg with a `Message`
     pub fn set_resp_msg(&mut self, msg: T) {
         self.resp_msg = Some(msg);
+    }
+    /// take response message and replace with None
+    pub fn resp_msg_take(&mut self) -> Option<T> {
+        self.resp_msg.take()
     }
     /// The mutable deserialized contents of `resp_msg`
     pub fn resp_msg_mut(&mut self) -> Option<&mut T> {
@@ -538,8 +542,8 @@ impl MsgContext<v4::Message> {
     /// returns an Err if no link/subnet/giaddr/ciaddr available
     pub fn relay_subnet(&self) -> io::Result<Ipv4Addr> {
         use dhcproto::v4::{
-            relay::{RelayCode, RelayInfo},
             DhcpOption, OptionCode,
+            relay::{RelayCode, RelayInfo},
         };
         // get link-selection relay agent subopt first
         // OR use subnet-selection option
@@ -1026,6 +1030,40 @@ mod tests {
 
         // expect relay agent to be in resp
         assert_opt(&ctx, v4::DhcpOption::RelayAgentInformation(backup));
+        Ok(())
+    }
+
+    #[test]
+    fn test_take() -> anyhow::Result<()> {
+        let (mut msg, addr, state) = blank_msg()?;
+        // opt codes we are requesting
+        msg.opts_mut()
+            .insert(v4::DhcpOption::ParameterRequestList(vec![
+                v4::OptionCode::Router,
+            ]));
+        // opts used to serve requests
+        let mut opts = v4::DhcpOptions::default();
+        opts.insert(v4::DhcpOption::Router(vec![[1, 2, 3, 4].into()]));
+        opts.insert(v4::DhcpOption::DomainNameServer(vec![[1, 2, 3, 4].into()]));
+        let meta = RecvMeta {
+            addr,
+            ..RecvMeta::default()
+        };
+        let mut ctx = MsgContext::<v4::Message>::new(
+            SerialMsg::new(Bytes::from(msg.to_vec()?), addr),
+            meta,
+            state,
+        )?;
+        ctx.resp_msg = Some(v4::Message::new(
+            Ipv4Addr::UNSPECIFIED,
+            Ipv4Addr::UNSPECIFIED,
+            Ipv4Addr::UNSPECIFIED,
+            Ipv4Addr::UNSPECIFIED,
+            &[1, 2, 3, 4, 5, 6],
+        ));
+
+        ctx.resp_msg_take();
+        assert_eq!(ctx.resp_msg, None);
         Ok(())
     }
 }

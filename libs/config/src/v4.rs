@@ -21,7 +21,7 @@ use dora_core::{
 use ipnet::{Ipv4AddrRange, Ipv4Net};
 use tracing::debug;
 
-use crate::{client_classes::ClientClasses, wire, LeaseTime};
+use crate::{LeaseTime, client_classes::ClientClasses, wire};
 
 // re-export wire Ddns since it doesn't need to be modified (yet)
 pub use wire::v4::ddns::Ddns;
@@ -785,10 +785,12 @@ mod tests {
                 .unwrap()
                 .into_iter()
                 .collect::<std::collections::HashSet<_>>(),
-            ["my_class", "a_class", "d_class", "b_class", "c_class", "ALL"]
-                .into_iter()
-                .map(|s| s.to_owned())
-                .collect::<std::collections::HashSet<_>>()
+            [
+                "my_class", "a_class", "d_class", "b_class", "c_class", "ALL"
+            ]
+            .into_iter()
+            .map(|s| s.to_owned())
+            .collect::<std::collections::HashSet<_>>()
         );
     }
 

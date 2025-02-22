@@ -3,11 +3,10 @@
 use std::collections::{HashMap, HashSet};
 
 use anyhow::{Context, Result};
-use client_classification::{ast, Args, Expr, PacketDetails, Val};
+use client_classification::{Args, Expr, PacketDetails, Val, ast};
 use dora_core::dhcproto::{
-    self,
+    self, Decodable, Decoder, Encodable,
     v4::{self, OptionCode, UnknownOption},
-    Decodable, Decoder, Encodable,
 };
 use topo_sort::DependencyTree;
 use tracing::{error, trace, warn};

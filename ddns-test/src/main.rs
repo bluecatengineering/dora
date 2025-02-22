@@ -64,7 +64,7 @@ fn main() -> Result<()> {
         use_conflict_resolution: true,
     };
     let s = serde_json::to_string(&update)?;
-    let len = s.as_bytes().len() as u16;
+    let len = s.len() as u16;
     println!("sending {s} {len}");
     // expects two-byte len prepended
     let mut buf = vec![];

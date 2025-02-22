@@ -3,8 +3,8 @@
 use tokio::sync::Semaphore;
 
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
     Arc,
+    atomic::{AtomicUsize, Ordering},
 };
 
 use crate::metrics::IN_FLIGHT;

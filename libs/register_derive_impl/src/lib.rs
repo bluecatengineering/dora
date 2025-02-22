@@ -4,11 +4,11 @@ extern crate proc_macro;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use syn::{
+    DeriveInput, Ident, Token,
     parse::{Parse, ParseStream},
     parse_macro_input, parse_quote,
     punctuated::Punctuated,
     spanned::Spanned,
-    DeriveInput, Ident, Token,
 };
 
 #[proc_macro_derive(Register, attributes(register))]

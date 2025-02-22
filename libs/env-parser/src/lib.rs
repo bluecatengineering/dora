@@ -19,14 +19,14 @@ use anyhow::Context;
 use std::{env, str};
 
 /// Returns the value of the environment variable with the given key. If it
-/// doesn't exist, returns `default` Casts the value to the type of `default`  
+/// doesn't exist, returns `default` Casts the value to the type of `default`
 /// # Examples
 /// ```
 /// # use std::{env, io};
-/// env::set_var("KEY", "value");
+/// unsafe { env::set_var("KEY", "value"); }
 /// let val: String = env_parser::parse_var("KEY", "default_value").unwrap();
 /// assert_eq!(val, "value");
-/// env::remove_var("KEY");
+/// unsafe { env::remove_var("KEY"); }
 ///
 /// let val: String = env_parser::parse_var("KEY", "default_value").unwrap();
 /// assert_eq!(val, "default_value");
@@ -65,13 +65,13 @@ where
     parse_var::<T, S>(name, default).with_context(|| format!("error parsing env var {name}"))
 }
 
-/// Returns whether an environment variable with the given key exists  
+/// Returns whether an environment variable with the given key exists
 /// # Examples
 /// ```
 /// # use std::env;
-/// env::set_var("KEY", "value");
+/// unsafe { env::set_var("KEY", "value"); }
 /// assert!(env_parser::var_exists("KEY"));
-/// env::remove_var("KEY");
+/// unsafe { env::remove_var("KEY"); }
 ///
 /// assert!(!env_parser::var_exists("KEY"));
 /// ```
