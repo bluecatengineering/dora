@@ -1,10 +1,10 @@
 use base64::Engine;
 use dora_core::dhcproto::{
-    v6::{DhcpOption, DhcpOptions, EncodeResult, OptionCode},
     Decodable, Decoder, Encodable, Encoder,
+    v6::{DhcpOption, DhcpOptions, EncodeResult, OptionCode},
 };
 use ipnet::Ipv6Net;
-use serde::{de, Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de};
 use tracing::warn;
 
 use std::{collections::HashMap, net::Ipv6Addr, ops::RangeInclusive};

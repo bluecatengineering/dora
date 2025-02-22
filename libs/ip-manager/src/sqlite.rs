@@ -8,8 +8,8 @@ use std::{
 
 use async_trait::async_trait;
 use sqlx::{
-    sqlite::{SqliteConnectOptions, SqlitePool},
     ConnectOptions, Sqlite,
+    sqlite::{SqliteConnectOptions, SqlitePool},
 };
 use tracing::debug;
 

@@ -5,12 +5,11 @@ use std::{net::Ipv4Addr, str::FromStr};
 use config::v4::{Ddns, NetRange};
 use dora_core::{
     dhcproto::{
-        v4::{
-            self,
-            fqdn::{ClientFQDN, FqdnFlags},
-            DhcpOption, OptionCode,
-        },
         Name, NameError,
+        v4::{
+            self, DhcpOption, OptionCode,
+            fqdn::{ClientFQDN, FqdnFlags},
+        },
     },
     prelude::MsgContext,
     tracing::{debug, error, info},
@@ -284,7 +283,9 @@ fn handle_flags(
     let flags = match (n, s) {
         (false, false) => {
             Some(if !cfg.enable_updates() {
-                debug!("got client FQDN but DDNS config set to allow client update. No update performed");
+                debug!(
+                    "got client FQDN but DDNS config set to allow client update. No update performed"
+                );
                 server_flags.set_s(false).set_n(true)
             } else {
                 // override client updates

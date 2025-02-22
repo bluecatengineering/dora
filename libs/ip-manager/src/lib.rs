@@ -17,7 +17,7 @@ use icmp_ping::{Icmpv4, Listener, PingReply};
 
 use async_trait::async_trait;
 use chrono::DateTime;
-use chrono::{offset::Utc, SecondsFormat};
+use chrono::{SecondsFormat, offset::Utc};
 use thiserror::Error;
 use tracing::{debug, error, info, trace, warn};
 
@@ -29,8 +29,8 @@ use std::{
     net::{IpAddr, Ipv4Addr},
     ops::RangeInclusive,
     sync::{
-        atomic::{AtomicU16, Ordering},
         Arc,
+        atomic::{AtomicU16, Ordering},
     },
     time::{Duration, SystemTime},
 };
@@ -562,7 +562,7 @@ mod tests {
     use super::*;
     use crate::sqlite::SqliteDb;
     use config::LeaseTime;
-    use icmp_ping::{EchoReply, DEFAULT_TOKEN_SIZE};
+    use icmp_ping::{DEFAULT_TOKEN_SIZE, EchoReply};
     use rand::Rng;
     use tracing_test::traced_test;
 
@@ -908,7 +908,7 @@ mod tests {
         // fill up range with new clients
         for range_ip in range.iter() {
             let client_id = (1..6)
-                .map(|_| rand::thread_rng().gen())
+                .map(|_| rand::thread_rng().r#gen())
                 .collect::<Vec<u8>>();
             let expires_at = SystemTime::now() + Duration::from_secs(60);
             let ip = mgr
@@ -948,7 +948,7 @@ mod tests {
 
         // lease an IP
         let client_id = (1..6)
-            .map(|_| rand::thread_rng().gen())
+            .map(|_| rand::thread_rng().r#gen())
             .collect::<Vec<u8>>();
         let expires_at = SystemTime::now() + Duration::from_secs(60);
         let ip = mgr
@@ -971,7 +971,7 @@ mod tests {
 
         // try a new client, should get the same IP
         let client_id = (1..6)
-            .map(|_| rand::thread_rng().gen())
+            .map(|_| rand::thread_rng().r#gen())
             .collect::<Vec<u8>>();
         let expires_at = SystemTime::now() + Duration::from_secs(60);
         let _ip = mgr
@@ -1010,7 +1010,7 @@ mod tests {
 
         // lease an IP
         let client_id = (1..6)
-            .map(|_| rand::thread_rng().gen())
+            .map(|_| rand::thread_rng().r#gen())
             .collect::<Vec<u8>>();
         let expires_at = SystemTime::now() + Duration::from_secs(60);
         let ip = mgr
@@ -1031,7 +1031,7 @@ mod tests {
 
         // try a new client, should skip probated IP
         let client_id = (1..6)
-            .map(|_| rand::thread_rng().gen())
+            .map(|_| rand::thread_rng().r#gen())
             .collect::<Vec<u8>>();
         let expires_at = SystemTime::now() + Duration::from_secs(60);
         let _ip = mgr
@@ -1085,7 +1085,7 @@ mod tests {
         .await;
         // lease an IP
         let client_id = (1..6)
-            .map(|_| rand::thread_rng().gen())
+            .map(|_| rand::thread_rng().r#gen())
             .collect::<Vec<u8>>();
         let expires_at = SystemTime::now() + Duration::from_secs(60);
         let _ip = mgr
@@ -1125,7 +1125,7 @@ mod tests {
 
         // lease an IP
         let client_id = (1..6)
-            .map(|_| rand::thread_rng().gen())
+            .map(|_| rand::thread_rng().r#gen())
             .collect::<Vec<u8>>();
 
         assert!(mgr.lookup_id(&client_id).await.is_err());

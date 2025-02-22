@@ -3,7 +3,7 @@
 //! Contains the main server code which handles reading from TCP/UDP and driving
 //! the handlers/plugins to completion
 use anyhow::{Context, Result};
-use dhcproto::{v4, v6, Decodable, Encodable};
+use dhcproto::{Decodable, Encodable, v4, v6};
 use pnet::datalink::NetworkInterface;
 use tokio::{sync::mpsc, time};
 use tokio_stream::StreamExt;
@@ -29,7 +29,7 @@ pub mod typemap;
 pub(crate) mod udp;
 
 use crate::{
-    config::cli::{Config, ALL_DHCP_RELAY_AGENTS_AND_SERVERS},
+    config::cli::{ALL_DHCP_RELAY_AGENTS_AND_SERVERS, Config},
     handler::*,
     metrics,
     server::{context::MsgContext, msg::SerialMsg, udp::UdpStream},

@@ -1,4 +1,4 @@
-use dora_core::dhcproto::{v4::HType, Name, NameError};
+use dora_core::dhcproto::{Name, NameError, v4::HType};
 use ring::digest::{Context, SHA256};
 use trust_dns_client::serialize::binary::BinEncoder;
 

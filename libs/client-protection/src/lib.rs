@@ -6,7 +6,7 @@ use config::v4::FloodThreshold;
 // the caches are all locked immediately and written to, so dashmap is probably overkill
 // (governor uses dashmap internally by default by we can turn off the "dashmap" feature)
 use dashmap::DashMap;
-use governor::{clock::DefaultClock, state::keyed::DefaultKeyedStateStore, Quota, RateLimiter};
+use governor::{Quota, RateLimiter, clock::DefaultClock, state::keyed::DefaultKeyedStateStore};
 use tracing::{debug, trace};
 
 use std::{

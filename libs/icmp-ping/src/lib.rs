@@ -4,7 +4,7 @@ mod shutdown;
 mod socket;
 
 pub use crate::errors::Error;
-pub use crate::icmp::{Decode, EchoReply, EchoRequest, Encode, Icmpv4, Icmpv6, ICMP_HEADER_SIZE};
+pub use crate::icmp::{Decode, EchoReply, EchoRequest, Encode, ICMP_HEADER_SIZE, Icmpv4, Icmpv6};
 use crate::{icmp::Proto, socket::Socket};
 
 use dora_core::metrics;

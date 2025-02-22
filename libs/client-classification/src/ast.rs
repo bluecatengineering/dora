@@ -3,7 +3,7 @@ use std::net::Ipv4Addr;
 use pest::iterators::Pair;
 pub use pest::{
     pratt_parser::{Assoc, Op, PrattParser},
-    {iterators::Pairs, Parser},
+    {Parser, iterators::Pairs},
 };
 use pest_derive::Parser;
 use thiserror::Error;

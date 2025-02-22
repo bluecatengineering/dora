@@ -46,12 +46,12 @@ use anyhow::Result;
 use base64::Engine;
 use dora_core::{
     dhcproto::{
-        v4::{self, DhcpOption, DhcpOptions, OptionCode},
         Decodable, Decoder, Encodable, Encoder,
+        v4::{self, DhcpOption, DhcpOptions, OptionCode},
     },
     pnet::util::MacAddr,
 };
-use serde::{de, Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de};
 use tracing::warn;
 use trust_dns_proto::{
     rr,

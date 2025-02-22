@@ -1,10 +1,11 @@
 #![allow(clippy::cognitive_complexity)]
 use std::sync::Arc;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 
 use config::DhcpConfig;
 use dora_core::{
+    Register, Server,
     config::{
         cli::{self, Parser},
         trace,
@@ -12,10 +13,9 @@ use dora_core::{
     dhcproto::{v4, v6},
     tokio::{self, runtime::Builder, signal, task::JoinHandle},
     tracing::*,
-    Register, Server,
 };
 use external_api::{ExternalApi, Health};
-use ip_manager::{sqlite::SqliteDb, IpManager};
+use ip_manager::{IpManager, sqlite::SqliteDb};
 use leases::Leases;
 use message_type::MsgType;
 use static_addr::StaticAddr;
@@ -64,7 +64,8 @@ async fn start(config: cli::Config) -> Result<()> {
     let dora_id = config.dora_id.clone();
     info!(?dora_id, "using id");
     // setting DORA_ID for other plugins
-    std::env::set_var("DORA_ID", &dora_id);
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::set_var("DORA_ID", &dora_id) };
 
     debug!("parsing DHCP config");
     let dhcp_cfg = Arc::new(DhcpConfig::parse(&config.config_path)?);

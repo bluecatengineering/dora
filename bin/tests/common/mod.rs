@@ -7,7 +7,7 @@ pub mod client;
 pub mod utils {
     use std::net::Ipv4Addr;
 
-    use anyhow::{bail, Result};
+    use anyhow::{Result, bail};
     use dora_core::dhcproto::v4;
     use mac_address::MacAddress;
 

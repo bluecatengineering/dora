@@ -5,7 +5,7 @@ pub mod wire;
 
 use std::{env, path::Path, time::Duration};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use dora_core::dhcproto::v6::duid::Duid;
 use dora_core::pnet::{
     self,

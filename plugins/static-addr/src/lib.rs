@@ -15,7 +15,7 @@ use dora_core::{
 };
 use register_derive::Register;
 
-use config::{v4::Reserved, DhcpConfig};
+use config::{DhcpConfig, v4::Reserved};
 use message_type::{MatchedClasses, MsgType};
 
 #[derive(Debug, Register)]

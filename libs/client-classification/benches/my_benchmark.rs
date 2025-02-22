@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
-use client_classification::{ast, Args, PacketDetails};
-use criterion::{criterion_group, criterion_main, Criterion};
+use client_classification::{Args, PacketDetails, ast};
+use criterion::{Criterion, criterion_group, criterion_main};
 use dhcproto::v4::{self, UnknownOption};
 use pest::Parser;
 

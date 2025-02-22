@@ -7,8 +7,8 @@ use std::time::Instant;
 
 use lazy_static::lazy_static;
 use prometheus::{
-    register_int_counter, register_int_counter_vec, register_int_gauge, HistogramOpts,
-    HistogramVec, IntCounter, IntCounterVec, IntGauge,
+    HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, register_int_counter,
+    register_int_counter_vec, register_int_gauge,
 };
 use prometheus_static_metric::make_static_metric;
 
