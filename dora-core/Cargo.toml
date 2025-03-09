@@ -23,7 +23,7 @@ futures = { workspace = true }
 lazy_static = "1.4"
 tokio = { workspace = true }
 tokio-stream = "0.1"
-tokio-util = { version = "0.7.0", features = ["codec", "net"] }
+tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-futures = { workspace = true }
 tracing-subscriber = { workspace = true }
@@ -36,7 +36,7 @@ rand = { workspace = true }
 clap = { workspace = true }
 socket2 = { workspace = true }
 libc = "0.2.126"
-unix-udp-sock = "0.7.1"
+unix-udp-sock = "0.8.0"
 pnet = { workspace = true }
 
 [dev-dependencies]

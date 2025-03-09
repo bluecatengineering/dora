@@ -34,6 +34,7 @@ pnet = { features = ["serde", "std"], version = "0.34.0" }
 prometheus = "0.13.0"
 prometheus-static-metric = "0.5"
 tokio = { version = "1.37.0", features = ["full"] }
+tokio-util = { version = "0.7.0", features = ["codec", "net"] }
 tracing = "0.1.40"
 tracing-futures = "0.2.5"
 tracing-subscriber = { features = ["env-filter", "json"], version = "0.3" }

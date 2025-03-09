@@ -1,25 +1,32 @@
+use std::{
+    env,
+    path::{Path, PathBuf},
+    time::Duration,
+};
+
+use anyhow::{Context, Result, bail};
+use rand::{self, RngCore};
+use serde::{Deserialize, Serialize};
+use tracing::debug;
+use wire::v6::ServerDuidInfo;
+
 pub mod client_classes;
 pub mod v4;
 pub mod v6;
 pub mod wire;
 
-use std::{env, path::Path, time::Duration};
-
-use anyhow::{Context, Result, bail};
 use dora_core::dhcproto::v6::duid::Duid;
 use dora_core::pnet::{
     self,
     datalink::NetworkInterface,
     ipnetwork::{IpNetwork, Ipv4Network},
 };
-use rand::{self, RngCore};
-use serde::{Deserialize, Serialize};
-use tracing::debug;
-use wire::v6::ServerDuidInfo;
+
 /// server config
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct DhcpConfig {
     v4: v4::Config,
+    path: Option<PathBuf>,
 }
 
 impl DhcpConfig {
@@ -31,6 +38,9 @@ impl DhcpConfig {
     }
     pub fn v6(&self) -> &v6::Config {
         self.v4.v6().unwrap() // v6 existence checked before starting plugins
+    }
+    pub fn path(&self) -> Option<&Path> {
+        self.path.as_deref()
     }
 }
 
@@ -64,14 +74,20 @@ impl DhcpConfig {
         )?;
         debug!(?config);
 
-        Ok(Self { v4: config })
+        Ok(Self {
+            v4: config,
+            path: Some(path.to_path_buf()),
+        })
     }
     /// attempts to decode the config first as JSON, then YAML, finally erroring if neither work
     pub fn parse_str<S: AsRef<str>>(s: S) -> Result<Self> {
         let config = v4::Config::new(s.as_ref())?;
         debug!(?config);
 
-        Ok(Self { v4: config })
+        Ok(Self {
+            v4: config,
+            path: None,
+        })
     }
 }
 

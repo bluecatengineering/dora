@@ -21,7 +21,11 @@ use dora_core::{
 use ipnet::{Ipv4AddrRange, Ipv4Net};
 use tracing::debug;
 
-use crate::{LeaseTime, client_classes::ClientClasses, wire};
+use crate::{
+    LeaseTime,
+    client_classes::ClientClasses,
+    wire::{self, v4::Condition},
+};
 
 // re-export wire Ddns since it doesn't need to be modified (yet)
 pub use wire::v4::ddns::Ddns;
@@ -29,7 +33,7 @@ pub use wire::v4::ddns::Ddns;
 pub const DEFAULT_LEASE_TIME: Duration = Duration::from_secs(86_400);
 
 /// server config for dhcpv4
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Config {
     /// interfaces that are either explicitly bound by the config or
     /// are up & ipv4
@@ -205,6 +209,11 @@ impl Config {
         })
     }
 
+    /// return hashmap of networks
+    pub fn networks(&self) -> &HashMap<Ipv4Net, Network> {
+        &self.networks
+    }
+
     /// find the interface at the index `iface_index`
     pub fn find_interface(&self, iface_index: u32) -> Option<&NetworkInterface> {
         self.interfaces.iter().find(|e| e.index == iface_index)
@@ -356,6 +365,9 @@ impl Network {
     pub fn subnet(&self) -> Ipv4Addr {
         self.subnet.network()
     }
+    pub fn full_subnet(&self) -> Ipv4Net {
+        self.subnet
+    }
     pub fn authoritative(&self) -> bool {
         self.authoritative
     }
@@ -371,6 +383,12 @@ impl Network {
         self.ranges
             .iter()
             .filter(move |range| range.match_class(classes))
+    }
+    /// get all reservations for this network
+    pub fn get_reservations(&self) -> impl Iterator<Item = &Reserved> {
+        self.reserved_macs
+            .values()
+            .chain(self.reserved_opts.values().map(|(_, r)| r))
     }
     /// get reservation based on mac & matched client classes
     pub fn get_reserved_mac(&self, mac: MacAddr, classes: Option<&[String]>) -> Option<&Reserved> {
@@ -397,6 +415,10 @@ impl Network {
         classes: Option<&[String]>,
     ) -> Option<&Reserved> {
         for (_, opt) in opts.iter() {
+            if matches!(opt, DhcpOption::MessageType(_)) {
+                // skip matching on message type
+                continue;
+            }
             if let Some(res) = self.get_reserved_opt(opt) {
                 if res.match_class(classes) {
                     return Some(res);
@@ -559,6 +581,7 @@ pub struct Reserved {
     /// a lease time
     lease: LeaseTime,
     opts: DhcpOptions,
+    condition: Condition,
     class: Option<String>,
 }
 
@@ -594,6 +617,10 @@ impl Reserved {
             })
             .unwrap_or(true)
     }
+    /// get the match condition the reservation is configured to use
+    pub fn condition(&self) -> &Condition {
+        &self.condition
+    }
 }
 
 impl From<wire::v4::IpRange> for NetRange {
@@ -617,6 +644,7 @@ impl From<&wire::v4::ReservedIp> for Reserved {
             lease,
             ip: res.ip,
             opts: res.options.as_ref().clone(),
+            condition: res.condition.clone(),
             class: res.class.clone(),
         }
     }
@@ -669,9 +697,12 @@ mod tests {
 
     use dora_core::dhcproto::v4;
 
+    use crate::wire::v4::{Options, Opts};
+
     use super::*;
 
     pub static SAMPLE_YAML: &str = include_str!("../sample/config.yaml");
+    pub static V4_JSON: &str = include_str!("../sample/config_v4.json");
     pub static CIRC_YAML: &str = include_str!("../sample/circular_deps.yaml");
 
     // test we can decode from wire
@@ -685,6 +716,21 @@ mod tests {
             net.ranges()[0].opts().get(v4::OptionCode::Router),
             Some(&v4::DhcpOption::Router(vec![Ipv4Addr::from([
                 192, 168, 0, 1
+            ])]))
+        );
+    }
+
+    // test json sample
+    #[test]
+    fn test_sample_json() {
+        let cfg = Config::new(V4_JSON).unwrap();
+        // test a range decoded properly
+        let net = cfg.network([192, 168, 1, 100]).unwrap();
+        assert_eq!(net.ranges()[0].start(), Ipv4Addr::from([192, 168, 1, 100]));
+        assert_eq!(
+            net.ranges()[0].opts().get(v4::OptionCode::Router),
+            Some(&v4::DhcpOption::Router(vec![Ipv4Addr::from([
+                192, 168, 1, 1
             ])]))
         );
     }
@@ -873,6 +919,11 @@ mod tests {
             },
             opts: DhcpOptions::default(),
             class: None,
+            // condition not used for test logic. in reality it should match the key
+            // of reserved_opts or reserved_mac
+            condition: Condition::Options(Options {
+                values: Opts(DhcpOptions::new()),
+            }),
         };
         // another value just to make sure we select the right one
         let mut another = res.clone();
