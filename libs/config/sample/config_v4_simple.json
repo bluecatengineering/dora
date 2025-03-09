@@ -1,0 +1,114 @@
+{
+    "chaddr_only": false,
+    "networks": {
+        "192.168.5.0/24": {
+            "reservations": [
+                {
+                    "ip": "192.168.5.100",
+                    "config": {
+                        "lease_time": { "default": 3600 }
+                    },
+                    "match": {
+                        "options": {
+                            "values": {
+                                "60": {
+                                    "type": "str",
+                                    "value": "foobar"
+                                }
+                            }
+                        }
+                    },
+                    "options": {
+                        "values": {
+                            "subnet_mask": {
+                                "type": "ip",
+                                "value": "255.255.255.0"
+                            },
+                            "routers": {
+                                "type": "ip",
+                                "value": ["192.168.5.1"]
+                            },
+                            "domain_name_servers": {
+                                "type": "ip",
+                                "value": ["192.168.5.1"]
+                            }
+                        }
+                    }
+                }
+            ],
+            "probation_period": 86400,
+            "server_id": "192.168.5.1",
+            "ranges": [
+                {
+                    "start": "192.168.5.20",
+                    "end": "192.168.5.25",
+                    "config": {
+                        "lease_time": {
+                            "default": 3600
+                        }
+                    },
+                    "options": {
+                        "values": {
+                            "subnet_mask": {
+                                "type": "ip",
+                                "value": "255.255.255.0"
+                            },
+                            "routers": {
+                                "type": "ip",
+                                "value": ["192.168.5.1"]
+                            },
+                            "domain_name_servers": {
+                                "type": "ip",
+                                "value": ["192.168.5.1"]
+                            },
+                            "vendor_extensions": {
+                                "type": "sub_option",
+                                "value": {
+                                    "1": {
+                                        "type": "str",
+                                        "value": "foobar"
+                                    },
+                                    "2": {
+                                        "type": "ip",
+                                        "value": "1.2.3.4"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            ]
+        },
+        "192.168.6.0/24": {
+            "probation_period": 86400,
+            "server_id": "192.168.6.1",
+            "ranges": [
+                {
+                    "start": "192.168.6.20",
+                    "end": "192.168.6.25",
+                    "config": {
+                        "lease_time": {
+                            "default": 3600
+                        }
+                    },
+                    "options": {
+                        "values": {
+                            "subnet_mask": {
+                                "type": "ip",
+                                "value": "255.255.255.0"
+                            },
+                            "routers": {
+                                "type": "ip",
+                                "value": ["192.168.6.1"]
+                            },
+                            "domain_name_servers": {
+                                "type": "ip",
+                                "value": ["192.168.6.1"]
+                            }
+                        }
+                    }
+                }
+            ]
+        }
+    }
+}

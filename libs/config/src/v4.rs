@@ -21,7 +21,11 @@ use dora_core::{
 use ipnet::{Ipv4AddrRange, Ipv4Net};
 use tracing::debug;
 
-use crate::{LeaseTime, client_classes::ClientClasses, wire};
+use crate::{
+    LeaseTime,
+    client_classes::ClientClasses,
+    wire::{self, v4::Condition},
+};
 
 // re-export wire Ddns since it doesn't need to be modified (yet)
 pub use wire::v4::ddns::Ddns;
@@ -380,6 +384,12 @@ impl Network {
             .iter()
             .filter(move |range| range.match_class(classes))
     }
+    /// get all reservations for this network
+    pub fn get_reservations(&self) -> impl Iterator<Item = &Reserved> {
+        self.reserved_macs
+            .values()
+            .chain(self.reserved_opts.values().map(|(_, r)| r))
+    }
     /// get reservation based on mac & matched client classes
     pub fn get_reserved_mac(&self, mac: MacAddr, classes: Option<&[String]>) -> Option<&Reserved> {
         let res = self.reserved_macs.get(&mac)?;
@@ -405,6 +415,10 @@ impl Network {
         classes: Option<&[String]>,
     ) -> Option<&Reserved> {
         for (_, opt) in opts.iter() {
+            if matches!(opt, DhcpOption::MessageType(_)) {
+                // skip matching on message type
+                continue;
+            }
             if let Some(res) = self.get_reserved_opt(opt) {
                 if res.match_class(classes) {
                     return Some(res);
@@ -567,6 +581,7 @@ pub struct Reserved {
     /// a lease time
     lease: LeaseTime,
     opts: DhcpOptions,
+    condition: Condition,
     class: Option<String>,
 }
 
@@ -602,6 +617,10 @@ impl Reserved {
             })
             .unwrap_or(true)
     }
+    /// get the match condition the reservation is configured to use
+    pub fn condition(&self) -> &Condition {
+        &self.condition
+    }
 }
 
 impl From<wire::v4::IpRange> for NetRange {
@@ -625,6 +644,7 @@ impl From<&wire::v4::ReservedIp> for Reserved {
             lease,
             ip: res.ip,
             opts: res.options.as_ref().clone(),
+            condition: res.condition.clone(),
             class: res.class.clone(),
         }
     }
@@ -676,6 +696,8 @@ impl FloodThreshold {
 mod tests {
 
     use dora_core::dhcproto::v4;
+
+    use crate::wire::v4::{Options, Opts};
 
     use super::*;
 
@@ -897,6 +919,11 @@ mod tests {
             },
             opts: DhcpOptions::default(),
             class: None,
+            // condition not used for test logic. in reality it should match the key
+            // of reserved_opts or reserved_mac
+            condition: Condition::Options(Options {
+                values: Opts(DhcpOptions::new()),
+            }),
         };
         // another value just to make sure we select the right one
         let mut another = res.clone();

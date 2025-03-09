@@ -18,7 +18,7 @@
 
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use axum::{Router, extract::Extension, routing};
 
 use ip_manager::{IpManager, Storage};
@@ -131,7 +131,7 @@ impl<S: Storage> ExternalApi<S> {
                 token.cancelled().await;
             })
             .await?;
-        bail!("external API returned-- should not happen")
+        Ok(())
     }
 
     /// Kick off the HTTP service and start listening on all channels for
@@ -144,11 +144,15 @@ impl<S: Storage> ExternalApi<S> {
         // if tx is not cloned, health listen will never update since ExternalApi is owner
 
         tokio::spawn(async move {
-            if let Err(err) = tokio::try_join!(
-                ExternalApi::run(addr, state, cfg, ip_mgr, token),
-                self.listen_status()
-            ) {
-                error!(?err, "health task returning, this should not happen")
+            // `run` will exit when cancel token completes
+            tokio::select! {
+                r = ExternalApi::run(addr, state, cfg, ip_mgr, token) => {
+                    if let Err(err) = r {
+                        error!(?err, "external api task returned error")
+                    }
+                    // exiting
+                }
+                _ = self.listen_status() => {}
             }
         })
     }
@@ -181,7 +185,7 @@ mod handlers {
     use prometheus::{Encoder, ProtobufEncoder, TextEncoder};
     use tracing::error;
 
-    use crate::models::{Health, ServerResult, State};
+    use crate::models::{Health, ReserveIp, ServerResult, State};
 
     pub(crate) async fn ok(Extension(state): Extension<State>) -> ServerResult<impl IntoResponse> {
         Ok(match *state.lock() {
@@ -194,11 +198,11 @@ mod handlers {
         Extension(cfg): Extension<Arc<DhcpConfig>>,
         Extension(ip_mgr): Extension<Arc<IpManager<S>>>,
     ) -> ServerResult<axum::Json<crate::models::Leases>> {
-        use crate::models::{LeaseInfo, LeaseNetworks, LeaseState, Leases};
+        use crate::models::{LeaseIp, LeaseNetworks, LeaseState, Leases};
         use ip_manager::State as S;
 
-        let mut cfg = (*cfg).clone();
-        let networks = ip_mgr
+        let cfg = (*cfg).clone();
+        let mut networks = ip_mgr
             .select_all()
             .await?
             .into_iter()
@@ -215,9 +219,9 @@ mod handlers {
                 )
                 .context("failed to create UTC datetime")?
                 .to_rfc3339();
-                let lease_info = LeaseInfo {
+                let lease_info = LeaseIp {
                     ip,
-                    id,
+                    id: id.clone(),
                     network,
                     expires_at_epoch,
                     expires_at_utc,
@@ -226,14 +230,15 @@ mod handlers {
                 let netv4 = match network {
                     std::net::IpAddr::V4(ip) => ip,
                     std::net::IpAddr::V6(_) => {
-                        return Err(anyhow::anyhow!("no dynamic ipv6 at this time"))
+                        return Err(anyhow::anyhow!("no dynamic ipv6 at this time"));
                     }
                 };
                 if let Some(net) = cfg.v4().network(netv4) {
                     let lease = match lease {
-                        S::Reserved(_) => LeaseState::Reserved(lease_info),
-                        S::Leased(_) => LeaseState::Leased(lease_info),
-                        S::Probated(_) => LeaseState::Probated(lease_info),
+                        S::Leased(_) => Some(LeaseState::Leased(lease_info)),
+                        S::Probated(_) => Some(LeaseState::Probated(lease_info)),
+                        // TODO if we store reserved in db, change this
+                        S::Reserved(_) => None,
                     };
                     Ok((net, lease))
                 } else {
@@ -244,6 +249,7 @@ mod handlers {
             })
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
+            .flat_map(|(net, lease)| Some((net, lease?)))
             .fold(
                 HashMap::<Ipv4Net, LeaseNetworks>::new(),
                 |mut map, (net, lease)| {
@@ -253,6 +259,19 @@ mod handlers {
                     map
                 },
             );
+        // add reserved entries from config
+        // TODO if we start to store reserved in db, then delete this
+        for (ipnet, net) in cfg.v4().networks() {
+            for reservation in net.get_reservations() {
+                let entry = networks.entry(net.full_subnet()).or_default();
+                entry.ips.push(LeaseState::Reserved(ReserveIp {
+                    ip: reservation.ip().into(),
+                    id: None,
+                    network: ipnet.network().into(),
+                    condition: reservation.condition().clone(),
+                }))
+            }
+        }
 
         Ok(axum::Json(Leases { networks }))
     }
@@ -315,6 +334,7 @@ pub mod models {
     use std::{collections::HashMap, fmt, net::IpAddr, sync::Arc};
 
     use axum::response::IntoResponse;
+    use config::wire::v4::Condition;
     use ipnet::Ipv4Net;
     use parking_lot::Mutex;
     use serde::{Deserialize, Serialize};
@@ -344,29 +364,59 @@ pub mod models {
         }
     }
 
+    /// leases table
     #[derive(Serialize, Deserialize, Default, Debug, PartialEq, Clone, Eq)]
     pub struct Leases {
+        /// map of networks
         pub networks: HashMap<Ipv4Net, LeaseNetworks>,
     }
 
+    /// list of leases
     #[derive(Serialize, Deserialize, Default, Debug, PartialEq, Clone, Eq)]
     pub struct LeaseNetworks {
+        /// list of ips in database
         pub ips: Vec<LeaseState>,
     }
 
+    /// lease state
     #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Eq)]
+    #[serde(tag = "type", rename_all = "lowercase")]
     pub enum LeaseState {
-        Reserved(LeaseInfo),
-        Leased(LeaseInfo),
-        Probated(LeaseInfo),
+        /// reserved
+        Reserved(ReserveIp),
+        /// leased
+        Leased(LeaseIp),
+        /// probated ip
+        Probated(LeaseIp),
     }
+
+    /// details about lease ip
     #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Eq)]
-    pub struct LeaseInfo {
+    pub struct LeaseIp {
+        /// ip
         pub ip: IpAddr,
+        /// id
         pub id: Option<String>,
+        /// network
         pub network: IpAddr,
+        /// expiry as u64
         pub expires_at_epoch: u64,
+        /// expiry as string
         pub expires_at_utc: String,
+    }
+
+    /// static reservation
+    #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Eq)]
+    pub struct ReserveIp {
+        /// ip
+        pub ip: IpAddr,
+        /// id: will be None for now
+        pub id: Option<String>,
+        /// reservation network
+        pub network: IpAddr,
+        /// reservation condition
+        #[serde(rename = "match")]
+        pub condition: Condition,
     }
 
     pub(crate) fn blank_health() -> State {

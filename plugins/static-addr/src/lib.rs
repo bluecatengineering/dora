@@ -154,7 +154,6 @@ impl StaticAddr {
         }
 
         let (lease, t1, t2) = res.lease().determine_lease(ctx.requested_lease_time());
-        dbg!(ip);
         ctx.resp_msg_mut()
             .context("response message must be set before static plugin is run")?
             .set_yiaddr(ip);
