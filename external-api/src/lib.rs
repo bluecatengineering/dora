@@ -183,7 +183,7 @@ mod handlers {
     use ip_manager::{IpManager, Storage};
     use ipnet::Ipv4Net;
     use prometheus::{Encoder, ProtobufEncoder, TextEncoder};
-    use tracing::error;
+    use tracing::{error, warn};
 
     use crate::models::{Health, ReserveIp, ServerResult, State};
 
@@ -222,7 +222,6 @@ mod handlers {
                 let lease_info = LeaseIp {
                     ip,
                     id: id.clone(),
-                    network,
                     expires_at_epoch,
                     expires_at_utc,
                 };
@@ -230,17 +229,18 @@ mod handlers {
                 let netv4 = match network {
                     std::net::IpAddr::V4(ip) => ip,
                     std::net::IpAddr::V6(_) => {
-                        return Err(anyhow::anyhow!("no dynamic ipv6 at this time"));
+                        // TODO
+                        warn!("/v1/leases does not support not dynamic ipv6 at this time");
+                        return Ok(None);
                     }
                 };
                 if let Some(net) = cfg.v4().network(netv4) {
-                    let lease = match lease {
-                        S::Leased(_) => Some(LeaseState::Leased(lease_info)),
-                        S::Probated(_) => Some(LeaseState::Probated(lease_info)),
+                    Ok(match lease {
+                        S::Leased(_) => Some((net, LeaseState::Leased(lease_info))),
+                        S::Probated(_) => Some((net, LeaseState::Probated(lease_info))),
                         // TODO if we store reserved in db, change this
                         S::Reserved(_) => None,
-                    };
-                    Ok((net, lease))
+                    })
                 } else {
                     Err(anyhow::anyhow!(
                         "failed to find network in cfg for {lease_info:?}"
@@ -249,7 +249,7 @@ mod handlers {
             })
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
-            .flat_map(|(net, lease)| Some((net, lease?)))
+            .flatten()
             .fold(
                 HashMap::<Ipv4Net, LeaseNetworks>::new(),
                 |mut map, (net, lease)| {
@@ -261,13 +261,12 @@ mod handlers {
             );
         // add reserved entries from config
         // TODO if we start to store reserved in db, then delete this
-        for (ipnet, net) in cfg.v4().networks() {
+        for net in cfg.v4().networks().values() {
             for reservation in net.get_reservations() {
                 let entry = networks.entry(net.full_subnet()).or_default();
                 entry.ips.push(LeaseState::Reserved(ReserveIp {
                     ip: reservation.ip().into(),
                     id: None,
-                    network: ipnet.network().into(),
                     condition: reservation.condition().clone(),
                 }))
             }
@@ -397,8 +396,6 @@ pub mod models {
         pub ip: IpAddr,
         /// id
         pub id: Option<String>,
-        /// network
-        pub network: IpAddr,
         /// expiry as u64
         pub expires_at_epoch: u64,
         /// expiry as string
@@ -412,8 +409,6 @@ pub mod models {
         pub ip: IpAddr,
         /// id: will be None for now
         pub id: Option<String>,
-        /// reservation network
-        pub network: IpAddr,
         /// reservation condition
         #[serde(rename = "match")]
         pub condition: Condition,
