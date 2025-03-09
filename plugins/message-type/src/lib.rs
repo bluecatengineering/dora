@@ -338,6 +338,29 @@ pub mod util {
     use dora_core::server::msg::SerialMsg;
     use unix_udp_sock::RecvMeta;
 
+    pub fn blank_ctx_v6(
+        recv_addr: SocketAddr,
+        ifindex: u32,
+        msg_type: v6::MessageType,
+    ) -> Result<MsgContext<dhcproto::v6::Message>> {
+        let msg = dhcproto::v6::Message::new(msg_type);
+        let buf = msg.to_vec().unwrap();
+        let meta = RecvMeta {
+            addr: recv_addr,
+            len: buf.len(),
+            ifindex,
+            // recv addr copied here
+            dst_ip: Some(recv_addr.ip()),
+            ..RecvMeta::default()
+        };
+        let ctx: MsgContext<dhcproto::v6::Message> = MsgContext::new(
+            SerialMsg::new(buf.into(), recv_addr),
+            meta,
+            Arc::new(State::new(10)),
+        )?;
+        Ok(ctx)
+    }
+
     /// for testing
     pub fn blank_ctx(
         recv_addr: SocketAddr,
@@ -429,10 +452,13 @@ impl Plugin<v6::Message> for MsgType {
         // create initial response with reply type
         let mut resp = v6::Message::new_with_id(Reply, req.xid());
 
+        let rapid_commit = ctx.msg().opts().get(v6::OptionCode::RapidCommit).is_some()
+            && self.cfg.v4().rapid_commit();
         let server_id = self.cfg.v6().server_id();
         // TODO RelayForw type
         // TODO: make sure we handle client ids as specified - https://www.rfc-editor.org/rfc/rfc8415#section-16.1
         let req_sid = req.opts().get(v6::OptionCode::ServerId);
+        let req_cid = req.opts().get(v6::OptionCode::ClientId);
         // if the request includes a server id, it must match our server id
         if matches!(req_sid, Some(v6::DhcpOption::ServerId(id)) if *id != server_id) {
             debug!(?server_id, "server identifier in msg doesn't match");
@@ -443,12 +469,70 @@ impl Plugin<v6::Message> for MsgType {
             .insert(v6::DhcpOption::ServerId(server_id.to_vec()));
 
         match msg_type {
-            // discard if it has these types but NO server id
-            // https://www.rfc-editor.org/rfc/rfc8415#section-16.6
-            Request | Renew | Decline | Release if req_sid.is_none() => {
-                return Ok(Action::NoResponse);
+            Solicit => {
+                //https://datatracker.ietf.org/doc/html/rfc8415#section-16.2
+                if req_sid.is_some() || req_cid.is_none() {
+                    return Ok(Action::NoResponse);
+                }
+                if rapid_commit {
+                    resp.set_msg_type(v6::MessageType::Reply);
+                } else {
+                    resp.set_msg_type(v6::MessageType::Advertise);
+                }
+                //TODO: discard if req not fulfill administrative policy
+            }
+            Request => {
+                // https://datatracker.ietf.org/doc/html/rfc8415#section-16.4
+                if req_sid.is_none() || req_cid.is_none() {
+                    return Ok(Action::NoResponse);
+                }
+                resp.set_msg_type(v6::MessageType::Reply);
+            }
+            Confirm => {
+                // https://datatracker.ietf.org/doc/html/rfc8415#section-16.5
+                if req_sid.is_some() || req_cid.is_none() {
+                    return Ok(Action::NoResponse);
+                }
+                resp.set_msg_type(v6::MessageType::Reply);
+            }
+            Renew => {
+                // https://datatracker.ietf.org/doc/html/rfc8415#section-16.6
+                if req_sid.is_none() || req_cid.is_none() {
+                    return Ok(Action::NoResponse);
+                }
+                resp.set_msg_type(v6::MessageType::Reply);
+            }
+            Rebind => {
+                // https://datatracker.ietf.org/doc/html/rfc8415#section-16.7
+                if req_sid.is_some() || req_cid.is_none() {
+                    return Ok(Action::NoResponse);
+                }
+                resp.set_msg_type(v6::MessageType::Reply);
+            }
+            Decline => {
+                // https://datatracker.ietf.org/doc/html/rfc8415#section-16.8
+                if req_sid.is_none() || req_cid.is_none() {
+                    return Ok(Action::NoResponse);
+                }
+                resp.set_msg_type(v6::MessageType::Reply);
+            }
+            Release => {
+                // https://datatracker.ietf.org/doc/html/rfc8415#section-16.9
+                if req_sid.is_none() || req_cid.is_none() {
+                    return Ok(Action::NoResponse);
+                }
+                resp.set_msg_type(v6::MessageType::Reply);
             }
             InformationRequest => {
+                // discard if req has IA option
+                // https://datatracker.ietf.org/doc/html/rfc8415#section-16.12
+                if req.opts().get(v6::OptionCode::IANA).is_some()
+                    || req.opts().get(v6::OptionCode::IATA).is_some()
+                    || req.opts().get(v6::OptionCode::IAPD).is_some()
+                {
+                    return Ok(Action::NoResponse);
+                }
+                resp.set_msg_type(v6::MessageType::Reply);
                 if let Some(opts) = self.cfg.v6().get_opts(meta.ifindex) {
                     ctx.set_resp_msg(resp);
                     ctx.populate_opts(opts);
@@ -460,6 +544,7 @@ impl Plugin<v6::Message> for MsgType {
                     "couldn't match any options with INFORMATION-REQUEST message"
                 );
             }
+            //RelayForw => {}
             _ => {
                 debug!("currently unsupported message type");
                 return Ok(Action::NoResponse);
@@ -477,14 +562,19 @@ pub struct MatchedClasses(pub Vec<String>);
 
 #[cfg(test)]
 mod tests {
+    use config::{generate_random_bytes, v6::is_unicast_link_local};
     use util::get_server_id_override;
 
-    use dora_core::dhcproto::v4::{self, relay};
+    use dora_core::dhcproto::{
+        v4::{self, relay},
+        v6::{duid::Duid, ORO},
+    };
     use tracing_test::traced_test;
 
     use super::*;
 
     static SAMPLE_YAML: &str = include_str!("../../../libs/config/sample/config.yaml");
+    static V6_EXAMPLE_YAML: &str = include_str!("../../../libs/config/sample/config_v6.yaml");
 
     #[tokio::test]
     #[traced_test]
@@ -633,6 +723,93 @@ mod tests {
         // when the the server id in the message matches neither the server id override nor our server
         // id, we must not respond
         assert_eq!(res, Action::NoResponse);
+        Ok(())
+    }
+
+    /// for testing
+    fn find_interface_with_unicast_link_local(cfg: &DhcpConfig) -> Option<u32> {
+        let interfaces = cfg.v6().interfaces();
+        //find index of first interface that has a unicast address
+        interfaces.iter().find_map(|int| {
+            int.ips.iter().find_map(|ip| match ip {
+                IpNetwork::V6(ip) => {
+                    if is_unicast_link_local(&ip.ip()) {
+                        Some(int.index)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            })
+        })
+    }
+
+    // create a uuid type duid
+    fn generate_duid() -> Result<Duid, ()> {
+        let bytes = generate_random_bytes(16);
+        println!("!!!{:?}",bytes);
+        let duid = Duid::uuid(&bytes);
+        Ok(duid)
+    }
+    ///test that we respond to an information request
+    #[tokio::test]
+    #[traced_test]
+    async fn test_information_request() -> Result<()> {
+        let cfg = DhcpConfig::parse_str(V6_EXAMPLE_YAML).unwrap();
+        //find index of first interface that has a unicast address
+        let ifindex = find_interface_with_unicast_link_local(&cfg)
+            .context("no interface with unicast link local address")?;
+        let plugin = MsgType::new(Arc::new(cfg.clone()))?;
+        let mut ctx = util::blank_ctx_v6(
+            "[2001:db8::1]:546".parse()?,
+            ifindex as u32,
+            v6::MessageType::InformationRequest,
+        )?;
+        //according to https://datatracker.ietf.org/doc/html/rfc8415#section-18.2.6, Information-request Messages might not include  Client Identifier option, so here we ignore it.
+        //add elapsed time option
+        ctx.msg_mut()
+            .opts_mut()
+            .insert(v6::DhcpOption::ElapsedTime(60));
+        let oro = ORO {
+            opts: vec![
+                v6::OptionCode::InfMaxRt,
+                v6::OptionCode::InformationRefreshTime,
+                v6::OptionCode::DomainNameServers,
+            ],
+        };
+        //add option request
+        ctx.msg_mut().opts_mut().insert(v6::DhcpOption::ORO(oro));
+        let res = plugin.handle(&mut ctx).await?;
+        let resp = ctx.resp_msg().unwrap();
+        println!("{:?}", resp);
+        assert_eq!(res, Action::Respond);
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_solicit() -> Result<()> {
+        let cfg = DhcpConfig::parse_str(V6_EXAMPLE_YAML).unwrap();
+        //find index of first interface that has a unicast address
+        let ifindex = find_interface_with_unicast_link_local(&cfg)
+            .context("no interface with unicast link local address")?;
+        let plugin = MsgType::new(Arc::new(cfg.clone()))?;
+
+        let mut ctx = util::blank_ctx_v6(
+            "[2001:db8::1]:546".parse()?,
+            ifindex as u32,
+            v6::MessageType::Solicit,
+        )?;
+        let client_id = generate_duid().unwrap().as_ref().to_vec();
+        ctx.msg_mut()
+            .opts_mut()
+            .insert(v6::DhcpOption::ClientId(client_id));
+        //ctx.msg_mut().opts_mut().insert(v6::DhcpOption::ClientId());
+        let res = plugin.handle(&mut ctx).await?;
+        println!("{:?}", res);
+        //let resp = ctx.resp_msg().unwrap();
+        //println!("{:?}", resp);
+        //assert_eq!(res, Action::Continue);
         Ok(())
     }
 }
