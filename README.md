@@ -4,7 +4,7 @@
 
 `dora` is a DHCP server written in Rust using tokio. It is built on the [`dhcproto`](https://github.com/bluecatengineering/dhcproto) library and `sqlx`. We currently use the sqlite backend, although that could change in the future. The goal of `dora` is to provide a complete, performant, and correct implementation of DHCPv4, and eventually DHCPv6. Dora supports duplicate address detection, ping, binding multiple interfaces, static addresses, client classes, DDNS (**new!**) etc [see example.yaml for all options](./example.yaml).
 
-It is, however, an **early release version** and may contain bugs. We hope to build an active community around this project so we can create a new DHCP server together. PRs, issues, and constructive comments are welcome.
+It is, however, in development and may contain bugs. We hope to build a community around this project. To that end, PRs, issues, and constructive comments are welcome.
 
 You can see all the options available by looking through `example.yaml`. `dora` will parse equivalent JSON or YAML formats of the schema.
 
@@ -17,6 +17,30 @@ If started on non-default dhcp port, it is assumed this is for testing, and dora
 ## Build/Run
 
 [To build and run dora in docker see docs/docker.md](./docs/docker.md)
+
+`dora` requires a config file to start. See [example.yaml](./example.yaml) for all available options.
+
+Use `DORA_LOG` env var for adjusting log level and which targets, see [here](https://docs.rs/tracing-subscriber/0.2.20/tracing_subscriber/fmt/index.html#filtering-events-with-environment-variables) for more options.
+
+### Run dora quickly from source
+
+To run dora, bind to the default v4 addr (`0.0.0.0:67`) with a particular config use:
+
+```
+cargo run --bin dora -- -c path/to/config.json -d leases.db
+```
+
+### Build a dora binary
+
+```
+cargo build
+```
+
+optional: use `--release` flag for optimized binary without debug symbols
+
+binary will be present in target/{debug,release}/dora
+
+### Building dora for development
 
 You will need `sqlx-cli` to build, as sql queries written in Rust are checked against the database at compile time. [Install sqlx-cli](https://crates.io/crates/sqlx-cli)
 
@@ -42,10 +66,6 @@ Or run help:
 ```
 cargo run --bin dora -- --help
 ```
-
-`dora` requires a config file to start. See [example.yaml](./example.yaml) for all available options.
-
-Use `DORA_LOG` env var for adjusting log level and which targets, see [here](https://docs.rs/tracing-subscriber/0.2.20/tracing_subscriber/fmt/index.html#filtering-events-with-environment-variables) for more options.
 
 ### Cross compiling to ARM
 
@@ -92,6 +112,8 @@ TARGET_CC=arm-linux-gnueabihf-gcc TARGET_AR=arm-linux-gnueabihf-gcc-ar cargo bui
 ## Dora options & environment vars
 
 [see dora bin readme](bin/README.md)
+
+dora uses the [tracing](https://github.com/tokio-rs/tracing) library for stdout logs.
 
 ## Config format
 
