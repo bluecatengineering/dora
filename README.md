@@ -2,7 +2,7 @@
 
 ![](dora.jpg)
 
-`dora` is a DHCP server written in Rust using tokio. It is built on the [`dhcproto`](https://github.com/bluecatengineering/dhcproto) library and `sqlx`. We currently use the sqlite backend, although that could change in the future. The goal of `dora` is to provide a complete, performant, and correct implementation of DHCPv4, and eventually DHCPv6. Dora supports duplicate address detection, ping, binding multiple interfaces, static addresses, client classes, DDNS (**new!**) etc [see example.yaml for all options](./example.yaml).
+`dora` is a DHCP server written in Rust using tokio. It is built on the [`dhcproto`](https://github.com/bluecatengineering/dhcproto) library and `sqlx`. We currently use the sqlite backend, although that could change in the future. The goal of `dora` is to provide a complete, performant, and correct implementation of DHCPv4, and eventually DHCPv6. Dora supports duplicate address detection, ping, binding multiple interfaces, static addresses, client classes, DDNS (**new!**), metrics and leases HTTP API [see example.yaml for all options](./example.yaml).
 
 It is, however, in development and may contain bugs. We hope to build a community around this project. To that end, PRs, issues, and constructive comments are welcome.
 
@@ -12,7 +12,7 @@ If started on non-default dhcp port, it is assumed this is for testing, and dora
 
 ## Features
 
-[see example.yaml for all available options](./example.yaml). |
+[see example.yaml for all available options](./example.yaml).
 
 ## Build/Run
 
@@ -126,6 +126,55 @@ cargo run --bin dora-cfg -- <args>
 It will pretty-print the internal dora config representation as well as parse the wire format so hex encoded values are human-readable.
 
 [see dora-cfg readme](dora-cfg/README.md)
+
+## HTTP API
+
+By default dora binds to `0.0.0.0:3333`, the following endpoints are defined:
+
+```
+/health
+/ping
+/metrics
+/metrics-text
+/v1/leases
+/config
+```
+
+The leases endpoint returns JSON in the format of:
+
+```
+❯ curl 0.0.0.0:3333/v1/leases | jq
+{
+  "networks": {
+    "192.168.5.0/24": {
+      "ips": [
+        {
+          "type": "leased",
+          "ip": "192.168.5.2",
+          "id": "c08fd9962fc1",
+          "expires_at_epoch": 1743963741,
+          "expires_at_utc": "2025-04-06T18:22:21+00:00"
+        },
+        {
+          "type": "reserved",
+          "ip": "192.168.5.100",
+          "id": null,
+          "match": {
+            "options": {
+              "values": {
+                "60": {
+                  "type": "hex",
+                  "value": "666f6f626172"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
+```
 
 ## DHCP info
 

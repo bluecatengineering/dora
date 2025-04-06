@@ -427,9 +427,17 @@ pub mod models {
 
     impl IntoResponse for ServerError {
         fn into_response(self) -> axum::response::Response {
+            // How we want errors responses to be serialized
+            #[derive(Serialize)]
+            struct ErrorResponse {
+                message: String,
+            }
+
             (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                format!("{}", self.0),
+                axum::Json(ErrorResponse {
+                    message: format!("{}", self.0),
+                }),
             )
                 .into_response()
         }
