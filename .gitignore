@@ -5,3 +5,11 @@ data/
 *.db*
 .vscode/*.log
 server_id
+
+# Env files
+.envrc
+.direnv
+
+# Nix files
+flake.lock
+result
