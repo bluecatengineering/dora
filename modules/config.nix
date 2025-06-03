@@ -16,8 +16,8 @@ in
       "d '/var/lib/dora' 774 root users - -"
 
       # Ensure configuration directory
-      "Z '/etc/config/dora' 774 root users - -"
-      "d '/etc/config/dora' 774 root users - -"
+      "Z '/etc/dora' 774 root users - -"
+      "d '/etc/dora' 774 root users - -"
     ];
 
     # Run the dhcp server in a ystemd background service
@@ -41,10 +41,9 @@ in
         Group = "users";
         Environment = "PATH=/run/current-system/sw/bin";
         ExecStart = ''
-          ${package}/bin/dora dora \
-          -c /etc/config/dora/config.yaml \
-          -d /var/lib/dora/leases.db \
-          -vvv
+          ${package}/bin/dora \
+          -c /etc/dora/config.yaml \
+          -d /var/lib/dora/leases.db
         '';
         ExecStartPost = [
           "-${pkgs.coreutils}/bin/chown -R root:users /var/lib/dora"
