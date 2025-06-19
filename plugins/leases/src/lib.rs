@@ -23,6 +23,8 @@ use dora_core::{
     anyhow::anyhow,
     chrono::{DateTime, SecondsFormat, Utc},
     dhcproto::v4::{DhcpOption, Message, MessageType, OptionCode},
+    dhcproto::v6,
+    dhcproto::v6::OptionCode as v6OptionCode,
     metrics,
     prelude::*,
     tracing::warn,
@@ -39,6 +41,7 @@ use ip_manager::{IpError, IpManager, IpState, Storage};
 
 #[derive(Register)]
 #[register(msg(Message))]
+#[register(msg(v6::Message))]
 #[register(plugin(StaticAddr))]
 pub struct Leases<S>
 where
@@ -160,6 +163,107 @@ where
                 Ok(Action::NoResponse)
             }
         }
+    }
+}
+
+#[async_trait]
+impl<S> Plugin<v6::Message> for Leases<S>
+where
+    S: Storage + Send + Sync + 'static,
+{
+    #[instrument(level = "debug", skip_all)]
+    async fn handle(&self, ctx: &mut MsgContext<v6::Message>) -> Result<Action> {
+        let req = ctx.msg();
+        let meta = ctx.meta();
+        let client_id = self
+            .cfg
+            .v6()
+            .get_opts(meta.ifindex)
+            .context("can not get dhcp options")?
+            .get(v6OptionCode::ClientId)
+            .context("no client id")?;
+        //TODO unfinish
+        let rapid_commit = ctx.msg().opts().get(v6::OptionCode::RapidCommit).is_some()
+            && self.cfg.v4().rapid_commit();
+        let network = self
+            .cfg
+            .v6()
+            .get_network(meta.ifindex)
+            .context("no network")?;
+        match req.msg_type() {
+            v6::MessageType::Solicit => {
+                //self.solicit()
+                todo!()
+            }
+            v6::MessageType::Request => todo!(),
+            v6::MessageType::Confirm => todo!(),
+            v6::MessageType::Renew => todo!(),
+            v6::MessageType::Rebind => todo!(),
+            v6::MessageType::Reply => todo!(),
+            v6::MessageType::Release => todo!(),
+            v6::MessageType::Decline => todo!(),
+            v6::MessageType::InformationRequest => todo!(),
+            v6::MessageType::RelayForw => todo!(),
+            _ => {
+                debug!("unsupported message type");
+                return Ok(Action::NoResponse);
+            }
+        }
+    }
+}
+
+//v6 related
+impl<S> Leases<S>
+where
+    S: Storage,
+{
+    async fn solicit(
+        &self,
+        ctx: &mut MsgContext<v6::Message>,
+        server_id: &[u8],
+        client_id: &[u8],
+        network: &Network,
+        rapid_commit: bool,
+    ) -> Result<Action> {
+        if rapid_commit {
+            todo!()
+        } else {
+            ctx.resp_msg_mut()
+                .unwrap()
+                .opts_mut()
+                .insert(v6::DhcpOption::ServerId(server_id.to_vec()));
+            ctx.resp_msg_mut()
+                .unwrap()
+                .opts_mut()
+                .insert(v6::DhcpOption::ClientId(client_id.to_vec()));
+            //TODO: Preference option
+            //TODO: Reconfigure Accept option
+            // fill informations that requested in ORO
+            if let Some(opts) = self.cfg.v6().get_opts(ctx.meta().ifindex) {
+                ctx.populate_opts(opts);
+            }
+            //TODO: IA related and leases
+            // IANA
+            if let Some(ia_na) = ctx.msg().opts().get(v6::OptionCode::IANA) {
+                let iana = match ia_na {
+                    v6::DhcpOption::IANA(iana) => iana,
+                    _ => unreachable!(),
+                };
+                let iaid = iana.id;
+                let t1 = iana.t1;
+                let t2 = iana.t2;
+                //TODO: generate v6 lease and addr
+                let iana = v6::IANA {
+                    id: iaid,
+                    t1: t1,
+                    t2: t2,
+                    opts: todo!(),
+                };
+                let iana = v6::DhcpOption::IANA(iana);
+                ctx.resp_msg_mut().unwrap().opts_mut().insert(iana);
+            }
+        }
+        Ok(Action::Continue)
     }
 }
 
