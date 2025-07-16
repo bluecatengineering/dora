@@ -14,7 +14,7 @@ Add this flake url to your inputs in `flake.nix`.
 ```nix
 inputs = {
   dora = {
-    url = "github:pipelight/dora.nix";
+    url = "github:bluecatengineering/dora";
     # inputs.nixpkgs.follows = "nixpkgs";
   };
 };
