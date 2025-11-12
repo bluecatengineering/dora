@@ -1,0 +1,40 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    configure)
+        # Create dora user if it doesn't exist
+        if ! getent passwd dora > /dev/null; then
+            adduser --system --group --home /var/lib/dora \
+                --gecos "Dora DHCP Server" dora
+        fi
+
+        # Set permissions on directories
+        chown -R dora:dora /var/lib/dora
+        chmod 750 /var/lib/dora
+
+        if [ -d /etc/dora ]; then
+            chown -R root:dora /etc/dora
+            chmod 750 /etc/dora
+        fi
+
+        # Create initial database if it doesn't exist
+        if [ ! -f /var/lib/dora/dora.db ]; then
+            touch /var/lib/dora/dora.db
+            chown dora:dora /var/lib/dora/dora.db
+            chmod 640 /var/lib/dora/dora.db
+        fi
+        ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+
+    *)
+        echo "postinst called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

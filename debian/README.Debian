@@ -1,0 +1,235 @@
+dora-dhcp for Debian
+====================
+
+Configuration
+-------------
+
+dora uses YAML or JSON configuration files. Example configurations are
+available in /usr/share/doc/dora-dhcp/examples/
+
+To create a configuration:
+  1. Copy the example configuration:
+     sudo cp /usr/share/doc/dora-dhcp/examples/example.yaml /etc/dora/dora.yaml
+
+  2. Edit the configuration to match your network:
+     sudo nano /etc/dora/dora.yaml
+
+  3. See config_schema.json for all available options:
+     /usr/share/doc/dora-dhcp/examples/config_schema.json
+
+  4. Run dora:
+     sudo dora -c /etc/dora/dora.yaml -d /var/lib/dora/dora.db
+
+Basic Configuration Example
+----------------------------
+
+Here's a minimal configuration for a simple network:
+
+```yaml
+networks:
+  - network: "192.168.1.0/24"
+    ranges:
+      - start: "192.168.1.100"
+        end: "192.168.1.200"
+    options:
+      - code: 1   # Subnet mask
+        value: "255.255.255.0"
+      - code: 3   # Router
+        value: "192.168.1.1"
+      - code: 6   # DNS servers
+        value: "8.8.8.8,8.8.4.4"
+
+server:
+  interfaces: ["eth0"]
+
+lease_time:
+  default: 3600
+  max: 7200
+```
+
+Running dora
+------------
+
+Manual start:
+  sudo dora -c /etc/dora/dora.yaml -d /var/lib/dora/dora.db
+
+Options:
+  -c, --config FILE    Configuration file (YAML or JSON)
+  -d, --database FILE  SQLite database file
+  --port PORT          UDP port to bind (default: 67)
+  --api-port PORT      HTTP API port (default: 3333)
+
+For all options:
+  dora --help
+
+HTTP API
+--------
+
+dora provides an HTTP API on port 3333 (configurable):
+
+Endpoints:
+  /health           - Health check
+  /ping             - Ping endpoint
+  /metrics          - Prometheus metrics (binary format)
+  /metrics-text     - Prometheus metrics (text format)
+  /v1/leases        - JSON list of active leases
+  /config           - Current configuration
+
+Example:
+  curl http://localhost:3333/v1/leases
+
+Logging
+-------
+
+dora uses the tracing framework for logging. Set the DORA_LOG environment
+variable to control log levels:
+
+  DORA_LOG=debug dora -c /etc/dora/dora.yaml -d /var/lib/dora/dora.db
+  DORA_LOG=info dora -c /etc/dora/dora.yaml -d /var/lib/dora/dora.db
+  DORA_LOG=warn dora -c /etc/dora/dora.yaml -d /var/lib/dora/dora.db
+
+For more fine-grained control:
+  DORA_LOG=dora=debug,dora_core=info dora ...
+
+Database Management
+-------------------
+
+dora uses SQLite to store lease information. The database is automatically
+created on first run.
+
+Location: /var/lib/dora/dora.db (or as specified with -d option)
+Owner: dora:dora
+Permissions: 640
+
+To view leases directly:
+  sudo sqlite3 /var/lib/dora/dora.db "SELECT * FROM leases;"
+
+To backup the database:
+  sudo cp /var/lib/dora/dora.db /var/lib/dora/dora.db.backup
+
+Permissions
+-----------
+
+By default, dora needs to:
+- Bind to UDP port 67 (privileged port, requires root or CAP_NET_BIND_SERVICE)
+- Read configuration from /etc/dora/
+- Write to database in /var/lib/dora/
+
+The installation creates:
+- User: dora (system user)
+- Group: dora
+- Home: /var/lib/dora
+
+Run as root or with capabilities:
+  sudo dora -c /etc/dora/dora.yaml -d /var/lib/dora/dora.db
+
+Or use systemd with User=dora and AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+Systemd Integration
+-------------------
+
+To create a systemd service, create /etc/systemd/system/dora.service:
+
+```
+[Unit]
+Description=Dora DHCP Server
+After=network.target
+
+[Service]
+Type=simple
+User=dora
+Group=dora
+ExecStart=/usr/bin/dora -c /etc/dora/dora.yaml -d /var/lib/dora/dora.db
+Restart=on-failure
+RestartSec=5
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Then:
+  sudo systemctl daemon-reload
+  sudo systemctl enable dora.service
+  sudo systemctl start dora.service
+
+Static Addresses
+----------------
+
+To assign static IP addresses based on MAC address, add to your config:
+
+```yaml
+networks:
+  - network: "192.168.1.0/24"
+    static_addresses:
+      - mac: "aa:bb:cc:dd:ee:ff"
+        ip: "192.168.1.50"
+        name: "printer"
+      - mac: "11:22:33:44:55:66"
+        ip: "192.168.1.51"
+        name: "server"
+```
+
+DDNS (Dynamic DNS)
+------------------
+
+dora supports Dynamic DNS updates. See example.yaml for configuration:
+
+```yaml
+ddns:
+  enabled: true
+  server: "ns.example.com"
+  zone: "example.com"
+  key_name: "dhcp-key"
+  key: "base64-encoded-key"
+```
+
+Troubleshooting
+---------------
+
+Check if dora is running:
+  ps aux | grep dora
+  sudo netstat -ulnp | grep :67
+
+View logs:
+  DORA_LOG=debug sudo dora -c /etc/dora/dora.yaml -d /var/lib/dora/dora.db
+
+Test DHCP with dhclient:
+  sudo dhclient -d -v eth0
+
+Common issues:
+
+1. "Permission denied" on port 67
+   Solution: Run as root or with CAP_NET_BIND_SERVICE capability
+
+2. "Address already in use"
+   Solution: Another DHCP server is running (check for dnsmasq, isc-dhcp-server)
+
+3. Database locked
+   Solution: Stop any other dora instances accessing the same database
+
+4. No DHCP responses
+   Solution: Check firewall rules, ensure interface is correct
+
+Performance
+-----------
+
+dora is designed for high performance using async I/O with tokio.
+In synthetic tests, dora can handle 5000+ leases/second.
+
+The bottleneck is typically the SQLite database. For higher performance:
+- Use SSD storage
+- Tune SQLite settings in the code
+- Consider using a separate disk for the database
+
+Support
+-------
+
+Report bugs and issues at:
+  https://github.com/bluecatengineering/dora/issues
+
+Documentation:
+  README: /usr/share/doc/dora-dhcp/README.md.gz
+  Examples: /usr/share/doc/dora-dhcp/examples/
+
+ -- Dora DHCP developers <dora@example.com>  Tue, 12 Nov 2025 16:20:00 +0000

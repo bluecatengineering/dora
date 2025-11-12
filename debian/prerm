@@ -1,0 +1,29 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    remove|upgrade|deconfigure)
+        # Stop dora if it's running
+        if [ -x /usr/bin/dora ]; then
+            # Try to stop via systemd if service exists
+            if [ -d /run/systemd/system ] && systemctl is-active --quiet dora.service 2>/dev/null; then
+                systemctl stop dora.service || true
+            fi
+
+            # Kill any remaining dora processes
+            pkill -u dora dora || true
+        fi
+        ;;
+
+    failed-upgrade)
+        ;;
+
+    *)
+        echo "prerm called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

@@ -1,0 +1,42 @@
+#!/usr/bin/make -f
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+# Use cargo for building
+export CARGO_HOME=$(CURDIR)/debian/cargo
+
+%:
+	dh $@
+
+override_dh_auto_clean:
+	cargo clean || true
+	rm -rf debian/cargo
+
+override_dh_auto_build:
+	# Build only the dora binary
+	cargo build --release --bin dora
+
+override_dh_auto_test:
+	# Skip tests during package build
+	# Tests can be run separately with: cargo test
+
+override_dh_auto_install:
+	# Install dora binary
+	install -D -m 0755 target/release/dora debian/dora-dhcp/usr/bin/dora
+
+	# Install example configuration
+	install -D -m 0644 example.yaml debian/dora-dhcp/usr/share/doc/dora-dhcp/examples/example.yaml
+	install -D -m 0644 config_schema.json debian/dora-dhcp/usr/share/doc/dora-dhcp/examples/config_schema.json
+
+	# Install documentation
+	install -D -m 0644 README.md debian/dora-dhcp/usr/share/doc/dora-dhcp/README.md
+
+	# Create runtime directories
+	install -d debian/dora-dhcp/var/lib/dora
+	install -d debian/dora-dhcp/etc/dora
+
+override_dh_installdocs:
+	dh_installdocs
+	# Compress README in doc directory
+	find debian/dora-dhcp/usr/share/doc/dora-dhcp -type f -name "README.md" ! -path "*/examples/*" -exec gzip -9 {} \;

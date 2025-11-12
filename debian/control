@@ -1,0 +1,42 @@
+Source: dora
+Section: net
+Priority: optional
+Maintainer: Dora DHCP developers <dora@example.com>
+Build-Depends: debhelper-compat (= 13),
+               cargo,
+               rustc (>= 1.70),
+               pkg-config,
+               libc6-dev,
+               libsqlite3-dev
+Standards-Version: 4.6.2
+Homepage: https://github.com/bluecatengineering/dora
+Vcs-Git: https://github.com/bluecatengineering/dora.git
+Vcs-Browser: https://github.com/bluecatengineering/dora
+Rules-Requires-Root: no
+
+Package: dora-dhcp
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends},
+         libsqlite3-0
+Suggests: systemd
+Description: Modern DHCP server written in Rust
+ dora is a DHCP server written in Rust using tokio. It is built on the
+ dhcproto library and sqlx with sqlite backend. The goal of dora is to
+ provide a complete, performant, and correct implementation of DHCPv4,
+ and eventually DHCPv6.
+ .
+ Features:
+  * Async architecture with tokio for high performance
+  * DHCPv4 support with RFC compliance
+  * Duplicate address detection with ping
+  * Binding multiple interfaces
+  * Static address assignments
+  * Client classes support
+  * Dynamic DNS (DDNS) updates
+  * Prometheus metrics endpoint
+  * HTTP API for leases and configuration
+  * SQLite database for lease management
+  * JSON/YAML configuration format
+ .
+ dora is designed for modern network environments requiring a fast,
+ reliable, and feature-rich DHCP server.

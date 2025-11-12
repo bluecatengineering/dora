@@ -1,0 +1,19 @@
+dora (0.2.0-1) unstable; urgency=medium
+
+  * Initial Debian release.
+  * DHCPv4 server implementation with tokio async runtime
+  * Duplicate address detection with ping support
+  * Multiple interface binding capability
+  * Static address assignments
+  * Client classes for conditional configuration
+  * Dynamic DNS (DDNS) updates
+  * Prometheus metrics endpoint
+  * HTTP API for leases and configuration management
+  * SQLite backend for lease persistence
+  * JSON/YAML configuration format support
+  * RFC 2131/2132 compliance
+  * Support for DHCP options and relay agents
+  * Configurable lease times and address pools
+  * Logging with tracing framework
+
+ -- Dora DHCP developers <dora@example.com>  Tue, 12 Nov 2025 16:20:00 +0000
