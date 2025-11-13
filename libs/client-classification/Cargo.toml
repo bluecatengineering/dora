@@ -6,9 +6,9 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-pest = "2.5.3"
-pest_derive = "2.5.3"
-thiserror = "1.0.30"
+pest = "2.8.3"
+pest_derive = "2.8.3"
+thiserror = "1.0.69"
 hex = "0.4.3"
 dhcproto = { workspace = true }
 

@@ -10,6 +10,7 @@ license = "MPL-2.0"
 dora-core = { path = "../../dora-core" }
 config = { path = "../../libs/config" }
 client-protection = { path = "../../libs/client-protection" }
+tracing = { workspace = true }
 
 static-addr = { path = "../static-addr" }
 message-type = { path = "../message-type" }
@@ -22,4 +23,4 @@ ipnet = { workspace = true }
 
 [dev-dependencies]
 serde_yaml = { workspace = true }
-tracing-test = "0.2.4"
+tracing-test = "0.2.5"

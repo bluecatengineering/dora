@@ -14,7 +14,7 @@ serde_yaml = { workspace = true }
 serde_json = { workspace = true }
 serde = { workspace = true }
 trust-dns-proto = { workspace = true }
-base64 = "0.21.0"
+base64 = "0.21.7"
 hex = "0.4"
 phf = { version = "0.11", features = ["macros"] }
 rand = "0.8"

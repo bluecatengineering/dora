@@ -17,8 +17,8 @@ thiserror = { workspace = true }
 tracing = { workspace = true, features = [
     "log",
 ] } # TODO: do we need the log feature?
-chrono = "0.4.19"
-moka = { version = "0.10.0", features = ["future"] }
+chrono = "0.4.42"
+moka = { version = "0.10.4", features = ["future"] }
 # TODO: hopefully the rustls feature can go away, the lib requires it
 sqlx = { version = "0.5.13", features = [
     "sqlite",
@@ -28,8 +28,8 @@ sqlx = { version = "0.5.13", features = [
 ] }
 
 [dev-dependencies]
-tokio-test = "0.4.1"
+tokio-test = "0.4.4"
 tracing = { workspace = true, features = ["log"] }
 tokio = { workspace = true }
-tracing-test = "0.2.4"
+tracing-test = "0.2.5"
 rand = { workspace = true }

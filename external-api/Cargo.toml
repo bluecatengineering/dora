@@ -14,11 +14,11 @@ config = { path = "../libs/config" }
 
 # libs
 anyhow = { workspace = true }
-axum = "0.7.5"
-chrono = "0.4.38"
+axum = "0.7.9"
+chrono = "0.4.42"
 hex = "0.4.3"
 tokio = { workspace = true }
-tower-http = { version = "0.6.2", features = ["trace", "timeout"] }
+tower-http = { version = "0.6.6", features = ["trace", "timeout"] }
 tokio-util = { workspace = true }
 tracing-futures = { workspace = true }
 tracing = { workspace = true }

@@ -20,22 +20,22 @@ trust-dns-proto = { version = "0.22.0", default-features = false, features = [
     "dnssec",
     "serde-config",
 ] }
-socket2 = { version = "0.5.6", features = [
+socket2 = { version = "0.5.10", features = [
     "all",
 ] } # TODO: update when tokio sockets impl AsFd, then update unix-udp-sock
 anyhow = { version = "1.0", features = ["backtrace"] }
 async-trait = "0.1"
-bytes = "1.1"
-clap = { version = "4.5.4", features = ["derive", "env"] }
+bytes = "1.10"
+clap = { version = "4.5.51", features = ["derive", "env"] }
 dhcproto = "0.11.0"
 futures = { version = "0.3", default-features = false, features = ["std"] }
-ipnet = { features = ["serde"], version = "2.4.0" }
+ipnet = { features = ["serde"], version = "2.11.0" }
 pnet = { features = ["serde", "std"], version = "0.34.0" }
-prometheus = "0.13.0"
+prometheus = "0.13.4"
 prometheus-static-metric = "0.5"
-tokio = { version = "1.37.0", features = ["full"] }
-tokio-util = { version = "0.7.0", features = ["codec", "net"] }
-tracing = "0.1.40"
+tokio = { version = "1.48.0", features = ["full"] }
+tokio-util = { version = "0.7.17", features = ["codec", "net"] }
+tracing = "0.1.41"
 tracing-futures = "0.2.5"
 tracing-subscriber = { features = ["env-filter", "json"], version = "0.3" }
 thiserror = "1.0"

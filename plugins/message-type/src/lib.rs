@@ -17,6 +17,7 @@ use dora_core::{
     },
     metrics,
     prelude::*,
+    tracing,
     tracing::warn,
 };
 use register_derive::Register;

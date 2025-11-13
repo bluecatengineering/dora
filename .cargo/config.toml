@@ -10,3 +10,4 @@ runner = "sudo -E"
 # Maybe there is a way to only run the integration tests, or remove this restriction...
 [env]
 RUST_TEST_THREADS = "1"
+SQLX_OFFLINE = "true"

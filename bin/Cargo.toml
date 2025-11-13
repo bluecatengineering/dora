@@ -23,15 +23,15 @@ tracing-futures = { workspace = true }
 dotenv = "0.15.0"
 
 [dev-dependencies]
-mac_address = "1.1.1"
+mac_address = "1.1.8"
 derive_builder = "0.12.0"
-crossbeam-channel = "0.5.1"
+crossbeam-channel = "0.5.15"
 rand = "0.8"
 socket2 = { workspace = true }
-tracing-test = "0.2.4"
+tracing-test = "0.2.5"
 
 [target.'cfg(not(target_env = "musl"))'.dependencies]
-jemallocator = { version = "0.5.0", features = ["background_threads"] }
+jemallocator = { version = "0.5.4", features = ["background_threads"] }
 
 [[bin]]
 name = "dora"

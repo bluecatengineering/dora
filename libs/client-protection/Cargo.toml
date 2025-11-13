@@ -9,4 +9,4 @@ edition = "2024"
 config = { path = "../config" }
 governor = "0.5.1"
 tracing = { workspace = true }
-dashmap = "5.4.0"
+dashmap = "5.5.3"
