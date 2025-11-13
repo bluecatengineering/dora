@@ -1,11 +1,15 @@
 FROM debian:trixie
 
-# Install necessary packages
+# Install necessary packages including build tools for Rust
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     curl \
     gnupg \
     git \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    libsqlite3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 24 from NodeSource
