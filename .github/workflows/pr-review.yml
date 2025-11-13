@@ -55,6 +55,9 @@ jobs:
         id: claude-review
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PR_DIFF: ${{ steps.get-diff.outputs.diff }}
+          FILE_COUNT: ${{ steps.get-diff.outputs.file_count }}
+          TOTAL_CHANGES: ${{ steps.get-diff.outputs.total_changes }}
         with:
           script: |
             const fetch = require('node-fetch');
@@ -63,9 +66,9 @@ jobs:
             const prTitle = pr.title;
             const prBody = pr.body || 'No description provided';
             const prNumber = pr.number;
-            const diff = `${{ steps.get-diff.outputs.diff }}`;
-            const fileCount = `${{ steps.get-diff.outputs.file_count }}`;
-            const totalChanges = `${{ steps.get-diff.outputs.total_changes }}`;
+            const diff = process.env.PR_DIFF || '';
+            const fileCount = process.env.FILE_COUNT || '0';
+            const totalChanges = process.env.TOTAL_CHANGES || '0';
 
             console.log(`Reviewing PR #${prNumber}: ${prTitle}`);
             console.log(`Files changed: ${fileCount}, Total changes: ${totalChanges}`);
