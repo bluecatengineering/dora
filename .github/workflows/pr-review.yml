@@ -1,0 +1,213 @@
+name: PR Review with Claude
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get PR diff
+        id: get-diff
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+
+            // Get the diff
+            const { data: files } = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number
+            });
+
+            // Limit diff size to avoid token limits
+            let diffContent = '';
+            let totalChanges = 0;
+
+            for (const file of files) {
+              totalChanges += file.changes;
+              if (diffContent.length < 15000) { // Keep under Claude's context limit
+                diffContent += `\n--- ${file.filename} (${file.status})\n`;
+                if (file.patch) {
+                  diffContent += file.patch + '\n';
+                }
+              }
+            }
+
+            core.setOutput('diff', diffContent);
+            core.setOutput('file_count', files.length);
+            core.setOutput('total_changes', totalChanges);
+            return diffContent;
+
+      - name: Analyze PR with Claude
+        uses: actions/github-script@v7
+        id: claude-review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        with:
+          script: |
+            const fetch = require('node-fetch');
+
+            const pr = context.payload.pull_request;
+            const prTitle = pr.title;
+            const prBody = pr.body || 'No description provided';
+            const prNumber = pr.number;
+            const diff = `${{ steps.get-diff.outputs.diff }}`;
+            const fileCount = `${{ steps.get-diff.outputs.file_count }}`;
+            const totalChanges = `${{ steps.get-diff.outputs.total_changes }}`;
+
+            console.log(`Reviewing PR #${prNumber}: ${prTitle}`);
+            console.log(`Files changed: ${fileCount}, Total changes: ${totalChanges}`);
+
+            // Prepare prompt for Claude
+            const prompt = `You are a helpful code reviewer for a Rust project called CRdora (a network control tool).
+
+            Please review the following pull request and provide a structured analysis:
+
+            PR Title: ${prTitle}
+
+            PR Description:
+            ${prBody}
+
+            Files Changed: ${fileCount}
+            Total Lines Changed: ${totalChanges}
+
+            Diff:
+            ${diff}
+
+            Provide your review in the following format:
+
+            SUMMARY: [2-3 sentence summary of what this PR does]
+
+            CHANGES: [Brief overview of the main changes by category, e.g., features, bug fixes, refactoring]
+
+            CONCERNS: [Any potential issues, bugs, or areas that need attention. If none, say "None identified"]
+
+            SECURITY: [Any security considerations or vulnerabilities. If none, say "No security concerns identified"]
+
+            BREAKING_CHANGES: [Any breaking changes to the API or behavior. If none, say "No breaking changes"]
+
+            TESTING: [Comments on test coverage or testing recommendations]
+
+            SUGGESTIONS: [Constructive suggestions for improvement, if any]
+
+            LABELS: [comma-separated list of applicable labels from: bug, enhancement, feature, documentation, performance, security, dependencies, breaking-change, needs-tests, ready-to-merge]
+
+            Be constructive and helpful. Focus on significant issues rather than minor style preferences.`;
+
+            // Call Anthropic API
+            const response = await fetch('https://api.anthropic.com/v1/messages', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': process.env.ANTHROPIC_API_KEY,
+                'anthropic-version': '2023-06-01'
+              },
+              body: JSON.stringify({
+                model: 'claude-sonnet-4-5-20250929',
+                max_tokens: 4096,
+                messages: [{
+                  role: 'user',
+                  content: prompt
+                }]
+              })
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              throw new Error(`Anthropic API error: ${response.status} - ${errorText}`);
+            }
+
+            const data = await response.json();
+            const reviewResult = data.content[0].text;
+
+            console.log('Review result:', reviewResult);
+
+            // Save result for verification
+            const fs = require('fs');
+            fs.writeFileSync('pr_review_result.txt', reviewResult);
+
+            // Post review comment on PR
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: `## 🤖 Automated PR Review\n\n${reviewResult}\n\n---\n*This review was generated by Claude AI. It's meant to assist human reviewers, not replace them.*`
+            });
+
+            // Extract and apply labels
+            const labelsMatch = reviewResult.match(/LABELS:\s*(.+)/i);
+            if (labelsMatch) {
+              const suggestedLabels = labelsMatch[1]
+                .split(',')
+                .map(label => label.trim().toLowerCase())
+                .filter(label => label.length > 0);
+
+              console.log('Suggested labels:', suggestedLabels);
+
+              // Get existing repository labels
+              const { data: repoLabels } = await github.rest.issues.listLabelsForRepo({
+                owner: context.repo.owner,
+                repo: context.repo.repo
+              });
+
+              const existingLabelNames = repoLabels.map(l => l.name.toLowerCase());
+
+              // Only apply labels that exist in the repository
+              const labelsToApply = suggestedLabels.filter(label =>
+                existingLabelNames.includes(label)
+              );
+
+              if (labelsToApply.length > 0) {
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: prNumber,
+                  labels: labelsToApply
+                });
+                console.log('Applied labels:', labelsToApply);
+              }
+            }
+
+            // Check for breaking changes and add a warning
+            if (reviewResult.toLowerCase().includes('breaking') &&
+                !reviewResult.includes('No breaking changes')) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body: '⚠️ **Warning**: This PR may contain breaking changes. Please review carefully before merging.'
+              });
+            }
+
+            // Check for security concerns
+            if (reviewResult.match(/SECURITY:.*(?!No security concerns)/i) &&
+                !reviewResult.includes('No security concerns identified')) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body: '🔒 **Security Notice**: Potential security considerations identified. Please review the security analysis above.'
+              });
+            }
+
+            return reviewResult;
+
+      - name: Upload review result
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pr-review-result
+          path: pr_review_result.txt
+          retention-days: 30

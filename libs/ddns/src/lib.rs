@@ -180,29 +180,27 @@ impl DdnsUpdate {
             error!("address lease time not available for DDNS update");
             return Err(DdnsError::SendFailed);
         };
-        if forward {
-            if let Some(srv) = cfg.match_longest_forward(&domain) {
-                let tsig = if let Some(key_name) = &srv.key {
-                    Some(tsigner(key_name, cfg)?)
-                } else {
-                    None
-                };
-                let zone = srv.name.clone();
-                // todo: likely re-creating the same client for each update
-                // should cache this in parent type
-                let mut client = Updater::new(srv.ip, tsig).await?;
+        if forward && let Some(srv) = cfg.match_longest_forward(&domain) {
+            let tsig = if let Some(key_name) = &srv.key {
+                Some(tsigner(key_name, cfg)?)
+            } else {
+                None
+            };
+            let zone = srv.name.clone();
+            // todo: likely re-creating the same client for each update
+            // should cache this in parent type
+            let mut client = Updater::new(srv.ip, tsig).await?;
 
-                // todo: zone origin same as domain?
-                match client
-                    .forward(zone, domain.clone(), duid.clone(), leased, *lease_length)
-                    .await
-                {
-                    Ok(_) => {
-                        info!(?domain, "successfully updated DNS");
-                    }
-                    Err(err) => {
-                        error!(?err, ?domain, "failed to update DNS");
-                    }
+            // todo: zone origin same as domain?
+            match client
+                .forward(zone, domain.clone(), duid.clone(), leased, *lease_length)
+                .await
+            {
+                Ok(_) => {
+                    info!(?domain, "successfully updated DNS");
+                }
+                Err(err) => {
+                    error!(?err, ?domain, "failed to update DNS");
                 }
             }
         }
