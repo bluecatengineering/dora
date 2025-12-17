@@ -365,7 +365,7 @@ where
                     let dhcid = dhcid(self.cfg.v4(), ctx.msg());
                     if let Err(err) = self
                         .ddns
-                        .update(ctx, dhcid, self.cfg.v4().ddns(), range, ip)
+                        .update(ctx, dhcid, self.cfg.v4().ddns(), range, ip, lease.0)
                         .await
                     {
                         error!(?err, "error during ddns update");

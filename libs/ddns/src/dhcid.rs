@@ -1,6 +1,6 @@
 use dora_core::dhcproto::{Name, NameError, v4::HType};
 use ring::digest::{Context, SHA256};
-use trust_dns_client::serialize::binary::BinEncoder;
+use dora_core::hickory_proto::serialize::binary::BinEncoder;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct DhcId {
@@ -97,7 +97,8 @@ pub enum IdType {
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
-
+    use base64::Engine;
+    use base64::prelude::BASE64_STANDARD;
     use super::*;
 
     //      A DHCP server allocates the IPv4 address 192.0.2.2 to a client that
@@ -120,7 +121,7 @@ mod tests {
             .rdata(&Name::from_str("chi.example.com.").unwrap())
             .unwrap();
         assert_eq!(
-            base64::encode(out),
+            BASE64_STANDARD.encode(out),
             "AAEBOSD+XR3Os/0LozeXVqcNc7FwCfQdWL3b/NaiUDlW2No=".to_owned()
         );
     }
@@ -145,7 +146,7 @@ mod tests {
             .rdata(&Name::from_str("client.example.com.").unwrap())
             .unwrap();
         assert_eq!(
-            base64::encode(out),
+            BASE64_STANDARD.encode(out),
             "AAABxLmlskllE0MVjd57zHcWmEH3pCQ6VytcKD//7es/deY=".to_owned()
         );
     }

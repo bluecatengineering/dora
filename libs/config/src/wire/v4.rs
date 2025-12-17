@@ -53,11 +53,10 @@ use dora_core::{
 };
 use serde::{Deserialize, Deserializer, Serialize, de};
 use tracing::warn;
-use trust_dns_proto::{
-    rr,
+use hickory_proto::{
+    rr::Name,
     serialize::binary::{BinEncodable, BinEncoder},
 };
-
 use crate::wire::{MaybeList, MinMax};
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -263,7 +262,7 @@ fn write_opt(enc: &mut Encoder<'_>, code: u8, opt: Opt) -> anyhow::Result<()> {
         Opt::Domain(MaybeList::Val(domain)) => {
             let mut buf = Vec::new();
             let mut name_encoder = BinEncoder::new(&mut buf);
-            let name = domain.parse::<rr::Name>()?;
+            let name = domain.parse::<Name>()?;
             name.emit(&mut name_encoder)?;
             v4::encode_long_opt_bytes(OptionCode::from(code), &buf, enc)?;
         }
@@ -272,7 +271,7 @@ fn write_opt(enc: &mut Encoder<'_>, code: u8, opt: Opt) -> anyhow::Result<()> {
             let mut buf = Vec::new();
             let mut name_encoder = BinEncoder::new(&mut buf);
             for name in list {
-                let name = name.parse::<rr::Name>()?;
+                let name = name.parse::<Name>()?;
                 name.emit(&mut name_encoder)?;
             }
             v4::encode_long_opt_bytes(OptionCode::from(code), &buf, enc)?;
@@ -495,11 +494,11 @@ fn to_opt(code: &OptionCode, opt: &DhcpOption) -> Option<(u8, Opt)> {
 
 pub mod ddns {
     use std::net::SocketAddr;
-
+    use hickory_proto::dnssec::rdata::tsig::TsigAlgorithm;
     use super::*;
 
     use dora_core::dhcproto::Name;
-    pub use dora_core::trust_dns_proto::rr::dnssec::rdata::tsig::TsigAlgorithm;
+
 
     fn default_true() -> bool {
         true

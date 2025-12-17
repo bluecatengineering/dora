@@ -1,6 +1,6 @@
 use std::{fs::File, io::Read, str::FromStr};
-
-use config::wire::v4::ddns::TsigAlgorithm;
+use hickory_proto::dnssec::rdata::tsig::TsigAlgorithm;
+use hickory_proto::dnssec::tsig::TSigner;
 use ddns::{
     dhcid::{self, IdType},
     update::Updater,
@@ -12,7 +12,6 @@ use dora_core::{
     tokio::{self},
     tracing::{debug, error},
 };
-use trust_dns_client::rr::dnssec::tsig::TSigner;
 
 #[tokio::main]
 async fn main() -> Result<()> {

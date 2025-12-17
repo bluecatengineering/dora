@@ -8,15 +8,13 @@ edition = "2024"
 [dependencies]
 dora-core = { path = "../../dora-core" }
 config = { path = "../config" }
-trust-dns-client = { version = "0.22.0", features = ["dnssec-ring"] }
+base64 = { workspace = true }
+hickory-proto = { workspace = true }
 thiserror = { workspace = true }
 ring = "0.16.20"
 hex = "0.4"
 rand = { workspace = true }
-ipnet = { workspace = true }
 
-[dev-dependencies]
-base64 = "0.20"
 
 [[example]]
 name = "tsig"

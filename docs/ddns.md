@@ -45,7 +45,7 @@ There are a few config values that can change the behavior of the update. These 
 
 The logic for client FQDN flag handling is largely in the `handle_flags` function, and was translated from [Keas flag handling](https://github.com/isc-projects/kea/blob/9c76b9a9e55b49ea407531b64783f6ec12546f42/src/lib/dhcpsrv/d2_client_mgr.cc#L115)
 
-As for the content of the DNS updates themselves, here is an example of a forward update created by trust-dns-client
+As for the content of the DNS updates themselves, here is an example of a forward update created by hickory-dns-client
 
 ![fwd_update](https://user-images.githubusercontent.com/1128302/210460131-97bcf7f1-09aa-4c82-807f-7d5eb19542d3.png)
 

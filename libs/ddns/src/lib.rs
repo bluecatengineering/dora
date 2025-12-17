@@ -1,7 +1,9 @@
 #![allow(clippy::too_many_arguments)]
 
 use std::{net::Ipv4Addr, str::FromStr};
-
+use std::time::Duration;
+use base64::Engine;
+use base64::prelude::BASE64_STANDARD;
 use config::v4::{Ddns, NetRange};
 use dora_core::{
     dhcproto::{
@@ -11,16 +13,19 @@ use dora_core::{
             fqdn::{ClientFQDN, FqdnFlags},
         },
     },
+    hickory_proto::{
+        dnssec::DnsSecError,
+        dnssec::tsig::TSigner,
+    },
     prelude::MsgContext,
     tracing::{debug, error, info},
 };
-use trust_dns_client::rr::dnssec::tsig::TSigner;
 
 pub mod dhcid;
 pub mod update;
 
 use dhcid::DhcId;
-
+use dora_core::tracing::warn;
 use crate::update::Updater;
 
 #[derive(Debug, Default)]
@@ -59,6 +64,7 @@ impl DdnsUpdate {
         cfg: Option<&Ddns>,
         server_opts: &NetRange,
         leased: Ipv4Addr,
+        lease_length : Duration
     ) -> Result<(), DdnsError> {
         let Some(cfg) = cfg else {
             debug!("no DDNS config is present. No update performed");
@@ -73,16 +79,17 @@ impl DdnsUpdate {
             }
             return Ok(());
         };
+        let lease_length = lease_length.as_secs() as u32;
         match self.get_fqdn(ctx, cfg, server_opts) {
             Ok(Action::UpdateFQDN((resp_fqdn, forward, reverse, cfg))) => {
                 let domain = resp_fqdn.domain().clone();
                 ctx.resp_msg_mut()
                     .map(|msg| msg.opts_mut().insert(DhcpOption::ClientFQDN(resp_fqdn)));
-                self.send_dns(ctx, cfg, duid, leased, domain, forward, reverse)
+                self.send_dns(cfg, duid, leased, domain, forward, reverse, lease_length)
                     .await?;
             }
             Ok(Action::UpdateHostname((domain, forward, reverse, cfg))) => {
-                self.send_dns(ctx, cfg, duid, leased, domain, forward, reverse)
+                self.send_dns(cfg, duid, leased, domain, forward, reverse, lease_length)
                     .await?;
             }
             Ok(Action::DontUpdateFQDN(mut resp_fqdn)) => {
@@ -166,25 +173,21 @@ impl DdnsUpdate {
 
     async fn send_dns(
         &self,
-        ctx: &mut MsgContext<v4::Message>,
         cfg: &Ddns,
         duid: DhcId,
         leased: Ipv4Addr,
         domain: Name,
         forward: bool,
         reverse: bool,
+        lease_length : u32,
     ) -> Result<(), DdnsError> {
-        let Some(DhcpOption::AddressLeaseTime(lease_length)) =
-            ctx.msg().opts().get(OptionCode::AddressLeaseTime)
-        else {
-            error!("address lease time not available for DDNS update");
-            return Err(DdnsError::SendFailed);
-        };
         if forward {
             if let Some(srv) = cfg.match_longest_forward(&domain) {
                 let tsig = if let Some(key_name) = &srv.key {
+                    debug!("Using signing key {}", key_name);
                     Some(tsigner(key_name, cfg)?)
                 } else {
+                    warn!("No signing key found for {}", domain);
                     None
                 };
                 let zone = srv.name.clone();
@@ -194,7 +197,7 @@ impl DdnsUpdate {
 
                 // todo: zone origin same as domain?
                 match client
-                    .forward(zone, domain.clone(), duid.clone(), leased, *lease_length)
+                    .forward(zone, domain.clone(), duid.clone(), leased, lease_length)
                     .await
                 {
                     Ok(_) => {
@@ -206,7 +209,7 @@ impl DdnsUpdate {
                 }
             }
         }
-        if reverse {
+       if reverse {
             let rev_ip = crate::update::reverse_ip(leased);
             let arpa_name = Name::from_str(&rev_ip).unwrap();
             if let Some(srv) = cfg.match_longest_reverse(&arpa_name) {
@@ -220,7 +223,7 @@ impl DdnsUpdate {
                 let mut client = Updater::new(srv.ip, tsig).await?;
 
                 match client
-                    .reverse(zone, domain.clone(), duid.clone(), leased, *lease_length)
+                    .reverse(zone, domain.clone(), duid.clone(), leased, lease_length)
                     .await
                 {
                     Ok(_) => {
@@ -241,8 +244,10 @@ impl DdnsUpdate {
 pub enum TsigError {
     #[error("key not found {key_name:?}")]
     KeyNotFound { key_name: String },
+    #[error("key not base64 {0:?}")]
+    KeyNotBase64(#[from] base64::DecodeError),
     #[error("failed to create TSigner {0:?}")]
-    TSignerFailed(#[from] NameError),
+    TSignerFailed(#[from] DnsSecError),
 }
 
 pub fn tsigner(key_name: &str, config: &Ddns) -> Result<TSigner, TsigError> {
@@ -252,14 +257,21 @@ pub fn tsigner(key_name: &str, config: &Ddns) -> Result<TSigner, TsigError> {
             key_name: key_name.to_owned(),
         });
     };
+    let key_bin = BASE64_STANDARD.decode(key.data.as_bytes()).map_err(|error|
+        TsigError::KeyNotBase64(error)
+    )?;
+
     // create new tsigner
-    Ok(TSigner::new(
-        key.data.as_bytes().to_owned(),
+    let signer = TSigner::new(
+        key_bin,
         key.algorithm.clone(),
         Name::from_ascii(key_name).unwrap(), // TODO: remove unwrap
         // ??
         300,
-    )?)
+    ).map_err(|error| {
+        TsigError::TSignerFailed(error)
+    })?;
+    Ok(signer)
 }
 
 fn handle_flags(
