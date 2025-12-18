@@ -19,7 +19,6 @@ resolver = "2"
 hickory-proto = { version = "0.25.2", default-features = false, features = [
     "dnssec-ring",
     "serde",
-    "__dnssec"
 ] }
 socket2 = { version = "0.5.6", features = [
     "all",
