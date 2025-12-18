@@ -85,11 +85,11 @@ impl DdnsUpdate {
                 let domain = resp_fqdn.domain().clone();
                 ctx.resp_msg_mut()
                     .map(|msg| msg.opts_mut().insert(DhcpOption::ClientFQDN(resp_fqdn)));
-                self.send_dns(cfg, duid, leased, domain, forward, reverse, lease_length)
+                self.send_dns(cfg, duid, leased, lease_length, domain, forward, reverse)
                     .await?;
             }
             Ok(Action::UpdateHostname((domain, forward, reverse, cfg))) => {
-                self.send_dns(cfg, duid, leased, domain, forward, reverse, lease_length)
+                self.send_dns(cfg, duid, leased, lease_length, domain, forward, reverse)
                     .await?;
             }
             Ok(Action::DontUpdateFQDN(mut resp_fqdn)) => {
@@ -176,10 +176,10 @@ impl DdnsUpdate {
         cfg: &Ddns,
         duid: DhcId,
         leased: Ipv4Addr,
+        lease_length : u32,
         domain: Name,
         forward: bool,
         reverse: bool,
-        lease_length : u32,
     ) -> Result<(), DdnsError> {
         if forward {
             if let Some(srv) = cfg.match_longest_forward(&domain) {
