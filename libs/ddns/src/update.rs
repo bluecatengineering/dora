@@ -4,23 +4,27 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use hickory_proto::dnssec::tsig::TSigner;
-use hickory_proto::rr::rdata::{A, PTR};
-use hickory_proto::rr::{DNSClass, RecordData, RecordType};
-use hickory_proto::rr::RecordType::Unknown;
-use hickory_proto::runtime::TokioRuntimeProvider;
-use hickory_proto::udp::UdpClientStream;
-use hickory_proto::xfer::{DnsRequest, DnsRequestOptions, DnsRequestSender};
+
 use dora_core::{
     dhcproto::{Name, NameError},
+    hickory_proto::{
+        dnssec::tsig::TSigner,
+        op::ResponseCode,
+        rr::RecordType::Unknown,
+        rr::rdata::{A, PTR},
+        runtime::TokioRuntimeProvider,
+        udp::UdpClientStream,
+        xfer::FirstAnswer,
+        xfer::{DnsRequest, DnsRequestOptions, DnsRequestSender},
+    },
     tracing::{debug, error, info},
-    hickory_proto::xfer::FirstAnswer,
 };
-use dora_core::hickory_proto::op::ResponseCode;
+use hickory_proto::rr::{DNSClass, RecordData, RecordType};
+
 use crate::dhcid::DhcId;
 
 pub struct Updater {
-    client: UdpClientStream<TokioRuntimeProvider>
+    client: UdpClientStream<TokioRuntimeProvider>,
 }
 
 impl Updater {
@@ -84,7 +88,7 @@ impl Updater {
         lease_length: u32,
     ) -> Result<(), UpdateError> {
         let ttl = calculate_ttl(lease_length);
-        
+
         let message = delete(zone, domain.clone(), duid.clone(), leased, ttl, false)?;
         let request = DnsRequest::new(message, DnsRequestOptions::default());
         let resp = self.client.send_message(request).first_answer().await?;
@@ -190,8 +194,8 @@ pub fn delete(
     let mut message = update_msg(zone_origin, use_edns);
 
     // delete
-    let owner = Record::update0(rev_ip.clone(),  0, RecordType::ANY);
-    let dhcid = Record::update0(rev_ip.clone(),  0, RecordType::ANY,);
+    let owner = Record::update0(rev_ip.clone(), 0, RecordType::ANY);
+    let dhcid = Record::update0(rev_ip.clone(), 0, RecordType::ANY);
     message.add_update(owner);
     message.add_update(dhcid);
     // add

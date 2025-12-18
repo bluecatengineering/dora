@@ -16,9 +16,9 @@
     attr(deny(warnings, rust_2018_idioms), allow(dead_code, unused_variables))
 ))]
 use anyhow::{Context, Result};
-use hickory_resolver::{lookup::Ipv4Lookup, Resolver, TokioResolver};
 use hickory_resolver::config::ResolverOpts;
 use hickory_resolver::name_server::TokioConnectionProvider;
+use hickory_resolver::{Resolver, TokioResolver, lookup::Ipv4Lookup};
 
 /// DNS service discovery
 #[derive(Debug)]
@@ -30,9 +30,10 @@ impl DnsServiceDiscovery {
     /// Create a new service
     pub fn new() -> Result<Self> {
         Ok(Self {
-            resolver:
-            Resolver::builder(TokioConnectionProvider::default())
-                .context("failed to create tokio resolver")?.with_options(ResolverOpts::default()).build()
+            resolver: Resolver::builder(TokioConnectionProvider::default())
+                .context("failed to create tokio resolver")?
+                .with_options(ResolverOpts::default())
+                .build(),
         })
     }
 

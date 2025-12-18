@@ -1,6 +1,6 @@
 use dora_core::dhcproto::{Name, NameError, v4::HType};
-use ring::digest::{Context, SHA256};
 use dora_core::hickory_proto::serialize::binary::BinEncoder;
+use ring::digest::{Context, SHA256};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct DhcId {
@@ -97,8 +97,10 @@ pub enum IdType {
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
+
     use base64::Engine;
     use base64::prelude::BASE64_STANDARD;
+
     use super::*;
 
     //      A DHCP server allocates the IPv4 address 192.0.2.2 to a client that

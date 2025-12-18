@@ -1,7 +1,8 @@
 #![allow(clippy::too_many_arguments)]
 
-use std::{net::Ipv4Addr, str::FromStr};
 use std::time::Duration;
+use std::{net::Ipv4Addr, str::FromStr};
+
 use base64::Engine;
 use base64::prelude::BASE64_STANDARD;
 use config::v4::{Ddns, NetRange};
@@ -13,10 +14,7 @@ use dora_core::{
             fqdn::{ClientFQDN, FqdnFlags},
         },
     },
-    hickory_proto::{
-        dnssec::DnsSecError,
-        dnssec::tsig::TSigner,
-    },
+    hickory_proto::{dnssec::DnsSecError, dnssec::tsig::TSigner},
     prelude::MsgContext,
     tracing::{debug, error, info},
 };
@@ -26,6 +24,7 @@ pub mod update;
 
 use dhcid::DhcId;
 use dora_core::tracing::warn;
+
 use crate::update::Updater;
 
 #[derive(Debug, Default)]
@@ -64,7 +63,7 @@ impl DdnsUpdate {
         cfg: Option<&Ddns>,
         server_opts: &NetRange,
         leased: Ipv4Addr,
-        lease_length : Duration
+        lease_length: Duration,
     ) -> Result<(), DdnsError> {
         let Some(cfg) = cfg else {
             debug!("no DDNS config is present. No update performed");
@@ -176,7 +175,7 @@ impl DdnsUpdate {
         cfg: &Ddns,
         duid: DhcId,
         leased: Ipv4Addr,
-        lease_length : u32,
+        lease_length: u32,
         domain: Name,
         forward: bool,
         reverse: bool,
@@ -209,7 +208,7 @@ impl DdnsUpdate {
                 }
             }
         }
-       if reverse {
+        if reverse {
             let rev_ip = crate::update::reverse_ip(leased);
             let arpa_name = Name::from_str(&rev_ip).unwrap();
             if let Some(srv) = cfg.match_longest_reverse(&arpa_name) {
@@ -257,9 +256,9 @@ pub fn tsigner(key_name: &str, config: &Ddns) -> Result<TSigner, TsigError> {
             key_name: key_name.to_owned(),
         });
     };
-    let key_bin = BASE64_STANDARD.decode(key.data.as_bytes()).map_err(|error|
-        TsigError::KeyNotBase64(error)
-    )?;
+    let key_bin = BASE64_STANDARD
+        .decode(key.data.as_bytes())
+        .map_err(|error| TsigError::KeyNotBase64(error))?;
 
     // create new tsigner
     let signer = TSigner::new(
@@ -268,9 +267,8 @@ pub fn tsigner(key_name: &str, config: &Ddns) -> Result<TSigner, TsigError> {
         Name::from_ascii(key_name).unwrap(), // TODO: remove unwrap
         // ??
         300,
-    ).map_err(|error| {
-        TsigError::TSignerFailed(error)
-    })?;
+    )
+    .map_err(|error| TsigError::TSignerFailed(error))?;
     Ok(signer)
 }
 
