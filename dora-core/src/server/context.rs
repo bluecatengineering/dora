@@ -1,10 +1,4 @@
 //! context of current server message
-use chrono::{DateTime, Utc};
-use dhcproto::{Decodable, Decoder, Encodable, v4, v6};
-use pnet::ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
-use tracing::{error, trace};
-use unix_udp_sock::RecvMeta;
-
 use std::{
     fmt,
     io::{self, Error, ErrorKind},
@@ -12,6 +6,12 @@ use std::{
     sync::Arc,
     time::Duration,
 };
+
+use chrono::{DateTime, Utc};
+use dhcproto::{Decodable, Decoder, Encodable, v4, v6};
+use pnet::ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
+use tracing::{error, trace};
+use unix_udp_sock::RecvMeta;
 
 use crate::{
     metrics::{self, RECV_TYPE_COUNT, SENT_TYPE_COUNT, V6_RECV_TYPE_COUNT, V6_SENT_TYPE_COUNT},
@@ -552,10 +552,10 @@ impl MsgContext<v4::Message> {
             .opts()
             .get(OptionCode::RelayAgentInformation)
             .and_then(|opt| {
-                if let DhcpOption::RelayAgentInformation(info) = opt {
-                    if let Some(RelayInfo::LinkSelection(ip)) = info.get(RelayCode::LinkSelection) {
-                        return Some(ip);
-                    }
+                if let DhcpOption::RelayAgentInformation(info) = opt
+                    && let Some(RelayInfo::LinkSelection(ip)) = info.get(RelayCode::LinkSelection)
+                {
+                    return Some(ip);
                 }
                 None
             })
@@ -644,11 +644,12 @@ impl MsgContext<v4::Message> {
             self.msg.opts().get(OptionCode::ParameterRequestList)
         {
             // if broadcast addr is requested, try to fill from interface
-            if let Some(IpNetwork::V4(interface)) = self.interface {
-                if requested.contains(&v4::OptionCode::BroadcastAddr) && interface_match {
-                    resp.opts_mut()
-                        .insert(DhcpOption::BroadcastAddr(interface.broadcast()));
-                }
+            if let Some(IpNetwork::V4(interface)) = self.interface
+                && requested.contains(&v4::OptionCode::BroadcastAddr)
+                && interface_match
+            {
+                resp.opts_mut()
+                    .insert(DhcpOption::BroadcastAddr(interface.broadcast()));
             }
             // look in the requested list of params
             for code in requested {
