@@ -20,7 +20,7 @@ use dora_core::{
         udp::UdpClientStream,
         xfer::{DnsRequest, DnsRequestOptions, DnsRequestSender, FirstAnswer},
     },
-    tracing::{debug, error, info, trace},
+    tracing::{debug, error, trace},
 };
 
 use crate::dhcid::DhcId;
@@ -71,7 +71,7 @@ impl Updater {
             let yx_request = DnsRequest::new(new_msg, DnsRequestOptions::default());
             let yx_resp = self.client.send_message(yx_request).first_answer().await?;
             if yx_resp.response_code() == ResponseCode::NoError {
-                info!("got NOERROR, updated DNS");
+                debug!("got NOERROR, updated DNS");
                 Ok(())
             } else {
                 error!("failed to update dns");

@@ -223,10 +223,10 @@ impl DdnsUpdate {
                     .await
                 {
                     Ok(_) => {
-                        info!(?domain, "successfully updated DNS");
+                        debug!("successfully updated DNS");
                     }
                     Err(err) => {
-                        error!(?err, ?domain, "failed to update DNS");
+                        error!(?err, "failed to update DNS");
                     }
                 }
             }
