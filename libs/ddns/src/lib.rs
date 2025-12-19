@@ -3,9 +3,9 @@
 use std::time::Duration;
 use std::{net::Ipv4Addr, str::FromStr};
 
-use base64::Engine;
-use base64::prelude::BASE64_STANDARD;
+use base64::{Engine, prelude::BASE64_STANDARD};
 use config::v4::{Ddns, NetRange};
+use dora_core::tracing;
 use dora_core::{
     dhcproto::{
         Name, NameError,
@@ -16,15 +16,13 @@ use dora_core::{
     },
     hickory_proto::{dnssec::DnsSecError, dnssec::tsig::TSigner},
     prelude::MsgContext,
-    tracing::{debug, error, info},
+    tracing::{debug, error, info, trace, warn},
 };
 
 pub mod dhcid;
 pub mod update;
 
-use dhcid::DhcId;
-use dora_core::tracing::warn;
-
+use crate::dhcid::DhcId;
 use crate::update::Updater;
 
 #[derive(Debug, Default)]
@@ -170,6 +168,7 @@ impl DdnsUpdate {
         }
     }
 
+    #[tracing::instrument(skip_all, fields(domain = %domain, duid = ?duid, leased_ip = %leased))]
     async fn send_dns(
         &self,
         cfg: &Ddns,
@@ -180,31 +179,29 @@ impl DdnsUpdate {
         forward: bool,
         reverse: bool,
     ) -> Result<(), DdnsError> {
-        if forward {
-            if let Some(srv) = cfg.match_longest_forward(&domain) {
-                let tsig = if let Some(key_name) = &srv.key {
-                    debug!("Using signing key {}", key_name);
-                    Some(tsigner(key_name, cfg)?)
-                } else {
-                    warn!("No signing key found for {}", domain);
-                    None
-                };
-                let zone = srv.name.clone();
-                // todo: likely re-creating the same client for each update
-                // should cache this in parent type
-                let mut client = Updater::new(srv.ip, tsig).await?;
+        if forward && let Some(srv) = cfg.match_longest_forward(&domain) {
+            let tsig = if let Some(key_name) = &srv.key {
+                trace!(?key_name, "using signing key");
+                Some(tsigner(key_name, cfg)?)
+            } else {
+                warn!("no signing key found for domain");
+                None
+            };
+            let zone = srv.name.clone();
+            // todo: likely re-creating the same client for each update
+            // should cache this in parent type
+            let mut client = Updater::new(srv.ip, tsig).await?;
 
-                // todo: zone origin same as domain?
-                match client
-                    .forward(zone, domain.clone(), duid.clone(), leased, lease_length)
-                    .await
-                {
-                    Ok(_) => {
-                        info!(?domain, "successfully updated DNS");
-                    }
-                    Err(err) => {
-                        error!(?err, ?domain, "failed to update DNS");
-                    }
+            // todo: zone origin same as domain?
+            match client
+                .forward(zone, domain.clone(), duid.clone(), leased, lease_length)
+                .await
+            {
+                Ok(_) => {
+                    debug!("updated DNS");
+                }
+                Err(err) => {
+                    error!(?err, "failed to update DNS");
                 }
             }
         }
@@ -258,7 +255,7 @@ pub fn tsigner(key_name: &str, config: &Ddns) -> Result<TSigner, TsigError> {
     };
     let key_bin = BASE64_STANDARD
         .decode(key.data.as_bytes())
-        .map_err(|error| TsigError::KeyNotBase64(error))?;
+        .map_err(TsigError::KeyNotBase64)?;
 
     // create new tsigner
     let signer = TSigner::new(
@@ -268,7 +265,7 @@ pub fn tsigner(key_name: &str, config: &Ddns) -> Result<TSigner, TsigError> {
         // ??
         300,
     )
-    .map_err(|error| TsigError::TSignerFailed(error))?;
+    .map_err(TsigError::TSignerFailed)?;
     Ok(signer)
 }
 

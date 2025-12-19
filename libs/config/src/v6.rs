@@ -9,10 +9,7 @@ use std::{
 use anyhow::{Context, bail};
 use dora_core::{
     anyhow::Result,
-    dhcproto::{
-        v6::HType,
-        v6::{DhcpOptions, duid::Duid},
-    },
+    dhcproto::v6::{DhcpOptions, HType, duid::Duid},
     pnet::ipnetwork::{IpNetwork, Ipv6Network},
     pnet::{self, datalink::NetworkInterface},
 };

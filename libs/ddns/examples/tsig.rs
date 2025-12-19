@@ -1,6 +1,5 @@
 use std::{fs::File, io::Read, str::FromStr};
-use hickory_proto::dnssec::rdata::tsig::TsigAlgorithm;
-use hickory_proto::dnssec::tsig::TSigner;
+
 use ddns::{
     dhcid::{self, IdType},
     update::Updater,
@@ -9,6 +8,7 @@ use dora_core::{
     anyhow::{self, Result},
     config::trace,
     dhcproto::Name,
+    hickory_proto::dnssec::{rdata::tsig::TsigAlgorithm, tsig::TSigner},
     tokio::{self},
     tracing::{debug, error},
 };

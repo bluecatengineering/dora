@@ -1,3 +1,6 @@
+use std::fmt;
+
+use base64::{Engine, prelude::BASE64_STANDARD};
 use dora_core::dhcproto::{Name, NameError, v4::HType};
 use dora_core::hickory_proto::serialize::binary::BinEncoder;
 use ring::digest::{Context, SHA256};
@@ -6,6 +9,15 @@ use ring::digest::{Context, SHA256};
 pub struct DhcId {
     ty: IdType,
     id: Vec<u8>,
+}
+
+impl fmt::Display for DhcId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DhcId")
+            .field("type", &self.ty)
+            .field("id", &BASE64_STANDARD.encode(&self.id))
+            .finish()
+    }
 }
 
 impl DhcId {
@@ -98,8 +110,7 @@ pub enum IdType {
 mod tests {
     use std::str::FromStr;
 
-    use base64::Engine;
-    use base64::prelude::BASE64_STANDARD;
+    use base64::{Engine, prelude::BASE64_STANDARD};
 
     use super::*;
 

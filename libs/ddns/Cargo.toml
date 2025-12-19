@@ -9,7 +9,6 @@ edition = "2024"
 dora-core = { path = "../../dora-core" }
 config = { path = "../config" }
 base64 = { workspace = true }
-hickory-proto = { workspace = true }
 thiserror = { workspace = true }
 ring = "0.16.20"
 hex = "0.4"

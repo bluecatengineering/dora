@@ -8,18 +8,20 @@ use std::{
 use dora_core::{
     dhcproto::{Name, NameError},
     hickory_proto::{
+        self,
         dnssec::tsig::TSigner,
         op::ResponseCode,
-        rr::RecordType::Unknown,
-        rr::rdata::{A, PTR},
+        rr::{
+            DNSClass, RecordData,
+            RecordType::{self, Unknown},
+            rdata::{A, PTR},
+        },
         runtime::TokioRuntimeProvider,
         udp::UdpClientStream,
-        xfer::FirstAnswer,
-        xfer::{DnsRequest, DnsRequestOptions, DnsRequestSender},
+        xfer::{DnsRequest, DnsRequestOptions, DnsRequestSender, FirstAnswer},
     },
-    tracing::{debug, error, info},
+    tracing::{debug, error, info, trace},
 };
-use hickory_proto::rr::{DNSClass, RecordData, RecordType};
 
 use crate::dhcid::DhcId;
 
@@ -33,7 +35,7 @@ impl Updater {
         let mut stream_builder = UdpClientStream::builder(dst, TokioRuntimeProvider::default())
             .with_timeout(Some(Duration::from_secs(5)));
         if let Some(tsig) = tsig {
-            debug!("Added signer to stream {:?}", tsig.signer_name());
+            trace!(signer_name = ?tsig.signer_name(), "added signer to ddns update");
             stream_builder = stream_builder.with_signer(Some(Arc::new(tsig)));
         }
 
@@ -69,10 +71,10 @@ impl Updater {
             let yx_request = DnsRequest::new(new_msg, DnsRequestOptions::default());
             let yx_resp = self.client.send_message(yx_request).first_answer().await?;
             if yx_resp.response_code() == ResponseCode::NoError {
-                info!(?domain, "got NOERROR, updated DNS");
+                info!("got NOERROR, updated DNS");
                 Ok(())
             } else {
-                error!(?domain, "failed to updated dns");
+                error!("failed to update dns");
                 Err(UpdateError::ResponseCode(yx_resp.response_code()))
             }
         } else {
@@ -136,7 +138,9 @@ pub fn update(
     );
     message.add_update(a_record);
     message.add_update(dhcid_record);
-    debug!("Created update message {:?}", message);
+
+    trace!(?message, "created ddns update message");
+
     Ok(message)
 }
 
@@ -173,7 +177,7 @@ pub fn update_present(
     let a_record: Record = Record::from_rdata(name, ttl, A(leased).into_rdata());
     message.add_update(a_record);
 
-    debug!("Created update_present message {:?}", message);
+    trace!(?message, "created update message with dhcid");
     Ok(message)
 }
 
@@ -211,7 +215,7 @@ pub fn delete(
     message.add_update(ptr_record);
     message.add_update(dhcid_record);
 
-    debug!("Created delete message {:?}", message);
+    trace!(?message, "created delete message");
     Ok(message)
 }
 

@@ -419,10 +419,10 @@ impl Network {
                 // skip matching on message type
                 continue;
             }
-            if let Some(res) = self.get_reserved_opt(opt) {
-                if res.match_class(classes) {
-                    return Some(res);
-                }
+            if let Some(res) = self.get_reserved_opt(opt)
+                && res.match_class(classes)
+            {
+                return Some(res);
             }
         }
         None

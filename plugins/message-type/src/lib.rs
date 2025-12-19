@@ -231,10 +231,10 @@ impl RespServerId {
 
         if let Some(&DhcpOption::ServerIdentifier(msg_id)) = msg_server_id_opt {
             // if the server override matches the msg server id, we should respond
-            if let Some(override_id) = server_id_override {
-                if override_id == msg_id {
-                    return Self::ServerIdOverride(override_id);
-                }
+            if let Some(override_id) = server_id_override
+                && override_id == msg_id
+            {
+                return Self::ServerIdOverride(override_id);
             }
             // we should not respond if the server id from the config does not match the msg server id and
             // the msg server id is not unspecified
