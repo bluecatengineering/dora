@@ -1,3 +1,4 @@
+#![allow(unused_assignments)]
 use crate::Token;
 
 #[derive(thiserror::Error, Debug)]

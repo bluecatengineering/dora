@@ -7,35 +7,41 @@ use std::{
 
 use dora_core::{
     dhcproto::{Name, NameError},
-    tokio,
-    tokio::{net::UdpSocket, task::JoinHandle},
-    tracing::{debug, error, info},
-    trust_dns_proto::{DnsHandle, xfer::FirstAnswer},
-};
-use trust_dns_client::{
-    client::AsyncClient, op::ResponseCode, rr::dnssec::tsig::TSigner, udp::UdpClientStream,
+    hickory_proto::{
+        self,
+        dnssec::tsig::TSigner,
+        op::ResponseCode,
+        rr::{
+            DNSClass, RecordData,
+            RecordType::{self, Unknown},
+            rdata::{A, PTR},
+        },
+        runtime::TokioRuntimeProvider,
+        udp::UdpClientStream,
+        xfer::{DnsRequest, DnsRequestOptions, DnsRequestSender, FirstAnswer},
+    },
+    tracing::{debug, error, info, trace},
 };
 
 use crate::dhcid::DhcId;
 
 pub struct Updater {
-    client: AsyncClient,
-    handle: JoinHandle<Result<(), NameError>>,
+    client: UdpClientStream<TokioRuntimeProvider>,
 }
 
 impl Updater {
     pub async fn new(dst: SocketAddr, tsig: Option<TSigner>) -> Result<Self, UpdateError> {
         // todo: create stream per forward/reverse server
-        let stream = UdpClientStream::<UdpSocket, TSigner>::with_timeout_and_signer_and_bind_addr(
-            dst,
-            Duration::from_secs(5),
-            tsig.map(Arc::new),
-            None,
-        );
-        let (client, bg) = AsyncClient::connect(stream).await?;
-        let handle = tokio::spawn(bg);
+        let mut stream_builder = UdpClientStream::builder(dst, TokioRuntimeProvider::default())
+            .with_timeout(Some(Duration::from_secs(5)));
+        if let Some(tsig) = tsig {
+            trace!(signer_name = ?tsig.signer_name(), "added signer to ddns update");
+            stream_builder = stream_builder.with_signer(Some(Arc::new(tsig)));
+        }
 
-        Ok(Self { client, handle })
+        let client = stream_builder.build().await?;
+
+        Ok(Self { client })
     }
     pub async fn forward(
         &mut self,
@@ -55,18 +61,20 @@ impl Updater {
             ttl,
             false,
         )?;
-        let resp = self.client.send(message).first_answer().await?;
+        let request = DnsRequest::new(message, DnsRequestOptions::default());
+        let resp = self.client.send_message(request).first_answer().await?;
         if resp.response_code() == ResponseCode::NoError {
             Ok(())
         } else if resp.response_code() == ResponseCode::YXDomain {
             debug!(?resp, "got back YXDOMAIN, sending update with dhcid prereq");
             let new_msg = update_present(zone.clone(), domain.clone(), duid, leased, ttl, false)?;
-            let yx_resp = self.client.send(new_msg).first_answer().await?;
+            let yx_request = DnsRequest::new(new_msg, DnsRequestOptions::default());
+            let yx_resp = self.client.send_message(yx_request).first_answer().await?;
             if yx_resp.response_code() == ResponseCode::NoError {
-                info!(?domain, "got NOERROR, updated DNS");
+                info!("got NOERROR, updated DNS");
                 Ok(())
             } else {
-                error!(?domain, "failed to updated dns");
+                error!("failed to update dns");
                 Err(UpdateError::ResponseCode(yx_resp.response_code()))
             }
         } else {
@@ -84,7 +92,8 @@ impl Updater {
         let ttl = calculate_ttl(lease_length);
 
         let message = delete(zone, domain.clone(), duid.clone(), leased, ttl, false)?;
-        let resp = self.client.send(message).first_answer().await?;
+        let request = DnsRequest::new(message, DnsRequestOptions::default());
+        let resp = self.client.send_message(request).first_answer().await?;
         if resp.response_code() == ResponseCode::NoError {
             Ok(())
         } else {
@@ -95,7 +104,7 @@ impl Updater {
 
 impl Drop for Updater {
     fn drop(&mut self) {
-        self.handle.abort();
+        self.client.shutdown();
     }
 }
 
@@ -106,29 +115,31 @@ pub fn update(
     leased: Ipv4Addr,
     ttl: u32,
     use_edns: bool,
-) -> Result<trust_dns_client::op::Message, NameError> {
-    use trust_dns_client::{
+) -> Result<hickory_proto::op::Message, NameError> {
+    use hickory_proto::{
         op::UpdateMessage,
-        rr::{DNSClass, RData, Record, RecordType, rdata::NULL},
+        rr::{DNSClass, RData, Record, rdata::NULL},
     };
 
     let mut message = update_msg(zone_origin, use_edns);
 
-    let mut prerequisite = Record::with(name.clone(), RecordType::ANY, 0);
+    let mut prerequisite = Record::update0(name.clone(), 0, RecordType::ANY);
     prerequisite.set_dns_class(DNSClass::NONE);
-    message.add_pre_requisite(prerequisite);
+    message.add_update(prerequisite);
 
-    let a_record = Record::from_rdata(name.clone(), ttl, RData::A(leased));
+    let a_record = Record::from_rdata(name.clone(), ttl, A(leased).into_rdata());
     let dhcid_record = Record::from_rdata(
         name.clone(),
         ttl,
         RData::Unknown {
-            code: 49,
+            code: Unknown(49),
             rdata: NULL::with(duid.rdata(&name)?),
         },
     );
     message.add_update(a_record);
     message.add_update(dhcid_record);
+
+    trace!(?message, "created ddns update message");
 
     Ok(message)
 }
@@ -140,32 +151,33 @@ pub fn update_present(
     leased: Ipv4Addr,
     ttl: u32,
     use_edns: bool,
-) -> Result<trust_dns_client::op::Message, NameError> {
-    use trust_dns_client::{
+) -> Result<hickory_proto::op::Message, NameError> {
+    use hickory_proto::{
         op::UpdateMessage,
-        rr::{DNSClass, RData, Record, RecordType, rdata::NULL},
+        rr::{RData, Record, rdata::NULL},
     };
     let mut message = update_msg(zone_origin, use_edns);
 
-    let mut prerequisite = Record::with(name.clone(), RecordType::ANY, 0);
+    let mut prerequisite = Record::update0(name.clone(), 0, RecordType::ANY);
     // use ANY to check only update if this name is present
     prerequisite.set_dns_class(DNSClass::ANY);
-    message.add_pre_requisite(prerequisite);
+    message.add_update(prerequisite);
 
     // add dhcid to prereqs, will only update if dhcid is present
     let dhcid_record = Record::from_rdata(
         name.clone(),
         0,
         RData::Unknown {
-            code: 49,
+            code: Unknown(49),
             rdata: NULL::with(duid.rdata(&name)?),
         },
     );
-    message.add_pre_requisite(dhcid_record);
+    message.add_update(dhcid_record);
 
-    let a_record = Record::from_rdata(name, ttl, RData::A(leased));
+    let a_record: Record = Record::from_rdata(name, ttl, A(leased).into_rdata());
     message.add_update(a_record);
 
+    trace!(?message, "created update message with dhcid");
     Ok(message)
 }
 
@@ -176,8 +188,8 @@ pub fn delete(
     leased: Ipv4Addr,
     ttl: u32,
     use_edns: bool,
-) -> Result<trust_dns_client::op::Message, NameError> {
-    use trust_dns_client::{
+) -> Result<hickory_proto::op::Message, NameError> {
+    use hickory_proto::{
         op::UpdateMessage,
         rr::{RData, Record, RecordType, rdata::NULL},
     };
@@ -186,28 +198,29 @@ pub fn delete(
     let mut message = update_msg(zone_origin, use_edns);
 
     // delete
-    let owner = Record::with(rev_ip.clone(), RecordType::ANY, 0);
-    let dhcid = Record::with(rev_ip.clone(), RecordType::ANY, 0);
+    let owner = Record::update0(rev_ip.clone(), 0, RecordType::ANY);
+    let dhcid = Record::update0(rev_ip.clone(), 0, RecordType::ANY);
     message.add_update(owner);
     message.add_update(dhcid);
     // add
-    let ptr_record = Record::from_rdata(rev_ip.clone(), ttl, RData::PTR(name.clone()));
+    let ptr_record = Record::from_rdata(rev_ip.clone(), ttl, PTR(name.clone()).into_rdata());
     let dhcid_record = Record::from_rdata(
         rev_ip,
         ttl,
         RData::Unknown {
-            code: 49,
+            code: Unknown(49),
             rdata: NULL::with(duid.rdata(&name)?),
         },
     );
     message.add_update(ptr_record);
     message.add_update(dhcid_record);
 
+    trace!(?message, "created delete message");
     Ok(message)
 }
 
-fn update_msg(zone_origin: Name, use_edns: bool) -> trust_dns_client::op::Message {
-    use trust_dns_client::{
+fn update_msg(zone_origin: Name, use_edns: bool) -> hickory_proto::op::Message {
+    use hickory_proto::{
         op::{Edns, Message, MessageType, OpCode, Query, UpdateMessage},
         rr::{DNSClass, RecordType},
     };

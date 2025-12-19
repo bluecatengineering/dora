@@ -16,20 +16,24 @@
     attr(deny(warnings, rust_2018_idioms), allow(dead_code, unused_variables))
 ))]
 use anyhow::{Context, Result};
-use trust_dns_resolver::{TokioAsyncResolver, lookup::Ipv4Lookup};
+use hickory_resolver::config::ResolverOpts;
+use hickory_resolver::name_server::TokioConnectionProvider;
+use hickory_resolver::{Resolver, TokioResolver, lookup::Ipv4Lookup};
 
 /// DNS service discovery
 #[derive(Debug)]
 pub struct DnsServiceDiscovery {
-    resolver: TokioAsyncResolver,
+    resolver: TokioResolver,
 }
 
 impl DnsServiceDiscovery {
     /// Create a new service
     pub fn new() -> Result<Self> {
         Ok(Self {
-            resolver: TokioAsyncResolver::tokio_from_system_conf()
-                .context("failed to create tokio resolver")?,
+            resolver: Resolver::builder(TokioConnectionProvider::default())
+                .context("failed to create tokio resolver")?
+                .with_options(ResolverOpts::default())
+                .build(),
         })
     }
 

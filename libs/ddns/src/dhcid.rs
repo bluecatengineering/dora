@@ -1,11 +1,23 @@
+use std::fmt;
+
+use base64::{Engine, prelude::BASE64_STANDARD};
 use dora_core::dhcproto::{Name, NameError, v4::HType};
+use dora_core::hickory_proto::serialize::binary::BinEncoder;
 use ring::digest::{Context, SHA256};
-use trust_dns_client::serialize::binary::BinEncoder;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct DhcId {
     ty: IdType,
     id: Vec<u8>,
+}
+
+impl fmt::Display for DhcId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DhcId")
+            .field("type", &self.ty)
+            .field("id", &BASE64_STANDARD.encode(&self.id))
+            .finish()
+    }
 }
 
 impl DhcId {
@@ -98,6 +110,8 @@ pub enum IdType {
 mod tests {
     use std::str::FromStr;
 
+    use base64::{Engine, prelude::BASE64_STANDARD};
+
     use super::*;
 
     //      A DHCP server allocates the IPv4 address 192.0.2.2 to a client that
@@ -120,7 +134,7 @@ mod tests {
             .rdata(&Name::from_str("chi.example.com.").unwrap())
             .unwrap();
         assert_eq!(
-            base64::encode(out),
+            BASE64_STANDARD.encode(out),
             "AAEBOSD+XR3Os/0LozeXVqcNc7FwCfQdWL3b/NaiUDlW2No=".to_owned()
         );
     }
@@ -145,7 +159,7 @@ mod tests {
             .rdata(&Name::from_str("client.example.com.").unwrap())
             .unwrap();
         assert_eq!(
-            base64::encode(out),
+            BASE64_STANDARD.encode(out),
             "AAABxLmlskllE0MVjd57zHcWmEH3pCQ6VytcKD//7es/deY=".to_owned()
         );
     }

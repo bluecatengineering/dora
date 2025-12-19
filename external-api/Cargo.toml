@@ -30,7 +30,7 @@ ipnet = { workspace = true }
 
 
 [dev-dependencies]
-reqwest = { version = "0.12", default-features = false, features = [
+reqwest = { version = "0.12.4", default-features = false, features = [
     "json",
     "rustls-tls",
 ] }

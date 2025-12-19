@@ -9,10 +9,7 @@ use std::{
 use anyhow::{Context, bail};
 use dora_core::{
     anyhow::Result,
-    dhcproto::{
-        v4::HType,
-        v6::{DhcpOptions, duid::Duid},
-    },
+    dhcproto::v6::{DhcpOptions, HType, duid::Duid},
     pnet::ipnetwork::{IpNetwork, Ipv6Network},
     pnet::{self, datalink::NetworkInterface},
 };
@@ -194,8 +191,7 @@ pub fn generate_duid_from_config(server_id: &ServerDuidInfo, link_layer: Ipv6Add
         if htype == 0 {
             HType::Eth
         } else {
-            //TODO: This is a compromise of v4 HType. Should be changed to v6 HType after dhcproto is updated.
-            HType::from(htype as u8)
+            HType::from(htype)
         }
     }
     match server_id {

@@ -20,11 +20,11 @@ pub use async_trait::async_trait;
 pub use chrono;
 pub use chrono_tz;
 pub use dhcproto;
+pub use hickory_proto;
 pub use pnet;
 pub use tokio;
 pub use tokio_stream;
 pub use tracing;
-pub use trust_dns_proto;
 pub use unix_udp_sock;
 
 pub use crate::server::Server;

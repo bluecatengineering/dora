@@ -46,18 +46,13 @@ pub struct Net {
     pub authoritative: bool,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Default)]
 pub enum DuidType {
+    #[default]
     LLT,
     LL,
     EN,
     UUID,
-}
-
-impl Default for DuidType {
-    fn default() -> Self {
-        Self::LLT
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
