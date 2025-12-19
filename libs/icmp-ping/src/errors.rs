@@ -1,6 +1,6 @@
+#![allow(unused_assignments)]
 use crate::Token;
 
-#[allow(unused_assignments)]
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("io error: {0:?}")]
