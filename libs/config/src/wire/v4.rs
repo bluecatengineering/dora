@@ -42,7 +42,6 @@
 //! non-authoritative network will be ignored.
 use std::{collections::HashMap, hash::Hash, net::Ipv4Addr, ops::RangeInclusive};
 
-use crate::wire::{MaybeList, MinMax};
 use anyhow::Result;
 use base64::Engine;
 use dora_core::{
@@ -58,6 +57,8 @@ use dora_core::{
 };
 use serde::{Deserialize, Deserializer, Serialize, de};
 use tracing::warn;
+
+use crate::wire::{MaybeList, MinMax};
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Net {
@@ -493,8 +494,9 @@ fn to_opt(code: &OptionCode, opt: &DhcpOption) -> Option<(u8, Opt)> {
 }
 
 pub mod ddns {
-    use super::*;
     use std::net::SocketAddr;
+
+    use super::*;
 
     use dora_core::{dhcproto::Name, hickory_proto::dnssec::rdata::tsig::TsigAlgorithm};
 
