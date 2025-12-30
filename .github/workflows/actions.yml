@@ -34,6 +34,9 @@ jobs:
   test:
     name: Test Suite
     runs-on: ubuntu-latest
+    container:
+      image: ubuntu-latest
+      options: --cap-add NET_RAW # Add the capability here
     strategy:
       matrix:
         rust:
@@ -48,8 +51,14 @@ jobs:
           toolchain: ${{ matrix.rust }}
           override: true
 
+      - name: Allow ICMP socket creation
+        run: sudo sysctl -w net.ipv4.ping_group_range="0 2147483647"
+
       - name: Run cargo test
-        run: sudo $(which cargo) test --all-features --exclude register_derive_impl --workspace
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --all-features --exclude register_derive_impl --workspace
         env:
           SQLX_OFFLINE: true
 
