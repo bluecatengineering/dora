@@ -17,6 +17,7 @@ resolver = "2"
 [workspace.dependencies]
 hickory-proto = { version = "0.25.2", default-features = false, features = [
     "dnssec-ring",
+    "tokio",
     "serde",
 ] }
 socket2 = { version = "0.5.6", features = [

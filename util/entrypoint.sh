@@ -33,7 +33,7 @@ if [ -z "$1" ]; then
 fi
 
 if [ -n "$IFACE" ]; then
-    # Run dhcpd for specified interface or all interfaces
+    # Run dora for specified interface or all interfaces
 
     data_dir="/var/lib/dora"
     if [ ! -d "$data_dir" ]; then
@@ -42,10 +42,9 @@ if [ -n "$IFACE" ]; then
         exit 1
     fi
 
-    dhcpd_conf="$data_dir/config.yaml"
-    if [ ! -r "$dhcpd_conf" ]; then
-        echo "Please ensure '$dhcpd_conf' exists and is readable."
-        echo "Run the container with arguments 'man dhcpd.conf' if you need help with creating the configuration."
+    dora_conf="$data_dir/config.yaml"
+    if [ ! -r "$dora_conf" ]; then
+        echo "Please ensure '$dora_conf' exists and is readable."
         exit 1
     fi
 
