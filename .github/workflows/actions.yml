@@ -35,8 +35,8 @@ jobs:
     name: Test Suite
     runs-on: ubuntu-latest
     container:
-      image: ubuntu-latest
-      options: --cap-add NET_RAW # Add the capability here
+      image: ubuntu:latest
+      options: --cap-add NET_RAW
     strategy:
       matrix:
         rust:
