@@ -34,9 +34,6 @@ jobs:
   test:
     name: Test Suite
     runs-on: ubuntu-latest
-    # container:
-    #   image: ubuntu:latest
-    #   options: --cap-add=NET_RAW
     strategy:
       matrix:
         rust:
@@ -58,7 +55,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --all-features --exclude register_derive_impl --workspace
+          args: --all-features --exclude register_derive_impl --workspace --no-fail-fast
         env:
           SQLX_OFFLINE: true
 
