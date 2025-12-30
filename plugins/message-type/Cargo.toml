@@ -14,4 +14,4 @@ client-protection = { path = "../../libs/client-protection" }
 
 [dev-dependencies]
 serde_yaml = { workspace = true }
-tracing-test = "0.2.4"
+tracing-test = { workspace = true }

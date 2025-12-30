@@ -324,6 +324,14 @@ fn handle_flags(
 
 #[cfg(test)]
 mod tests {
+    use std::{collections::HashMap, net::SocketAddr};
+
+    use config::wire::v4::ddns::{self, DdnsServer};
+    use dora_core::{
+        hickory_proto::{self, op},
+        tokio::{self, net::UdpSocket},
+    };
+
     use super::*;
 
     fn harness(
@@ -433,5 +441,94 @@ mod tests {
             true,
             true,
         );
+    }
+
+    async fn mock_dns_server() -> (SocketAddr, tokio::task::JoinHandle<()>) {
+        let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let addr = socket.local_addr().unwrap();
+
+        let handle = tokio::spawn(async move {
+            loop {
+                let mut buf = [0; 512];
+                if let Ok((len, src)) = socket.recv_from(&mut buf).await {
+                    let request = op::Message::from_vec(&buf[..len]).unwrap();
+                    assert_eq!(request.op_code(), hickory_proto::op::OpCode::Update);
+
+                    let mut response = op::Message::new();
+                    response
+                        .set_id(request.id())
+                        .set_op_code(op::OpCode::Update)
+                        .set_message_type(op::MessageType::Response)
+                        .set_response_code(op::ResponseCode::NoError);
+
+                    let response_bytes = response.to_vec().unwrap();
+                    socket.send_to(&response_bytes, src).await.unwrap();
+                }
+            }
+        });
+
+        (addr, handle)
+    }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_ddns_send() {
+        let (server_addr, server_handle) = mock_dns_server().await;
+
+        let key_name = "test.key.";
+        // This is a 32-byte secret key.
+        let key_bytes = b"secretkeythatislongenoughfor256";
+        // The configuration requires the key to be Base64 encoded.
+        let key_data = BASE64_STANDARD.encode(key_bytes);
+
+        let mut tsig_keys = HashMap::new();
+        tsig_keys.insert(
+            key_name.to_string(),
+            ddns::TsigKey {
+                algorithm: ddns::Algorithm::HmacSha256.into(),
+                data: key_data,
+            },
+        );
+
+        let fwd_zone = Name::from_str("example.com.").unwrap();
+        let rev_zone = Name::from_str("1.168.192.in-addr.arpa.").unwrap();
+
+        let ddns_config = Ddns {
+            enable_updates: true,
+            forward: vec![DdnsServer {
+                name: fwd_zone.clone(),
+                key: Some(key_name.to_string()),
+                ip: server_addr,
+            }],
+            reverse: vec![DdnsServer {
+                name: rev_zone.clone(),
+                key: Some(key_name.to_string()),
+                ip: server_addr,
+            }],
+            tsig_keys,
+            ..Default::default()
+        };
+
+        let updater = DdnsUpdate::new();
+        let duid = DhcId::duid(b"test-duid");
+        let leased_ip = Ipv4Addr::new(192, 168, 1, 10);
+        let lease_length = 3600;
+        let domain = Name::from_str("myhost.example.com.").unwrap();
+
+        let result = updater
+            .send_dns(
+                &ddns_config,
+                duid,
+                leased_ip,
+                lease_length,
+                domain,
+                true,
+                true,
+            )
+            .await;
+
+        assert!(result.is_ok());
+
+        server_handle.abort();
     }
 }
