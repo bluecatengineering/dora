@@ -49,10 +49,7 @@ jobs:
           override: true
 
       - name: Run cargo test
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --all-features --exclude register_derive_impl --workspace
+        run: sudo -E cargo test --all-features --exclude register_derive_impl --workspace
         env:
           SQLX_OFFLINE: true
 
