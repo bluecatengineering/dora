@@ -1,6 +1,6 @@
 use std::{
     env, fs,
-    process::{Child, Command},
+    process::{Child, Command, Stdio},
     thread,
 };
 
@@ -54,30 +54,36 @@ impl Drop for DhcpServerEnv {
     }
 }
 
+const SUDO: &str = "sudo";
+
 fn create_test_net_namespace(netns: &str) {
-    run_cmd(&format!("ip netns add {netns}"));
+    run_cmd(&format!("{SUDO} ip netns add {netns}"));
 }
 
 fn remove_test_net_namespace(netns: &str) {
-    run_cmd_ignore_failure(&format!("ip netns del {netns}"));
+    run_cmd_ignore_failure(&format!("{SUDO} ip netns del {netns}"));
 }
 
 fn create_test_veth_nics(netns: &str, srv_ip: &str, veth_cli: &str, veth_srv: &str) {
     run_cmd(&format!(
-        "ip link add {veth_cli} type veth peer name {veth_srv}",
+        "{SUDO} ip link add {veth_cli} type veth peer name {veth_srv}",
     ));
-    run_cmd(&format!("ip link set {veth_cli} up"));
-    run_cmd(&format!("ip link set {veth_srv} netns {netns}",));
-    run_cmd(&format!("ip netns exec {netns} ip link set {veth_srv} up",));
+    run_cmd(&format!("{SUDO} ip link set {veth_cli} up"));
+    run_cmd(&format!("{SUDO} ip link set {veth_srv} netns {netns}",));
     run_cmd(&format!(
-        "ip netns exec {netns} ip addr add {srv_ip}/24 dev {veth_srv}",
+        "{SUDO} ip netns exec {netns} ip link set {veth_srv} up",
+    ));
+    run_cmd(&format!(
+        "{SUDO} ip netns exec {netns} ip addr add {srv_ip}/24 dev {veth_srv}",
     ));
     // TODO: remove this eventually
-    run_cmd(&format!("ip addr add 192.168.2.99/24 dev {veth_cli}"));
+    run_cmd(&format!(
+        "{SUDO} ip addr add 192.168.2.99/24 dev {veth_cli}"
+    ));
 }
 
 fn remove_test_veth_nics(veth_cli: &str) {
-    run_cmd_ignore_failure(&format!("ip link del {veth_cli}"));
+    run_cmd_ignore_failure(&format!("{SUDO} ip link del {veth_cli}"));
 }
 
 fn start_dhcp_server(config: &str, netns: &str, db: &str) -> Child {
@@ -87,13 +93,16 @@ fn start_dhcp_server(config: &str, netns: &str, db: &str) -> Child {
     let dora_debug = format!(
         "{bin_path} -d={db} --config-path={config_path} --threads=2 --dora-log=debug --v4-addr=0.0.0.0:9900",
     );
-    let cmd = format!("ip netns exec {netns} {dora_debug}");
+    let cmd = format!("{SUDO} ip netns exec {netns} {dora_debug}");
 
     let cmds: Vec<&str> = cmd.split(' ').collect();
     let mut child = Command::new(cmds[0])
         .args(&cmds[1..])
+        // seems to mess up output formatting
+        .stdin(Stdio::null())
         .spawn()
         .expect("Failed to start DHCP server");
+
     thread::sleep(std::time::Duration::from_secs(1));
     if let Ok(Some(ret)) = child.try_wait() {
         panic!("Failed to start DHCP server {ret:?}");

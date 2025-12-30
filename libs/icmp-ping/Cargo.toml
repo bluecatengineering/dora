@@ -19,4 +19,4 @@ dora-core = { path = "../../dora-core" }
 [dev-dependencies]
 tokio = { workspace = true }
 tracing-subscriber = "0.3"
-tracing-test = "0.2.4"
+tracing-test = { workspace = true }

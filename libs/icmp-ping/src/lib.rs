@@ -462,38 +462,42 @@ mod tests {
         Ok(())
     }
 
+    // probably shouldn't use an external server
     #[tokio::test]
     #[traced_test]
     async fn test_multiping() -> errors::Result<()> {
+        let barrier = Arc::new(tokio::sync::Barrier::new(2));
         let listener = Listener::<Icmpv4>::new()?;
-        let pinger = listener.pinger("1.1.1.1".parse().unwrap());
-        let a = tokio::spawn(async move {
-            for i in 1..5 {
-                let res = pinger.ping(i).await?;
-                assert_eq!(res.reply.seq_cnt, i);
+
+        let a = tokio::spawn({
+            let barrier = barrier.clone();
+            let pinger = listener.pinger("1.1.1.1".parse().unwrap());
+            async move {
+                for i in 1..5 {
+                    let res = pinger.ping(i).await?;
+                    assert_eq!(res.reply.seq_cnt, i);
+                }
+                // wait for both to finish
+                barrier.wait().await;
+                assert!(pinger.map.lock().is_empty());
+                Ok::<_, errors::Error>(())
             }
-            assert!(pinger.map.lock().is_empty());
-            Ok::<_, errors::Error>(())
         });
-        let pinger = listener.pinger("8.8.8.8".parse().unwrap());
-        let b = tokio::spawn(async move {
-            for i in 1..5 {
-                let res = pinger.ping(i).await?;
-                assert_eq!(res.reply.seq_cnt, i);
+        let c = tokio::spawn({
+            let barrier = barrier.clone();
+            let pinger = listener.pinger("1.0.0.1".parse().unwrap());
+            async move {
+                for i in 10..15 {
+                    let res = pinger.ping(i).await?;
+                    assert_eq!(res.reply.seq_cnt, i);
+                }
+                // wait for both to finish
+                barrier.wait().await;
+                assert!(pinger.map.lock().is_empty());
+                Ok::<_, errors::Error>(())
             }
-            assert!(pinger.map.lock().is_empty());
-            Ok::<_, errors::Error>(())
         });
-        let pinger = listener.pinger("1.0.0.1".parse().unwrap());
-        let c = tokio::spawn(async move {
-            for i in 10..15 {
-                let res = pinger.ping(i).await?;
-                assert_eq!(res.reply.seq_cnt, i);
-            }
-            assert!(pinger.map.lock().is_empty());
-            Ok::<_, errors::Error>(())
-        });
-        let _ = tokio::try_join!(a, b, c).unwrap();
+        let _ = tokio::try_join!(a, c).unwrap();
 
         Ok(())
     }

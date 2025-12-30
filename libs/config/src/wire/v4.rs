@@ -632,49 +632,50 @@ pub mod ddns {
         pub fn forward(&self) -> &[DdnsServer] {
             &self.forward
         }
+        /// get longest forward match
         pub fn match_longest_forward(&self, fqdn: &Name) -> Option<&DdnsServer> {
             match_longest_fqdn(&self.forward, fqdn)
         }
         pub fn reverse(&self) -> &[DdnsServer] {
             &self.reverse
         }
+        /// find longest reverse match
         pub fn match_longest_reverse(&self, arpa_domain: &Name) -> Option<&DdnsServer> {
             match_longest_fqdn(&self.reverse, arpa_domain)
         }
     }
 
-    fn match_longest_fqdn<'a>(list: &'a [DdnsServer], fqdn: &Name) -> Option<&'a DdnsServer> {
+    /// matches longest server entry for `fqdn`
+    /// server list can contain:
+    /// - exact matches: entry [example.com] matches on example.com
+    /// - zone of matches: entry [b.foo.example.com] matches on foo.example.com
+    /// - longest match: entry [sample.example.com, example.com] search for myhost.sample.example.com matches on sample.example.com
+    /// - reverse zones: [168.192.in-addr.arpa.] matches on 1.2.168.192.in-addr.arpa.
+    fn match_longest_fqdn<'a>(
+        list: &'a [ddns::DdnsServer],
+        fqdn: &Name,
+    ) -> Option<&'a ddns::DdnsServer> {
+        let fqdn = fqdn.to_lowercase();
+
         let mut best_match = None;
         let mut match_len = 0;
         for srv in list {
+            let config_name = srv.name.to_lowercase();
             let fqdn_len = fqdn.num_labels();
-            let srv_len = srv.name.num_labels();
+            let srv_len = config_name.num_labels();
 
-            if srv.name.is_wildcard() && srv_len == 0 {
-                return Some(srv);
-            }
-            // srv len is longer than fqdn, can't match
-            if srv_len > fqdn_len {
-                continue;
-            }
-            // if fqdn & srv have same # of labels & they are equal, then
-            // we found a match
-            if fqdn_len == srv_len {
-                if fqdn == &srv.name {
+            if config_name.is_wildcard() {
+                // match *
+                if srv_len == 0 {
                     return Some(srv);
                 }
-                continue;
-            } else {
-                let offset = fqdn_len - srv_len;
-                // fqdn contains the srv name
-                // count the # of matching labels
-                if fqdn
-                    .iter()
-                    .skip(offset as usize)
-                    .zip(srv.name.iter())
-                    .all(|(a, b)| a == b)
-                    && srv_len > match_len
-                {
+            } else if is_subdomain_of(&fqdn, &config_name) {
+                // if fqdn & srv have same # of labels & they are equal, then
+                // we found a match
+                if fqdn_len == srv_len {
+                    return Some(srv);
+                }
+                if srv_len > match_len {
                     best_match = Some(srv);
                     match_len = srv_len;
                 }
@@ -682,15 +683,336 @@ pub mod ddns {
         }
         best_match
     }
+
+    /// test if `needle` is subdomain of `haystack`
+    fn is_subdomain_of(haystack: &Name, needle: &Name) -> bool {
+        let haystack_len = haystack.num_labels();
+        let needle_len = needle.num_labels();
+        if needle_len > haystack_len {
+            return false;
+        }
+        haystack
+            .iter()
+            .rev()
+            .zip(needle.iter().rev())
+            .all(|(a, b)| a == b)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn test_sample_match() {
+            let ddns = Ddns {
+                forward: vec![
+                    DdnsServer {
+                        name: "example.com.".parse().unwrap(),
+                        key: None,
+                        ip: ([8, 8, 8, 8], 53).into(),
+                    },
+                    DdnsServer {
+                        name: "sample.example.com.".parse().unwrap(),
+                        key: None,
+                        ip: ([8, 8, 8, 8], 53).into(),
+                    },
+                    DdnsServer {
+                        name: "other.com.".parse().unwrap(),
+                        key: None,
+                        ip: ([8, 8, 8, 8], 53).into(),
+                    },
+                    DdnsServer {
+                        name: "a.baz.foo.example.com.".parse().unwrap(),
+                        key: None,
+                        ip: ([8, 8, 8, 8], 53).into(),
+                    },
+                ],
+                ..Ddns::default()
+            };
+            let fwd =
+                ddns.match_longest_forward(&"myhost.sample.example.com.".parse::<Name>().unwrap());
+            assert_eq!(
+                fwd.unwrap(),
+                &DdnsServer {
+                    name: "sample.example.com.".parse().unwrap(),
+                    key: None,
+                    ip: ([8, 8, 8, 8], 53).into(),
+                }
+            );
+            // change order
+            let ddns = Ddns {
+                forward: vec![
+                    DdnsServer {
+                        name: "sample.example.com.".parse().unwrap(),
+                        key: None,
+                        ip: ([8, 8, 8, 8], 53).into(),
+                    },
+                    DdnsServer {
+                        name: "example.com.".parse().unwrap(),
+                        key: None,
+                        ip: ([8, 8, 8, 8], 53).into(),
+                    },
+                    DdnsServer {
+                        name: "other.com.".parse().unwrap(),
+                        key: None,
+                        ip: ([8, 8, 8, 8], 53).into(),
+                    },
+                    DdnsServer {
+                        name: "a.baz.foo.example.com.".parse().unwrap(),
+                        key: None,
+                        ip: ([8, 8, 8, 8], 53).into(),
+                    },
+                ],
+                ..Ddns::default()
+            };
+            let fwd =
+                ddns.match_longest_forward(&"myhost.sample.example.com.".parse::<Name>().unwrap());
+            assert_eq!(
+                fwd.unwrap(),
+                &DdnsServer {
+                    name: "sample.example.com.".parse().unwrap(),
+                    key: None,
+                    ip: ([8, 8, 8, 8], 53).into(),
+                }
+            );
+            // change order
+            let ddns = Ddns {
+                forward: vec![
+                    DdnsServer {
+                        name: "other.com.".parse().unwrap(),
+                        key: None,
+                        ip: ([8, 8, 8, 8], 53).into(),
+                    },
+                    DdnsServer {
+                        name: "example.com.".parse().unwrap(),
+                        key: None,
+                        ip: ([8, 8, 8, 8], 53).into(),
+                    },
+                    DdnsServer {
+                        name: "a.baz.foo.example.com.".parse().unwrap(),
+                        key: None,
+                        ip: ([8, 8, 8, 8], 53).into(),
+                    },
+                    DdnsServer {
+                        name: "sample.example.com.".parse().unwrap(),
+                        key: None,
+                        ip: ([8, 8, 8, 8], 53).into(),
+                    },
+                ],
+                ..Ddns::default()
+            };
+            let fwd =
+                ddns.match_longest_forward(&"myhost.sample.example.com.".parse::<Name>().unwrap());
+            assert_eq!(
+                fwd.unwrap(),
+                &DdnsServer {
+                    name: "sample.example.com.".parse().unwrap(),
+                    key: None,
+                    ip: ([8, 8, 8, 8], 53).into(),
+                }
+            );
+        }
+
+        #[test]
+        fn test_forward_match() {
+            let ddns = Ddns {
+                forward: vec![
+                    DdnsServer {
+                        name: "example.com.".parse().unwrap(),
+                        key: None,
+                        ip: ([8, 8, 8, 8], 53).into(),
+                    },
+                    DdnsServer {
+                        name: "other.example.com.".parse().unwrap(),
+                        key: None,
+                        ip: ([8, 8, 8, 8], 53).into(),
+                    },
+                    DdnsServer {
+                        name: "foo.example.com.".parse().unwrap(),
+                        key: None,
+                        ip: ([8, 8, 8, 8], 53).into(),
+                    },
+                    DdnsServer {
+                        name: "a.baz.foo.example.com.".parse().unwrap(),
+                        key: None,
+                        ip: ([8, 8, 8, 8], 53).into(),
+                    },
+                    DdnsServer {
+                        name: "bing.net.".parse().unwrap(),
+                        key: None,
+                        ip: ([8, 8, 8, 8], 53).into(),
+                    },
+                ],
+                ..Ddns::default()
+            };
+            let fwd = ddns.match_longest_forward(&"example.com.".parse::<Name>().unwrap());
+            assert_eq!(
+                fwd.unwrap(),
+                &DdnsServer {
+                    name: "example.com.".parse().unwrap(),
+                    key: None,
+                    ip: ([8, 8, 8, 8], 53).into(),
+                }
+            );
+            let fwd = ddns.match_longest_forward(&"other.example.com.".parse::<Name>().unwrap());
+            assert_eq!(
+                fwd.unwrap(),
+                &DdnsServer {
+                    name: "other.example.com.".parse().unwrap(),
+                    key: None,
+                    ip: ([8, 8, 8, 8], 53).into(),
+                }
+            );
+            let fwd = ddns.match_longest_forward(&"b.foo.example.com.".parse::<Name>().unwrap());
+            assert_eq!(
+                fwd.unwrap(),
+                &DdnsServer {
+                    name: "foo.example.com.".parse().unwrap(),
+                    key: None,
+                    ip: ([8, 8, 8, 8], 53).into(),
+                }
+            );
+            let fwd = ddns.match_longest_forward(&"bang.net.".parse::<Name>().unwrap());
+            assert_eq!(fwd, None);
+        }
+
+        #[test]
+        fn test_forward_match_wildcard() {
+            let ddns = Ddns {
+                forward: vec![
+                    DdnsServer {
+                        name: "example.com.".parse().unwrap(),
+                        key: None,
+                        ip: ([8, 8, 8, 8], 53).into(),
+                    },
+                    DdnsServer {
+                        name: "*".parse().unwrap(),
+                        key: None,
+                        ip: ([8, 8, 8, 8], 53).into(),
+                    },
+                ],
+                ..Ddns::default()
+            };
+            let fwd = ddns.match_longest_forward(&"stuff.com.".parse::<Name>().unwrap());
+            assert_eq!(
+                fwd.unwrap(),
+                &DdnsServer {
+                    name: "*".parse().unwrap(),
+                    key: None,
+                    ip: ([8, 8, 8, 8], 53).into(),
+                }
+            );
+
+            let ddns = Ddns {
+                forward: vec![
+                    DdnsServer {
+                        name: "example.com.".parse().unwrap(),
+                        key: None,
+                        ip: ([8, 8, 8, 8], 53).into(),
+                    },
+                    DdnsServer {
+                        name: "*.".parse().unwrap(),
+                        key: None,
+                        ip: ([8, 8, 8, 8], 53).into(),
+                    },
+                ],
+                ..Ddns::default()
+            };
+            let fwd = ddns.match_longest_forward(&"stuff.com.".parse::<Name>().unwrap());
+            assert_eq!(
+                fwd.unwrap(),
+                &DdnsServer {
+                    name: "*.".parse().unwrap(),
+                    key: None,
+                    ip: ([8, 8, 8, 8], 53).into(),
+                }
+            );
+        }
+
+        #[test]
+        fn test_forward_match_wildcard_zone() {
+            let ddns = Ddns {
+                forward: vec![
+                    DdnsServer {
+                        name: "example.com.".parse().unwrap(),
+                        key: None,
+                        ip: ([8, 8, 8, 8], 53).into(),
+                    },
+                    DdnsServer {
+                        name: "org.".parse().unwrap(),
+                        key: None,
+                        ip: ([8, 8, 8, 8], 53).into(),
+                    },
+                ],
+                ..Ddns::default()
+            };
+            let fwd = ddns.match_longest_forward(&"wiki.org.".parse::<Name>().unwrap());
+            assert_eq!(
+                fwd.unwrap(),
+                &DdnsServer {
+                    name: "org.".parse().unwrap(),
+                    key: None,
+                    ip: ([8, 8, 8, 8], 53).into(),
+                }
+            );
+        }
+
+        #[test]
+        fn test_reverse() {
+            let ddns = Ddns {
+                reverse: vec![
+                    DdnsServer {
+                        name: "8.8.8.8.in-addr.arpa.".parse().unwrap(),
+                        key: None,
+                        ip: ([8, 8, 8, 8], 53).into(),
+                    },
+                    DdnsServer {
+                        name: "168.192.in-addr.arpa.".parse().unwrap(),
+                        key: None,
+                        ip: ([8, 8, 8, 8], 53).into(),
+                    },
+                    DdnsServer {
+                        name: "1.192.in-addr.arpa.".parse().unwrap(),
+                        key: None,
+                        ip: ([8, 8, 8, 8], 53).into(),
+                    },
+                ],
+                ..Ddns::default()
+            };
+            let rev =
+                ddns.match_longest_reverse(&"1.2.168.192.in-addr.arpa.".parse::<Name>().unwrap());
+            assert_eq!(
+                rev.unwrap(),
+                &DdnsServer {
+                    name: "168.192.in-addr.arpa.".parse().unwrap(),
+                    key: None,
+                    ip: ([8, 8, 8, 8], 53).into(),
+                }
+            );
+
+            let rev = ddns.match_longest_reverse(&"4.4.8.8.in-addr.arpa.".parse::<Name>().unwrap());
+            assert_eq!(rev, None);
+
+            let rev = ddns.match_longest_reverse(&"10.192.in-addr.arpa.".parse::<Name>().unwrap());
+            assert_eq!(rev, None);
+
+            let rev = ddns.match_longest_reverse(&"3.1.192.in-addr.arpa.".parse::<Name>().unwrap());
+            assert_eq!(
+                rev.unwrap(),
+                &DdnsServer {
+                    name: "1.192.in-addr.arpa.".parse().unwrap(),
+                    key: None,
+                    ip: ([8, 8, 8, 8], 53).into(),
+                }
+            );
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::ddns::*;
     use super::*;
     use ipnet::Ipv4Net;
-
-    use dora_core::dhcproto::Name;
 
     pub static SAMPLE_YAML: &str = include_str!("../../sample/config.yaml");
     pub static LONG_OPTS: &str = include_str!("../../sample/long_opts.yaml");
@@ -702,147 +1024,6 @@ mod tests {
                 .unwrap();
         assert!(matches!(v, Opt::Ip(MaybeList::List(_))));
     }
-
-    #[test]
-    fn test_forward_match() {
-        let ddns = Ddns {
-            forward: vec![
-                DdnsServer {
-                    name: "example.com.".parse().unwrap(),
-                    key: None,
-                    ip: ([8, 8, 8, 8], 53).into(),
-                },
-                DdnsServer {
-                    name: "other.example.com.".parse().unwrap(),
-                    key: None,
-                    ip: ([8, 8, 8, 8], 53).into(),
-                },
-                DdnsServer {
-                    name: "foo.example.com.".parse().unwrap(),
-                    key: None,
-                    ip: ([8, 8, 8, 8], 53).into(),
-                },
-                DdnsServer {
-                    name: "a.baz.foo.example.com.".parse().unwrap(),
-                    key: None,
-                    ip: ([8, 8, 8, 8], 53).into(),
-                },
-                DdnsServer {
-                    name: "bing.net.".parse().unwrap(),
-                    key: None,
-                    ip: ([8, 8, 8, 8], 53).into(),
-                },
-            ],
-            ..Ddns::default()
-        };
-        let fwd = ddns.match_longest_forward(&"example.com.".parse::<Name>().unwrap());
-        assert_eq!(
-            fwd.unwrap(),
-            &DdnsServer {
-                name: "example.com.".parse().unwrap(),
-                key: None,
-                ip: ([8, 8, 8, 8], 53).into(),
-            }
-        );
-        let fwd = ddns.match_longest_forward(&"other.example.com.".parse::<Name>().unwrap());
-        assert_eq!(
-            fwd.unwrap(),
-            &DdnsServer {
-                name: "other.example.com.".parse().unwrap(),
-                key: None,
-                ip: ([8, 8, 8, 8], 53).into(),
-            }
-        );
-        let fwd = ddns.match_longest_forward(&"b.foo.example.com.".parse::<Name>().unwrap());
-        assert_eq!(
-            fwd.unwrap(),
-            &DdnsServer {
-                name: "foo.example.com.".parse().unwrap(),
-                key: None,
-                ip: ([8, 8, 8, 8], 53).into(),
-            }
-        );
-        let fwd = ddns.match_longest_forward(&"bang.net.".parse::<Name>().unwrap());
-        assert_eq!(fwd, None);
-    }
-
-    #[test]
-    fn test_forward_match_wildcard() {
-        let ddns = Ddns {
-            forward: vec![
-                DdnsServer {
-                    name: "example.com.".parse().unwrap(),
-                    key: None,
-                    ip: ([8, 8, 8, 8], 53).into(),
-                },
-                DdnsServer {
-                    name: "*".parse().unwrap(),
-                    key: None,
-                    ip: ([8, 8, 8, 8], 53).into(),
-                },
-            ],
-            ..Ddns::default()
-        };
-        let fwd = ddns.match_longest_forward(&"stuff.com.".parse::<Name>().unwrap());
-        assert_eq!(
-            fwd.unwrap(),
-            &DdnsServer {
-                name: "*".parse().unwrap(),
-                key: None,
-                ip: ([8, 8, 8, 8], 53).into(),
-            }
-        );
-    }
-
-    #[test]
-    fn test_reverse() {
-        let ddns = Ddns {
-            reverse: vec![
-                DdnsServer {
-                    name: "8.8.8.8.in-addr.arpa.".parse().unwrap(),
-                    key: None,
-                    ip: ([8, 8, 8, 8], 53).into(),
-                },
-                DdnsServer {
-                    name: "168.192.in-addr.arpa.".parse().unwrap(),
-                    key: None,
-                    ip: ([8, 8, 8, 8], 53).into(),
-                },
-                DdnsServer {
-                    name: "1.192.in-addr.arpa.".parse().unwrap(),
-                    key: None,
-                    ip: ([8, 8, 8, 8], 53).into(),
-                },
-            ],
-            ..Ddns::default()
-        };
-        let rev = ddns.match_longest_reverse(&"1.2.168.192.in-addr.arpa.".parse::<Name>().unwrap());
-        assert_eq!(
-            rev.unwrap(),
-            &DdnsServer {
-                name: "168.192.in-addr.arpa.".parse().unwrap(),
-                key: None,
-                ip: ([8, 8, 8, 8], 53).into(),
-            }
-        );
-
-        let rev = ddns.match_longest_reverse(&"4.4.8.8.in-addr.arpa.".parse::<Name>().unwrap());
-        assert_eq!(rev, None);
-
-        let rev = ddns.match_longest_reverse(&"10.192.in-addr.arpa.".parse::<Name>().unwrap());
-        assert_eq!(rev, None);
-
-        let rev = ddns.match_longest_reverse(&"3.1.192.in-addr.arpa.".parse::<Name>().unwrap());
-        assert_eq!(
-            rev.unwrap(),
-            &DdnsServer {
-                name: "1.192.in-addr.arpa.".parse().unwrap(),
-                key: None,
-                ip: ([8, 8, 8, 8], 53).into(),
-            }
-        );
-    }
-
     // test we can encode/decode sample
     #[test]
     fn test_sample() {

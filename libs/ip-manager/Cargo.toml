@@ -31,5 +31,5 @@ sqlx = { version = "0.5.13", features = [
 tokio-test = "0.4.1"
 tracing = { workspace = true, features = ["log"] }
 tokio = { workspace = true }
-tracing-test = "0.2.4"
+tracing-test = { workspace = true }
 rand = { workspace = true }

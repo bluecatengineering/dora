@@ -1,6 +1,6 @@
 # Creating a dora docker image
 
-After checking out the ource, build dora in docker and create an image:
+After checking out the source, build dora in docker and create an image:
 
 ```
 docker build -t dora .

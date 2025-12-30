@@ -4,7 +4,6 @@ members = [
     # main server code
     "dora-core",
     "dora-cfg",
-    "ddns-test",
     # healthcheck/diagnostics,etc
     "external-api",
     # libs
@@ -18,6 +17,7 @@ resolver = "2"
 [workspace.dependencies]
 hickory-proto = { version = "0.25.2", default-features = false, features = [
     "dnssec-ring",
+    "tokio",
     "serde",
 ] }
 socket2 = { version = "0.5.6", features = [
@@ -39,6 +39,7 @@ tokio-util = { version = "0.7.0", features = ["codec", "net"] }
 tracing = "0.1.40"
 tracing-futures = "0.2.5"
 tracing-subscriber = { features = ["env-filter", "json"], version = "0.3" }
+tracing-test = "0.2.5"
 thiserror = "1.0"
 rand = "0.8.5"
 serde = { version = "1.0", features = ["derive"] }

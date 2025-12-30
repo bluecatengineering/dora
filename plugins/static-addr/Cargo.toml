@@ -15,5 +15,5 @@ message-type = { path = "../message-type" }
 
 [dev-dependencies]
 serde_yaml = { workspace = true }
-tracing-test = "0.2.4"
+tracing-test = { workspace = true }
 hex = "0.4"
