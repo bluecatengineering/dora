@@ -139,6 +139,10 @@ jobs:
           components: llvm-tools-preview
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Allow ICMP socket creation
+        run: sudo sysctl -w net.ipv4.ping_group_range="0 2147483647"
+
       - name: Generate code coverage
         id: coverage
         run: cargo llvm-cov --all-features --exclude register_derive_impl --workspace --no-fail-fast --lcov --output-path lcov.info
