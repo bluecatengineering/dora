@@ -52,10 +52,8 @@ jobs:
         run: sudo sysctl -w net.ipv4.ping_group_range="0 2147483647"
 
       - name: Run cargo test
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --all-features --exclude register_derive_impl --workspace --no-fail-fast
+        id: test
+        run: cargo test --all-features --exclude register_derive_impl --workspace
         env:
           SQLX_OFFLINE: true
 
