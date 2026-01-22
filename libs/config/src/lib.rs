@@ -120,7 +120,7 @@ pub fn backup_ivp4_interface(interface: Option<&str>) -> Result<Ipv4Network> {
 /// Returns:
 /// - interfaces matching the list supplied that are 'up' and have an IPv4
 /// - OR any 'up' interfaces that also have an IPv4
-pub fn v4_find_interfaces(interfaces: Option<Vec<String>>) -> Result<Vec<NetworkInterface>> {
+pub fn v4_find_interfaces(interfaces: Option<&[wire::Interface]>) -> Result<Vec<NetworkInterface>> {
     let found_interfaces = pnet::datalink::interfaces()
         .into_iter()
         .filter(|e| e.is_up() && !e.ips.is_empty() && e.ips.iter().any(|i| i.is_ipv4()))
@@ -131,7 +131,7 @@ pub fn v4_find_interfaces(interfaces: Option<Vec<String>>) -> Result<Vec<Network
 /// Returns:
 /// - interfaces matching the list supplied that are 'up' and have an IPv6
 /// - OR any 'up' interfaces that also have an IPv6
-pub fn v6_find_interfaces(interfaces: Option<Vec<String>>) -> Result<Vec<NetworkInterface>> {
+pub fn v6_find_interfaces(interfaces: Option<&[wire::Interface]>) -> Result<Vec<NetworkInterface>> {
     let found_interfaces = pnet::datalink::interfaces()
         .into_iter()
         .filter(|e| e.is_up() && !e.ips.is_empty() && e.ips.iter().any(|i| i.is_ipv6()))
@@ -141,17 +141,27 @@ pub fn v6_find_interfaces(interfaces: Option<Vec<String>>) -> Result<Vec<Network
 
 fn found_or_default(
     found_interfaces: Vec<NetworkInterface>,
-    interfaces: Option<Vec<String>>,
+    interfaces: Option<&[wire::Interface]>,
 ) -> Result<Vec<NetworkInterface>> {
     Ok(match interfaces {
         Some(interfaces) => interfaces
             .iter()
-            .map(
-                |interface| match found_interfaces.iter().find(|i| &i.name == interface) {
+            .map(|interface| {
+                match found_interfaces.iter().find(|i| {
+                    i.name == interface.name
+                        && interface
+                            .addr
+                            .map(|addr| i.ips.iter().any(|ip| ip.contains(addr)))
+                            .unwrap_or(true)
+                }) {
                     Some(i) => Ok(i.clone()),
-                    None => bail!("unable to find interface {}", interface),
-                },
-            )
+                    None => bail!(
+                        "unable to find interface {} with ip {:#?}",
+                        interface.name,
+                        interface.addr
+                    ),
+                }
+            })
             .collect::<Result<Vec<_>, _>>()?,
         None => found_interfaces,
     })
@@ -227,5 +237,154 @@ impl PersistIdentifier {
         let duid_bytes = hex::decode(&self.identifier)
             .context("server identifier should be a valid hex string")?;
         Ok(Duid::from(duid_bytes))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::net::IpAddr;
+
+    use dora_core::{pnet::ipnetwork::IpNetwork, prelude::NetworkInterface};
+
+    use crate::wire;
+
+    fn mock_interface(name: &str, ip_str: &str, prefix: u8) -> NetworkInterface {
+        let ip = ip_str.parse::<IpAddr>().unwrap();
+        NetworkInterface {
+            name: name.to_string(),
+            description: String::new(),
+            index: 0,
+            mac: None,
+            ips: vec![IpNetwork::new(ip, prefix).unwrap()],
+            flags: 0,
+        }
+    }
+
+    #[test]
+    fn test_found_or_default() {
+        let found = vec![mock_interface("eth0", "192.168.1.10", 24)];
+        let result = crate::found_or_default(found.clone(), None).unwrap();
+        assert!(!result.is_empty());
+
+        // no IP
+        let found = vec![mock_interface("eth0", "192.168.1.10", 24)];
+        let config = vec![wire::Interface {
+            name: "eth0".to_string(),
+            addr: None,
+        }];
+        let result = crate::found_or_default(found, Some(&config)).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "eth0");
+
+        // matching ip
+        let found = vec![mock_interface("eth0", "192.168.1.10", 24)];
+        let config = vec![wire::Interface {
+            name: "eth0".to_string(),
+            addr: Some("192.168.1.10".parse().unwrap()),
+        }];
+        let result = crate::found_or_default(found, Some(&config)).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "eth0");
+
+        // System interface has 192.168.1.1/24, config asks for 192.168.1.50
+        let found = vec![mock_interface("eth0", "192.168.1.10", 24)];
+        let config = vec![wire::Interface {
+            name: "eth0".to_string(),
+            addr: Some("192.168.1.50".parse().unwrap()),
+        }];
+        let result = crate::found_or_default(found, Some(&config)).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "eth0");
+
+        // System interface has 192.168.1.10, config asks for 10.0.0.1
+        let found = vec![mock_interface("eth0", "192.168.1.10", 24)];
+        let config = vec![wire::Interface {
+            name: "eth0".to_string(),
+            addr: Some("10.0.0.1".parse().unwrap()),
+        }];
+        let result = crate::found_or_default(found, Some(&config));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_not_found_interface() {
+        let found = vec![mock_interface("eth0", "192.168.1.10", 24)];
+        let config = vec![wire::Interface {
+            name: "eth0".to_string(),
+            addr: Some([192, 168, 0, 10].into()),
+        }];
+        let result = crate::found_or_default(found, Some(&config));
+        assert!(result.is_err());
+
+        let found = vec![mock_interface("eth0", "192.168.1.10", 24)];
+        let config = vec![wire::Interface {
+            name: "eth1".to_string(), // Wrong name
+            addr: None,
+        }];
+        let result = crate::found_or_default(found, Some(&config));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_find_by_name_and_ipv6_in_subnet() {
+        // System interface has 2001:db8::1/64, config asks for 2001:db8::dead:beef
+        let found = vec![mock_interface("eth1", "2001:db8::1", 64)];
+        let config = vec![wire::Interface {
+            name: "eth1".to_string(),
+            addr: Some("2001:db8::dead:beef".parse().unwrap()),
+        }];
+        let result = crate::found_or_default(found, Some(&config)).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "eth1");
+    }
+
+    #[test]
+    fn test_fail_on_ipv6_mismatch() {
+        // System interface has 2001:db8::1, config asks for fd00::1
+        let found = vec![mock_interface("eth1", "2001:db8::1", 64)];
+        let config = vec![wire::Interface {
+            name: "eth1".to_string(),
+            addr: Some("fd00::1".parse().unwrap()),
+        }];
+        let result = crate::found_or_default(found, Some(&config));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_multiple_interfaces_find_by_ip() {
+        let found = vec![
+            mock_interface("eth0", "192.168.1.10", 24),
+            mock_interface("eth1", "10.0.0.5", 8),
+        ];
+        let config = vec![wire::Interface {
+            name: "eth1".to_string(),
+            addr: Some("10.0.0.5".parse().unwrap()),
+        }];
+        let result = crate::found_or_default(found, Some(&config)).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "eth1");
+    }
+
+    #[test]
+    fn test_multiple_config_interfaces_selects_all() {
+        let found = vec![
+            mock_interface("eth0", "192.168.1.10", 24),
+            mock_interface("eth1", "10.0.0.5", 8),
+            mock_interface("lo", "127.0.0.1", 8),
+        ];
+        let config = vec![
+            wire::Interface {
+                name: "eth0".to_string(),
+                addr: None,
+            },
+            wire::Interface {
+                name: "eth1".to_string(),
+                addr: Some("10.0.0.5".parse().unwrap()),
+            },
+        ];
+        let result = crate::found_or_default(found, Some(&config)).unwrap();
+        assert_eq!(result.len(), 2);
+        assert!(result.iter().any(|i| i.name == "eth0"));
+        assert!(result.iter().any(|i| i.name == "eth1"));
     }
 }
