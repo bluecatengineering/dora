@@ -172,6 +172,7 @@ pub(crate) enum MaybeList<T> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
 
     pub static EXAMPLE: &str = include_str!("../../../../example.yaml");
 
@@ -183,34 +184,6 @@ mod tests {
         // back to the yaml
         let s = serde_yaml::to_string(&cfg).unwrap();
         println!("{s}");
-    }
-<<<<<<< Updated upstream
-=======
-
-    #[test]
-    fn test_interface() {
-        let iface = Interface {
-            name: "eth0".to_string(),
-            addr: Some([192, 168, 1, 1].into()),
-        };
-
-        let s = serde_json::to_string(&iface).unwrap();
-        assert_eq!(s, "\"eth0@192.168.1.1\"");
-
-        let err = serde_json::from_str::<Interface>("\"@192.168.1.1\"");
-        assert!(err.is_err());
-
-        let json_test: Interface = serde_json::from_str(&s).unwrap();
-        assert_eq!(iface, json_test);
-
-        let no_addr = Interface {
-            name: "lo".to_string(),
-            addr: None,
-        };
-        let json_no_addr = serde_json::to_string(&no_addr).unwrap();
-        assert_eq!(json_no_addr, "\"lo\"");
-        let test_no_addr: Interface = serde_json::from_str(&json_no_addr).unwrap();
-        assert_eq!(no_addr, test_no_addr);
     }
 
     #[test]
@@ -253,5 +226,4 @@ mod tests {
         assert_eq!(minmax.min.unwrap().get(), 1200);
         assert_eq!(minmax.max.unwrap().get(), 7200);
     }
->>>>>>> Stashed changes
 }
