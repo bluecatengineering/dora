@@ -82,12 +82,17 @@ networks:
                 start: 192.168.5.2
                 # end of your range
                 end: 192.168.5.250
-                # configured lease time (only `default` is required)
+                # configured lease time:
+                # Values can be specified as:
+                #   - Plain numbers (assumed to be seconds): 3600, 86400
+                #   - Strings with time units: "1h", "60m", "3600s", "24h"
+                # Supported units: h (hours), m (minutes), s (seconds)
+                # Defaults: default=24h (86400s), min=20m (1200s), max=7d (604800s)
                 config:
                     lease_time:
-                        default: 3600
-                        min: 1200
-                        max: 4800
+                        default: 3600    # or "1h"
+                        min: 1200        # or "20m"
+                        max: 4800        # or "80m"
                 # Both reservations & ranges can include an options map, if an incoming dhcp msg gets
                 # an IP from that reservation or range, it will also use the corresponding `options`
                 # to respond to any parameter request list values.
