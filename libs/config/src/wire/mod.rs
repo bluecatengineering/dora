@@ -104,7 +104,7 @@ impl From<MinMax> for LeaseTime {
 /// If no unit is specified, assumes seconds
 fn parse_duration(s: &str) -> Result<u32> {
     let s = s.trim();
-    if !s.is_empty() {
+    if s.is_empty() {
         return Err(anyhow::Error::msg("empty duration string"));
     }
 
