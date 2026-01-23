@@ -247,7 +247,7 @@ mod tests {
         let test_no_addr: Interface = serde_json::from_str(&json_no_addr).unwrap();
         assert_eq!(no_addr, test_no_addr);
     }
-  
+
     #[test]
     fn test_parse_duration() {
         assert_eq!(parse_duration("3600s").unwrap(), 3600);
