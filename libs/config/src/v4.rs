@@ -53,7 +53,7 @@ pub struct Config {
 impl TryFrom<wire::Config> for Config {
     type Error = anyhow::Error;
     fn try_from(cfg: wire::Config) -> Result<Self> {
-        let interfaces = crate::v4_find_interfaces(cfg.interfaces.clone())?;
+        let interfaces = crate::v4_find_interfaces(cfg.interfaces.as_deref())?;
 
         debug!(?interfaces, "using v4 interfaces");
         // transform wire::Config into a more optimized format
@@ -61,55 +61,8 @@ impl TryFrom<wire::Config> for Config {
             .networks
             .into_iter()
             .map(|(subnet, net)| {
-                let wire::v4::Net {
-                    ranges,
-                    reservations,
-                    ping_check,
-                    probation_period,
-                    authoritative,
-                    server_id,
-                    ping_timeout_ms,
-                    server_name,
-                    file_name,
-                } = net;
-
-                let ranges = ranges.into_iter().map(|range| range.into()).collect();
-                let reserved_macs = reservations
-                    .iter()
-                    .filter_map(|res| match &res.condition {
-                        wire::v4::Condition::Mac(mac) => Some((*mac, res.into())),
-                        _ => None,
-                    })
-                    .collect();
-                let reserved_opts = reservations
-                    .iter()
-                    .filter_map(|res| {
-                        match &res.condition {
-                            wire::v4::Condition::Options(match_opts) => {
-                                // TODO: we only support matching on a single option currently.
-                                // A reservation can match on chaddr OR a single option value.
-                                match match_opts.values.0.iter().next() {
-                                    Some((code, opt)) => Some((*code, (opt.clone(), res.into()))),
-                                    _ => None,
-                                }
-                            }
-                            _ => None,
-                        }
-                    })
-                    .collect();
-                let network = Network {
-                    server_id,
-                    subnet,
-                    ping_check,
-                    probation_period: Duration::from_secs(probation_period),
-                    ranges,
-                    reserved_macs,
-                    reserved_opts,
-                    authoritative,
-                    ping_timeout_ms: Duration::from_millis(ping_timeout_ms),
-                    server_name,
-                    file_name,
-                };
+                let mut network: Network = net.into();
+                network.set_subnet(subnet);
                 // set total addr space for metrics
                 dora_core::metrics::TOTAL_AVAILABLE_ADDRS.set(network.total_addrs() as i64);
                 (subnet, network)
@@ -309,6 +262,59 @@ impl Config {
         match Self::json(input.as_ref()) {
             Ok(r) => Ok(r),
             Err(_err) => Self::yaml(input.as_ref()),
+        }
+    }
+}
+
+impl From<wire::v4::Net> for Network {
+    fn from(net: wire::v4::Net) -> Self {
+        let wire::v4::Net {
+            ranges,
+            reservations,
+            ping_check,
+            probation_period,
+            authoritative,
+            server_id,
+            ping_timeout_ms,
+            server_name,
+            file_name,
+        } = net;
+
+        let ranges = ranges.into_iter().map(|range| range.into()).collect();
+        let reserved_macs = reservations
+            .iter()
+            .filter_map(|res| match &res.condition {
+                wire::v4::Condition::Mac(mac) => Some((*mac, res.into())),
+                _ => None,
+            })
+            .collect();
+        let reserved_opts = reservations
+            .iter()
+            .filter_map(|res| match &res.condition {
+                wire::v4::Condition::Options(match_opts) => {
+                    // TODO: we only support matching on a single option currently.
+                    // A reservation can match on chaddr OR a single option value.
+                    match match_opts.values.0.iter().next() {
+                        Some((code, opt)) => Some((*code, (opt.clone(), res.into()))),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            })
+            .collect();
+
+        Network {
+            server_id,
+            subnet: Default::default(), // This will be set in the calling function
+            ping_check,
+            probation_period: Duration::from_secs(probation_period),
+            ranges,
+            reserved_macs,
+            reserved_opts,
+            authoritative,
+            ping_timeout_ms: Duration::from_millis(ping_timeout_ms),
+            server_name,
+            file_name,
         }
     }
 }
@@ -695,11 +701,12 @@ impl FloodThreshold {
 #[cfg(test)]
 mod tests {
 
+    use std::net::Ipv4Addr;
+
     use dora_core::dhcproto::v4;
 
-    use crate::wire::v4::{Options, Opts};
-
     use super::*;
+    use crate::wire::v4::{Options, Opts};
 
     pub static SAMPLE_YAML: &str = include_str!("../sample/config.yaml");
     pub static V4_JSON: &str = include_str!("../sample/config_v4.json");

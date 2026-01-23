@@ -1,4 +1,4 @@
-use std::{collections::HashMap, num::NonZeroU32, time::Duration};
+use std::{collections::HashMap, net::IpAddr, num::NonZeroU32, time::Duration};
 
 use anyhow::{Context, Result};
 use ipnet::Ipv4Net;
@@ -13,7 +13,7 @@ pub mod v6;
 /// top-level config type
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Config {
-    pub interfaces: Option<Vec<String>>,
+    pub interfaces: Option<Vec<Interface>>,
     #[serde(default = "default_chaddr_only")]
     pub chaddr_only: bool,
     pub flood_protection_threshold: Option<FloodThreshold>,
@@ -28,6 +28,42 @@ pub struct Config {
     pub v6: Option<v6::Config>,
     pub client_classes: Option<ClientClasses>,
     pub ddns: Option<v4::ddns::Ddns>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct Interface {
+    pub name: String,
+    pub addr: Option<IpAddr>,
+}
+
+impl TryFrom<String> for Interface {
+    type Error = anyhow::Error;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        let mut iter = s.split('@');
+        let name = iter
+            .next()
+            .ok_or_else(|| anyhow::Error::msg("missing interface"))?
+            .to_owned();
+        if name.is_empty() {
+            return Err(anyhow::Error::msg("missing interface"));
+        }
+        Ok(Self {
+            name,
+            addr: iter.next().map(|s| s.parse::<IpAddr>()).transpose()?,
+        })
+    }
+}
+
+impl From<Interface> for String {
+    fn from(iface: Interface) -> Self {
+        if let Some(addr) = iface.addr {
+            format!("{}@{}", iface.name, addr)
+        } else {
+            iface.name
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -184,6 +220,32 @@ mod tests {
         // back to the yaml
         let s = serde_yaml::to_string(&cfg).unwrap();
         println!("{s}");
+    }
+
+    #[test]
+    fn test_interface() {
+        let iface = Interface {
+            name: "eth0".to_string(),
+            addr: Some([192, 168, 1, 1].into()),
+        };
+
+        let s = serde_json::to_string(&iface).unwrap();
+        assert_eq!(s, "\"eth0@192.168.1.1\"");
+
+        let err = serde_json::from_str::<Interface>("\"@192.168.1.1\"");
+        assert!(err.is_err());
+
+        let json_test: Interface = serde_json::from_str(&s).unwrap();
+        assert_eq!(iface, json_test);
+
+        let no_addr = Interface {
+            name: "lo".to_string(),
+            addr: None,
+        };
+        let json_no_addr = serde_json::to_string(&no_addr).unwrap();
+        assert_eq!(json_no_addr, "\"lo\"");
+        let test_no_addr: Interface = serde_json::from_str(&json_no_addr).unwrap();
+        assert_eq!(no_addr, test_no_addr);
     }
 
     #[test]

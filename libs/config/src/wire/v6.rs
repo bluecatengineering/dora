@@ -11,13 +11,13 @@ use std::{collections::HashMap, net::Ipv6Addr, ops::RangeInclusive};
 
 use crate::{
     v6::DEFAULT_SERVER_ID_FILE_PATH,
-    wire::{MaybeList, MinMax},
+    wire::{Interface, MaybeList, MinMax},
 };
 
 /// top-level config type
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default)]
 pub struct Config {
-    pub interfaces: Option<Vec<String>>,
+    pub interfaces: Option<Vec<Interface>>,
     pub server_id: Option<ServerDuid>,
     pub networks: HashMap<Ipv6Net, Net>,
     // TODO: better defaults than blank? pull information from the system

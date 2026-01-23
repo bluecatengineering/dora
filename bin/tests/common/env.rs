@@ -23,6 +23,12 @@ impl DhcpServerEnv {
         veth_srv: &str,
         srv_ip: &str,
     ) -> Self {
+        // Clean up any leftover resources from previous failed tests
+        // This is necessary because if start() panics before returning Self,
+        // Drop won't run and resources won't be cleaned up
+        remove_test_veth_nics(veth_cli);
+        remove_test_net_namespace(netns);
+
         create_test_net_namespace(netns);
         create_test_veth_nics(netns, srv_ip, veth_cli, veth_srv);
         Self {
@@ -57,6 +63,8 @@ impl Drop for DhcpServerEnv {
 const SUDO: &str = "sudo";
 
 fn create_test_net_namespace(netns: &str) {
+    // Clean up any existing namespace first (from failed test runs)
+    run_cmd_ignore_failure(&format!("{SUDO} ip netns del {netns}"));
     run_cmd(&format!("{SUDO} ip netns add {netns}"));
 }
 
@@ -65,6 +73,8 @@ fn remove_test_net_namespace(netns: &str) {
 }
 
 fn create_test_veth_nics(netns: &str, srv_ip: &str, veth_cli: &str, veth_srv: &str) {
+    // Clean up any existing veth interfaces first (from failed test runs)
+    run_cmd_ignore_failure(&format!("{SUDO} ip link del {veth_cli}"));
     run_cmd(&format!(
         "{SUDO} ip link add {veth_cli} type veth peer name {veth_srv}",
     ));

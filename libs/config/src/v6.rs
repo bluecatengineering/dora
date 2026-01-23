@@ -264,7 +264,7 @@ impl TryFrom<wire::v6::Config> for Config {
     type Error = anyhow::Error;
 
     fn try_from(cfg: wire::v6::Config) -> Result<Self> {
-        let interfaces = crate::v6_find_interfaces(cfg.interfaces)?;
+        let interfaces = crate::v6_find_interfaces(cfg.interfaces.as_deref())?;
         // DUID-LLT is the default, will need config options to do others
         let link_local = interfaces
             .iter()
