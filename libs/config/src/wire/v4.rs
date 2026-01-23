@@ -90,14 +90,16 @@ pub struct IpRange {
     #[serde(flatten)]
     pub range: RangeInclusive<Ipv4Addr>,
     pub options: Options,
+    #[serde(default)]
     pub config: NetworkConfig,
     #[serde(default)]
     pub except: Vec<Ipv4Addr>,
     pub class: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default)]
 pub struct NetworkConfig {
+    #[serde(default)]
     pub lease_time: MinMax,
 }
 
@@ -130,6 +132,7 @@ pub struct ReservedIp {
     pub options: Options,
     #[serde(rename = "match")]
     pub condition: Condition,
+    #[serde(default)]
     pub config: NetworkConfig,
     pub class: Option<String>,
 }
