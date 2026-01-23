@@ -833,3 +833,69 @@ fn test_cache_threshold() -> Result<()> {
     drop(_srv);
     Ok(())
 }
+
+/// send a discover to an ip that is not configured in the `interfaces` list
+#[test]
+#[traced_test]
+fn test_interface_no_match() -> Result<()> {
+    let _srv = DhcpServerEnv::start(
+        "interface.yaml",
+        "interface.db",
+        "dora_test",
+        "dhcpcli",
+        "dhcpsrv",
+        "192.168.2.1",
+    );
+    // use veth_cli created in start()
+    let settings = ClientSettingsBuilder::default()
+        .iface_name("dhcpcli")
+        .target("192.168.2.2".parse::<std::net::IpAddr>().unwrap())
+        .port(9900_u16)
+        .build()?;
+    // create a client that sends dhcpv4 messages
+    let mut client = Client::<v4::Message>::new(settings);
+    // create DISCOVER msg & send
+    let msg_args = DiscoverBuilder::default()
+        .giaddr([192, 168, 2, 1])
+        .build()?;
+    let resp = client.run(MsgType::Discover(msg_args));
+
+    assert!(resp.is_err());
+
+    // pedantic drop
+    drop(_srv);
+    Ok(())
+}
+
+/// send a discover to an ip that is configured in the `interfaces` list
+#[test]
+#[traced_test]
+fn test_interface_match() -> Result<()> {
+    let _srv = DhcpServerEnv::start(
+        "interface.yaml",
+        "interface.db",
+        "dora_test",
+        "dhcpcli",
+        "dhcpsrv",
+        "192.168.2.1",
+    );
+    // use veth_cli created in start()
+    let settings = ClientSettingsBuilder::default()
+        .iface_name("dhcpcli")
+        .target("192.168.2.1".parse::<std::net::IpAddr>().unwrap())
+        .port(9900_u16)
+        .build()?;
+    // create a client that sends dhcpv4 messages
+    let mut client = Client::<v4::Message>::new(settings);
+    // create DISCOVER msg & send
+    let msg_args = DiscoverBuilder::default()
+        .giaddr([192, 168, 2, 1])
+        .build()?;
+    let resp = client.run(MsgType::Discover(msg_args))?;
+
+    assert_eq!(resp.opts().msg_type().unwrap(), v4::MessageType::Offer);
+
+    // pedantic drop
+    drop(_srv);
+    Ok(())
+}
