@@ -296,14 +296,14 @@ pub enum UpdateError {
 
 #[cfg(test)]
 mod test {
-    use std::net::Ipv6Addr;
+    use super::*;
+    use crate::dhcid::IdType;
     use dora_core::hickory_proto::op::MessageType::Query;
     use dora_core::hickory_proto::op::{OpCode, UpdateMessage};
     use dora_core::hickory_proto::rr::DNSClass::IN;
-    use dora_core::hickory_proto::rr::{RData, Record};
     use dora_core::hickory_proto::rr::rdata::NULL;
-    use crate::dhcid::IdType;
-    use super::*;
+    use dora_core::hickory_proto::rr::{RData, Record};
+    use std::net::Ipv6Addr;
     #[test]
     fn test_rev_ip() {
         assert_eq!(
@@ -333,11 +333,19 @@ mod test {
         let name = Name::from_ascii("outrider").unwrap();
 
         let dhcid = DhcId::new(IdType::ClientId, hex::decode("010708090a0b0c").unwrap());
-        let address = Ipv4Addr::new(10,10,10,10);
+        let address = Ipv4Addr::new(10, 10, 10, 10);
 
         // Assert the shape and values of most of the request packet.
         // TSIG is applied by Hickory if needed right before the packet is sent.
-        let update = update(zone_origin.clone(), name.clone(), dhcid.clone(), address, 1800, false).unwrap();
+        let update = update(
+            zone_origin.clone(),
+            name.clone(),
+            dhcid.clone(),
+            address,
+            1800,
+            false,
+        )
+        .unwrap();
         assert_eq!(update.message_type(), Query);
         assert_eq!(update.op_code(), OpCode::Update);
         let queries = update.queries();
@@ -353,21 +361,23 @@ mod test {
         assert_eq!(name_server_1.name(), &name);
         assert_eq!(name_server_1.dns_class(), IN);
         assert_eq!(name_server_1.ttl(), 1800);
-        let name_server_1_rdata : Record = name_server_1.into_record_of_rdata();
-        let should_be : Record = Record::from_rdata(name.clone(), 1800, A::new(10,10,10,10).into_rdata());
+        let name_server_1_rdata: Record = name_server_1.into_record_of_rdata();
+        let should_be: Record =
+            Record::from_rdata(name.clone(), 1800, A::new(10, 10, 10, 10).into_rdata());
         assert_eq!(name_server_1_rdata, should_be);
         let name_server_2 = name_servers[1].clone();
         assert_eq!(name_server_2.name(), &name);
         assert_eq!(name_server_2.dns_class(), IN);
         assert_eq!(name_server_2.ttl(), 1800);
-        let name_server_2_rdata : Record = name_server_2.into_record_of_rdata();
+        let name_server_2_rdata: Record = name_server_2.into_record_of_rdata();
         let should_be_2 = Record::from_rdata(
-            name.clone(),1800,
+            name.clone(),
+            1800,
             RData::Unknown {
-            code: Unknown(49),
-            rdata: NULL::with(dhcid.clone().rdata(&name).unwrap()),
-        });
+                code: Unknown(49),
+                rdata: NULL::with(dhcid.clone().rdata(&name).unwrap()),
+            },
+        );
         assert_eq!(name_server_2_rdata, should_be_2);
     }
-
 }
