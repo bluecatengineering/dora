@@ -125,7 +125,7 @@ pub fn update(
 
     let mut prerequisite = Record::update0(name.clone(), 0, RecordType::ANY);
     prerequisite.set_dns_class(DNSClass::NONE);
-    message.add_update(prerequisite);
+    message.add_pre_requisite(prerequisite);
 
     let a_record = Record::from_rdata(name.clone(), ttl, A(leased).into_rdata());
     let dhcid_record = Record::from_rdata(
@@ -297,7 +297,12 @@ pub enum UpdateError {
 #[cfg(test)]
 mod test {
     use std::net::Ipv6Addr;
-
+    use dora_core::hickory_proto::op::MessageType::Query;
+    use dora_core::hickory_proto::op::{OpCode, UpdateMessage};
+    use dora_core::hickory_proto::rr::DNSClass::IN;
+    use dora_core::hickory_proto::rr::{RData, Record};
+    use dora_core::hickory_proto::rr::rdata::NULL;
+    use crate::dhcid::IdType;
     use super::*;
     #[test]
     fn test_rev_ip() {
@@ -317,4 +322,52 @@ mod test {
             "1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.f.2.1.b.0.a.0.8.b.d.0.1.0.0.2.ip6.arpa."
         )
     }
+
+    #[test]
+    fn test_update_message() {
+        // Message captured from a running Kea/Bind9 DDNS update (for reference).
+        //let from_kea = BASE64_STANDARD.decode("wbYoAAABAAEAAgABA2xhYgAABgABCG91dHJpZGVywAwA/wD+AAAAAAAAwBUAAQABAAAEsAAECkVFNMAVADEAAQAABLAAIwABAasTowCr6hY874Nyfq0krHOxnvk5GwMgYIi6N1UY6lTRCGtlYS1iaW5kAAD6AP8AAAAAAD0LaG1hYy1zaGEyNTYAAABpbnyOASwAIB0XNv7B7IFpFMfsWXNH4jrSjqApS61geEUuVlin/bPBMsUAAAAA").unwrap();
+        //let message = Message::from_vec(from_kea.as_slice());
+        //println!("{:#?}", message);
+        let zone_origin = Name::from_ascii("lab.").unwrap();
+        let name = Name::from_ascii("outrider").unwrap();
+
+        let dhcid = DhcId::new(IdType::ClientId, hex::decode("010708090a0b0c").unwrap());
+        let address = Ipv4Addr::new(10,10,10,10);
+
+        // Assert the shape and values of most of the request packet.
+        // TSIG is applied by Hickory if needed right before the packet is sent.
+        let update = update(zone_origin.clone(), name.clone(), dhcid.clone(), address, 1800, false).unwrap();
+        assert_eq!(update.message_type(), Query);
+        assert_eq!(update.op_code(), OpCode::Update);
+        let queries = update.queries();
+        assert_eq!(queries.len(), 1);
+        assert_eq!(queries[0].name(), &zone_origin);
+        let prerequisites = update.prerequisites();
+        assert_eq!(prerequisites.len(), 1);
+        let answer_record = prerequisites[0].clone();
+        assert_eq!(answer_record.name(), &name);
+        let name_servers = update.name_servers();
+        assert_eq!(name_servers.len(), 2);
+        let name_server_1 = name_servers[0].clone();
+        assert_eq!(name_server_1.name(), &name);
+        assert_eq!(name_server_1.dns_class(), IN);
+        assert_eq!(name_server_1.ttl(), 1800);
+        let name_server_1_rdata : Record = name_server_1.into_record_of_rdata();
+        let should_be : Record = Record::from_rdata(name.clone(), 1800, A::new(10,10,10,10).into_rdata());
+        assert_eq!(name_server_1_rdata, should_be);
+        let name_server_2 = name_servers[1].clone();
+        assert_eq!(name_server_2.name(), &name);
+        assert_eq!(name_server_2.dns_class(), IN);
+        assert_eq!(name_server_2.ttl(), 1800);
+        let name_server_2_rdata : Record = name_server_2.into_record_of_rdata();
+        let should_be_2 = Record::from_rdata(
+            name.clone(),1800,
+            RData::Unknown {
+            code: Unknown(49),
+            rdata: NULL::with(dhcid.clone().rdata(&name).unwrap()),
+        });
+        assert_eq!(name_server_2_rdata, should_be_2);
+    }
+
 }
