@@ -172,7 +172,7 @@ pub fn update_present(
             rdata: NULL::with(duid.rdata(&name)?),
         },
     );
-    message.add_update(dhcid_record);
+    message.add_pre_requisite(dhcid_record);
 
     let a_record: Record = Record::from_rdata(name, ttl, A(leased).into_rdata());
     message.add_update(a_record);
@@ -297,15 +297,13 @@ pub enum UpdateError {
 #[cfg(test)]
 mod test {
     use super::*;
-    
-    use std::net::Ipv6Addr;
-    
     use crate::dhcid::IdType;
     use dora_core::hickory_proto::op::MessageType::Query;
     use dora_core::hickory_proto::op::{OpCode, UpdateMessage};
     use dora_core::hickory_proto::rr::DNSClass::IN;
     use dora_core::hickory_proto::rr::rdata::NULL;
     use dora_core::hickory_proto::rr::{RData, Record};
+    use std::net::Ipv6Addr;  
     
     #[test]
     fn test_rev_ip() {
