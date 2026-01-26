@@ -303,8 +303,8 @@ mod test {
     use dora_core::hickory_proto::rr::DNSClass::IN;
     use dora_core::hickory_proto::rr::rdata::NULL;
     use dora_core::hickory_proto::rr::{RData, Record};
-    use std::net::Ipv6Addr;  
-    
+    use std::net::Ipv6Addr;
+
     #[test]
     fn test_rev_ip() {
         assert_eq!(
