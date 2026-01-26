@@ -161,7 +161,7 @@ pub fn update_present(
     let mut prerequisite = Record::update0(name.clone(), 0, RecordType::ANY);
     // use ANY to check only update if this name is present
     prerequisite.set_dns_class(DNSClass::ANY);
-    message.add_update(prerequisite);
+    message.add_pre_requisite(prerequisite);
 
     // add dhcid to prereqs, will only update if dhcid is present
     let dhcid_record = Record::from_rdata(
