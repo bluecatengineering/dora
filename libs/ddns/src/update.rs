@@ -375,7 +375,7 @@ mod test {
             1800,
             RData::Unknown {
                 code: Unknown(49),
-                rdata: NULL::with(dhcid.clone().rdata(&name).unwrap()),
+                rdata: NULL::with(dhcid.rdata(&name).unwrap()),
             },
         );
         assert_eq!(name_server_2_rdata, should_be_2);
