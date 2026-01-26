@@ -297,13 +297,16 @@ pub enum UpdateError {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::dhcid::IdType;
+    
     use std::net::Ipv6Addr;
+    
+    use crate::dhcid::IdType;
     use dora_core::hickory_proto::op::MessageType::Query;
     use dora_core::hickory_proto::op::{OpCode, UpdateMessage};
     use dora_core::hickory_proto::rr::DNSClass::IN;
     use dora_core::hickory_proto::rr::rdata::NULL;
     use dora_core::hickory_proto::rr::{RData, Record};
+    
     #[test]
     fn test_rev_ip() {
         assert_eq!(
