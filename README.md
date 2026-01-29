@@ -14,7 +14,7 @@ If started on non-default dhcp port, it is assumed this is for testing, and dora
 
 [see example.yaml for all available options](./example.yaml).
 
-### Building dora for development
+## Building dora from source
 
 You will need `sqlx-cli` to build, as sql queries written in Rust are checked against the database at compile time. [Install sqlx-cli](https://crates.io/crates/sqlx-cli)
 
@@ -41,7 +41,7 @@ Or run help:
 cargo run --bin dora -- --help
 ```
 
-## Build/Run
+## Running dora
 
 [To build and run dora in docker see docs/docker.md](./docs/docker.md)
 
@@ -49,9 +49,11 @@ cargo run --bin dora -- --help
 
 Use `DORA_LOG` env var for adjusting log level and which targets, see [here](https://docs.rs/tracing-subscriber/0.2.20/tracing_subscriber/fmt/index.html#filtering-events-with-environment-variables) for more options.
 
-### Run dora quickly from source
+### Run dora from source
 
-To run dora, bind to the default v4 addr (`0.0.0.0:67`) with a particular config use:
+(assuming you have `sqlx-cli` installed)
+
+To run a debug build of dora, bind to the default v4 addr (`0.0.0.0:67`) with a particular config use:
 
 ```
 cargo run --bin dora -- -c path/to/config.json -d leases.db
