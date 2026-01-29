@@ -210,7 +210,7 @@ pub fn rebind(t: Duration) -> Duration {
 }
 
 pub fn generate_random_bytes(len: usize) -> Vec<u8> {
-    let mut ident = Vec::with_capacity(len);
+    let mut ident = vec![0;len];
     rand::thread_rng().fill_bytes(&mut ident);
     ident
 }
