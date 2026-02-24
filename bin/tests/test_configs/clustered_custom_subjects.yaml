@@ -1,0 +1,39 @@
+backend_mode: nats
+nats:
+  servers:
+    - "nats://nats1.example.com:4222"
+    - "nats://nats2.example.com:4222"
+  subject_prefix: "myorg.dhcp"
+  contract_version: "1.0.0"
+  leases_bucket: "myorg.dhcp.leases"
+  host_options_bucket: "myorg.dhcp.host-options"
+  lease_gc_interval_ms: 15000
+  subjects:
+    lease_upsert: "myorg.dhcp.lease.upsert"
+    lease_release: "myorg.dhcp.lease.release"
+    lease_snapshot_request: "myorg.dhcp.lease.snapshot.request"
+    lease_snapshot_response: "myorg.dhcp.lease.snapshot.response"
+  security_mode: user_password
+  username: "dora"
+  password: "secret"
+  connect_timeout_ms: 5000
+  request_timeout_ms: 3000
+networks:
+    10.0.0.0/24:
+        probation_period: 86400
+        ranges:
+            -
+                start: 10.0.0.10
+                end: 10.0.0.200
+                config:
+                    lease_time:
+                        default: 7200
+                options:
+                    values:
+                        1:
+                            type: ip
+                            value: 255.255.255.0
+                        3:
+                            type: ip
+                            value:
+                                - 10.0.0.1
