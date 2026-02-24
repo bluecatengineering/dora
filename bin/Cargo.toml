@@ -12,9 +12,8 @@ external-api = { path = "../external-api" }
 # plugins
 message-type = { path = "../plugins/message-type" }
 leases = { path = "../plugins/leases" }
-nats-leases = { path = "../plugins/nats-leases" }
 static-addr = { path = "../plugins/static-addr" }
-nats-host-options = { path = "../plugins/nats-host-options" }
+host-option-sync = { path = "../plugins/host-option-sync" }
 # libs
 ip-manager = { path = "../libs/ip-manager" }
 nats-coordination = { path = "../libs/nats-coordination" }

@@ -1029,6 +1029,7 @@ dependencies = [
  "dora-core",
  "dotenv",
  "external-api",
+ "host-option-sync",
  "ip-manager",
  "jemallocator",
  "leases",
@@ -1626,6 +1627,28 @@ dependencies = [
  "thiserror 2.0.17",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "host-option-sync"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "config",
+ "dora-core",
+ "hex",
+ "lazy_static",
+ "leases",
+ "message-type",
+ "nats-coordination",
+ "prometheus",
+ "register_derive",
+ "serde_json",
+ "serde_yaml",
+ "static-addr",
+ "tokio",
+ "tracing",
+ "tracing-test",
 ]
 
 [[package]]

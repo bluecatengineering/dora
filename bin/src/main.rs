@@ -3,8 +3,6 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
 
-mod startup_health;
-
 use config::DhcpConfig;
 use dora_core::{
     Register, Server,
@@ -17,12 +15,10 @@ use dora_core::{
     tracing::*,
 };
 use external_api::{ExternalApi, Health};
-use ip_manager::{IpManager, memory::MemoryStore, sqlite::SqliteDb};
+use host_option_sync::HostOptionSync;
+use ip_manager::{IpManager, sqlite::SqliteDb};
 use leases::Leases;
 use message_type::MsgType;
-use nats_host_options::HostOptionSync;
-use nats_leases::{NatsBackend, NatsLeases, NatsV6Leases};
-use startup_health::{verify_background_task_running, verify_startup_subsystems};
 use static_addr::StaticAddr;
 
 #[cfg(not(target_env = "musl"))]
@@ -66,6 +62,7 @@ fn main() -> Result<()> {
 
 async fn start(config: cli::Config) -> Result<()> {
     let database_url = config.database_url.clone();
+    info!(?database_url, "using database at path");
     let dora_id = config.dora_id.clone();
     info!(?dora_id, "using id");
     // setting DORA_ID for other plugins
@@ -81,13 +78,12 @@ async fn start(config: cli::Config) -> Result<()> {
 
     match backend_mode {
         config::wire::BackendMode::Standalone => {
-            info!(?database_url, "using database at path");
             info!("starting in standalone mode (SQLite backend)");
             start_standalone(config, dhcp_cfg, database_url).await
         }
-        config::wire::BackendMode::Nats => {
-            info!("starting in nats mode (NATS coordination, no local SQLite)");
-            start_nats(config, dhcp_cfg).await
+        config::wire::BackendMode::Clustered => {
+            info!("starting in clustered mode (NATS coordination)");
+            start_clustered(config, dhcp_cfg, database_url).await
         }
     }
 }
@@ -127,102 +123,78 @@ async fn start_standalone(
         None
     };
 
-    let token = CancellationToken::new();
-    let api_sender = api.sender();
-    let mut api_guard = api.start(token.clone());
-
-    let mut v4_task = tokio::spawn(v4.start(shutdown_signal(token.clone())));
-    let mut v6_task = v6.map(|v6| tokio::spawn(v6.start(shutdown_signal(token.clone()))));
-
-    // Keep health BAD until all startup-critical tasks are confirmed running.
-    if let Err(err) =
-        verify_startup_subsystems(&mut api_guard, &mut v4_task, v6_task.as_mut(), "standalone")
-            .await
-    {
-        let _ = api_sender.send(Health::Bad).await;
-        token.cancel();
-        return Err(err);
-    }
-
-    debug!("changing health to good after startup checks passed");
-    api_sender
+    debug!("changing health to good");
+    api.sender()
         .send(Health::Good)
         .await
         .context("error occurred in changing health status to Good")?;
 
-    let server_result = match v6_task {
-        Some(v6_task) => tokio::try_join!(flatten(v4_task), flatten(v6_task)).map(|_| ()),
-        None => flatten(v4_task).await.map(|_| ()),
+    let token = CancellationToken::new();
+    let api_guard = api.start(token.clone());
+    match v6 {
+        Some(v6) => {
+            tokio::try_join!(
+                flatten(tokio::spawn(v4.start(shutdown_signal(token.clone())))),
+                flatten(tokio::spawn(v6.start(shutdown_signal(token.clone())))),
+            )?;
+        }
+        None => {
+            tokio::spawn(v4.start(shutdown_signal(token.clone()))).await??;
+        }
     };
-
-    // Propagate server errors if any
-    if let Err(err) = server_result {
-        // Set health to bad since server failed
-        let _ = api_sender.send(Health::Bad).await;
-        token.cancel();
-        return Err(err);
-    }
     if let Err(err) = api_guard.await {
         error!(?err, "error waiting for web server API");
     }
     Ok(())
 }
 
-/// Start the server in nats mode with NATS coordination.
-async fn start_nats(config: cli::Config, dhcp_cfg: Arc<DhcpConfig>) -> Result<()> {
-    let nats_config = dhcp_cfg
-        .nats()
-        .ok_or_else(|| anyhow!("nats mode requires nats configuration"))?
+/// Start the server in clustered mode with NATS coordination.
+async fn start_clustered(
+    config: cli::Config,
+    dhcp_cfg: Arc<DhcpConfig>,
+    database_url: String,
+) -> Result<()> {
+    let cluster_config = dhcp_cfg
+        .cluster()
+        .ok_or_else(|| anyhow!("clustered mode requires cluster configuration"))?
         .clone();
 
     let server_id = config.effective_instance_id().to_string();
-    info!(?server_id, "nats server identity");
+    info!(?server_id, "clustered server identity");
 
     // Build NATS coordination components
     let subject_resolver = nats_coordination::SubjectResolver::new(
-        nats_config.subjects.clone(),
-        nats_config.contract_version.clone(),
+        cluster_config.subjects.clone(),
+        cluster_config.contract_version.clone(),
     )
     .map_err(|e| anyhow!("subject resolver error: {e}"))?;
 
-    let nats_client = nats_coordination::NatsClient::new(nats_config.clone(), subject_resolver);
+    let nats_client =
+        nats_coordination::NatsClient::new(cluster_config.clone(), subject_resolver);
 
     // Connect to NATS
-    info!("connecting to NATS for nats coordination");
+    info!("connecting to NATS for clustered coordination");
     nats_client
         .connect()
         .await
         .map_err(|e| anyhow!("NATS connection failed: {e}"))?;
-    info!("NATS connection established for nats mode");
+    info!("NATS connection established for clustered mode");
 
     // Create lease coordinator
     let lease_coordinator =
         nats_coordination::LeaseCoordinator::new(nats_client.clone(), server_id.clone());
-    let gc_coordinator = lease_coordinator.clone();
 
-    // Create local in-memory IpManager for address selection and ping checks.
-    // NATS mode avoids local SQLite persistence and uses JetStream for coordination state.
-    debug!("starting in-memory lease cache for nats mode");
-    let ip_mgr = Arc::new(IpManager::new(MemoryStore::new())?);
+    // Create local IpManager for address selection and ping checks
+    debug!("starting database (local cache for clustered mode)");
+    let ip_mgr = Arc::new(IpManager::new(SqliteDb::new(database_url).await?)?);
 
-    // Clone coordinator/server_id for v6 before moving into v4 NATS backend
-    let v6_lease_coordinator = lease_coordinator.clone();
-    let v6_server_id = server_id.clone();
-
-    // Create NATS backend
-    let nats_backend = NatsBackend::new(Arc::clone(&ip_mgr), lease_coordinator, server_id);
-
-    // Get coordination availability flag for background monitor before moving backend
-    let coordination_available = nats_backend.coordination_available();
-
-    if let Err(err) = nats_leases::LeaseBackend::reconcile(&nats_backend).await {
-        warn!(?err, "nats backend initial reconcile failed");
-    }
-
-    // Mark coordination as available after initial reconcile
-    coordination_available.store(true, std::sync::atomic::Ordering::Relaxed);
-
-    let backend: Arc<dyn nats_leases::LeaseBackend> = Arc::new(nats_backend);
+    // Create clustered backend
+    let clustered_backend = leases::ClusteredBackend::new(
+        Arc::clone(&ip_mgr),
+        lease_coordinator,
+        server_id,
+    );
+    let backend: Arc<dyn leases::LeaseBackend> = Arc::new(clustered_backend);
 
     // Create host-option lookup client for response enrichment
     let host_option_client = nats_coordination::HostOptionClient::new(nats_client.clone());
@@ -234,175 +206,55 @@ async fn start_nats(config: cli::Config, dhcp_cfg: Arc<DhcpConfig>) -> Result<()
         Arc::clone(&ip_mgr),
     );
 
-    // Start v4 server with NATS leases plugin and host-option sync
-    debug!("starting v4 server (nats)");
+    // Start v4 server with clustered leases plugin and host-option sync
+    debug!("starting v4 server (clustered)");
     let mut v4: Server<v4::Message> =
         Server::new(config.clone(), dhcp_cfg.v4().interfaces().to_owned())?;
-    debug!("starting v4 plugins (nats)");
+    debug!("starting v4 plugins (clustered)");
 
     MsgType::new(Arc::clone(&dhcp_cfg))?.register(&mut v4);
     StaticAddr::new(Arc::clone(&dhcp_cfg))?.register(&mut v4);
-    NatsLeases::new(Arc::clone(&dhcp_cfg), backend).register(&mut v4);
+    leases::ClusteredLeases::new(Arc::clone(&dhcp_cfg), backend).register(&mut v4);
     HostOptionSync::new(host_option_client.clone()).register(&mut v4);
 
     let v6 = if dhcp_cfg.has_v6() {
-        info!("starting v6 server (nats)");
+        info!("starting v6 server (clustered)");
         let mut v6: Server<v6::Message> =
             Server::new(config.clone(), dhcp_cfg.v6().interfaces().to_owned())?;
-        info!("starting v6 plugins (nats)");
+        info!("starting v6 plugins (clustered)");
         MsgType::new(Arc::clone(&dhcp_cfg))?.register(&mut v6);
-        // Register stateful v6 lease plugin for nats mode
-        NatsV6Leases::new(Arc::clone(&dhcp_cfg), v6_lease_coordinator, v6_server_id)
-            .register(&mut v6);
         HostOptionSync::new(host_option_client.clone()).register(&mut v6);
         Some(v6)
     } else {
         None
     };
 
-    let token = CancellationToken::new();
-    let mut gc_task =
-        spawn_lease_gc_task(gc_coordinator, nats_config.lease_gc_interval, token.clone());
-
-    // Spawn background task to monitor NATS connection state and update coordination availability flag
-    let mut coordination_monitor = spawn_coordination_monitor_task(
-        nats_client.clone(),
-        coordination_available,
-        nats_config.coordination_state_poll_interval,
-        token.clone(),
-    );
-
-    let api_sender = api.sender();
-    let mut api_guard = api.start(token.clone());
-
-    let mut v4_task = tokio::spawn(v4.start(shutdown_signal(token.clone())));
-    let mut v6_task = v6.map(|v6| tokio::spawn(v6.start(shutdown_signal(token.clone()))));
-
-    // Keep health BAD until all startup-critical tasks are confirmed running.
-    if let Err(err) =
-        verify_startup_subsystems(&mut api_guard, &mut v4_task, v6_task.as_mut(), "nats").await
-    {
-        let _ = api_sender.send(Health::Bad).await;
-        token.cancel();
-        return Err(err);
-    }
-    if let Err(err) = verify_background_task_running("nats lease GC", &mut gc_task).await {
-        let _ = api_sender.send(Health::Bad).await;
-        token.cancel();
-        return Err(err);
-    }
-    if let Err(err) =
-        verify_background_task_running("nats coordination monitor", &mut coordination_monitor).await
-    {
-        let _ = api_sender.send(Health::Bad).await;
-        token.cancel();
-        return Err(err);
-    }
-    if let Err(err) = nats_client
-        .startup_write_selftest()
-        .await
-        .map_err(|e| anyhow!("nats startup write selftest failed: {e}"))
-    {
-        let _ = api_sender.send(Health::Bad).await;
-        token.cancel();
-        return Err(err);
-    }
-
-    debug!("changing health to good after startup checks and write selftest passed");
-    api_sender
+    debug!("changing health to good");
+    api.sender()
         .send(Health::Good)
         .await
         .context("error occurred in changing health status to Good")?;
 
-    let server_result = match v6_task {
-        Some(v6_task) => tokio::try_join!(flatten(v4_task), flatten(v6_task)).map(|_| ()),
-        None => flatten(v4_task).await.map(|_| ()),
-    };
+    // Update coordination state metric
+    dora_core::metrics::CLUSTER_COORDINATION_STATE.set(1);
 
-    // Propagate server errors if any
-    if let Err(err) = server_result {
-        // Set health to bad since server failed
-        let _ = api_sender.send(Health::Bad).await;
-        token.cancel();
-        return Err(err);
-    }
+    let token = CancellationToken::new();
+    let api_guard = api.start(token.clone());
+    match v6 {
+        Some(v6) => {
+            tokio::try_join!(
+                flatten(tokio::spawn(v4.start(shutdown_signal(token.clone())))),
+                flatten(tokio::spawn(v6.start(shutdown_signal(token.clone())))),
+            )?;
+        }
+        None => {
+            tokio::spawn(v4.start(shutdown_signal(token.clone()))).await??;
+        }
+    };
     if let Err(err) = api_guard.await {
         error!(?err, "error waiting for web server API");
     }
-    if let Err(err) = gc_task.await {
-        error!(?err, "error waiting for lease GC task");
-    }
-    if let Err(err) = coordination_monitor.await {
-        error!(?err, "error waiting for coordination monitor task");
-    }
     Ok(())
-}
-
-fn spawn_lease_gc_task(
-    coordinator: nats_coordination::LeaseCoordinator,
-    interval: std::time::Duration,
-    token: CancellationToken,
-) -> JoinHandle<()> {
-    tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(interval);
-        loop {
-            tokio::select! {
-                _ = token.cancelled() => {
-                    debug!("nats lease GC task stopping");
-                    return;
-                }
-                _ = ticker.tick() => {
-                    match coordinator.gc_expired().await {
-                        Ok(stats) => {
-                            nats_leases::metrics::CLUSTER_GC_SWEEPS.inc();
-                            nats_leases::metrics::CLUSTER_GC_EXPIRED.inc_by(stats.expired_records);
-                            nats_leases::metrics::CLUSTER_GC_ORPHANED_INDEXES.inc_by(stats.orphan_indexes);
-                            debug!(expired = stats.expired_records, orphaned = stats.orphan_indexes, "nats lease GC sweep completed");
-                        }
-                        Err(err) => {
-                            nats_leases::metrics::CLUSTER_GC_ERRORS.inc();
-                            warn!(?err, "nats lease GC sweep failed");
-                        }
-                    }
-                }
-            }
-        }
-    })
-}
-
-fn spawn_coordination_monitor_task(
-    nats_client: nats_coordination::NatsClient,
-    coordination_available: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    poll_interval: std::time::Duration,
-    token: CancellationToken,
-) -> JoinHandle<()> {
-    tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(poll_interval);
-        loop {
-            tokio::select! {
-                _ = token.cancelled() => {
-                    debug!("coordination monitor task stopping");
-                    return;
-                }
-                _ = ticker.tick() => {
-                    let is_connected = nats_client.is_connected().await;
-                    let was_available = coordination_available.load(std::sync::atomic::Ordering::Relaxed);
-
-                    if is_connected != was_available {
-                        coordination_available.store(is_connected, std::sync::atomic::Ordering::Relaxed);
-
-                        if is_connected {
-                            info!("NATS connection restored - coordination available");
-                            nats_leases::metrics::CLUSTER_COORDINATION_STATE.set(1);
-                        } else {
-                            warn!("NATS connection lost - coordination unavailable");
-                            nats_leases::metrics::CLUSTER_COORDINATION_STATE.set(0);
-                        }
-                    }
-                }
-            }
-        }
-    })
 }
 
 async fn flatten<T>(handle: JoinHandle<Result<T, anyhow::Error>>) -> Result<T, anyhow::Error> {

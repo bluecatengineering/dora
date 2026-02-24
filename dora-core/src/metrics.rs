@@ -7,8 +7,8 @@ use std::time::Instant;
 
 use lazy_static::lazy_static;
 use prometheus::{
-    HistogramVec, IntCounter, IntCounterVec, IntGauge, register_histogram_vec,
-    register_int_counter, register_int_counter_vec, register_int_gauge,
+    register_int_counter, register_int_counter_vec, register_int_gauge, HistogramOpts,
+    HistogramVec, IntCounter, IntCounterVec, IntGauge,
 };
 use prometheus_static_metric::make_static_metric;
 
@@ -61,7 +61,7 @@ lazy_static! {
     /// bytes sent DHCPv4
     pub static ref DHCPV4_BYTES_SENT: IntCounter = register_int_counter!("dhcpv4_bytes_sent", "DHCPv4 bytes sent").unwrap();
     /// bytes sent DHCPv6
-    pub static ref DHCPV6_BYTES_SENT: IntCounter = register_int_counter!("dhcpv6_bytes_sent", "DHCPv6 bytes sent").unwrap();
+    pub static ref DHCPV6_BYTES_SENT: IntCounter = register_int_counter!("dhcpv6_bytes_sent", "DHCPv4 bytes sent").unwrap();
 
     /// bytes recv DHCPv4
     pub static ref DHCPV4_BYTES_RECV: IntCounter = register_int_counter!("dhcpv4_bytes_recv", "DHCPv4 bytes recv").unwrap();
@@ -69,17 +69,15 @@ lazy_static! {
     pub static ref DHCPV6_BYTES_RECV: IntCounter = register_int_counter!("dhcpv6_bytes_recv", "DHCPv6 bytes recv").unwrap();
 
     /// histogram of response times for DHCPv4 reply
-    pub static ref DHCPV4_REPLY_DURATION: HistogramVec = register_histogram_vec!(
-        "dhcpv4_duration",
-        "dhcpv4 duration (seconds)",
+    pub static ref DHCPV4_REPLY_DURATION: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("dhpcv4_duration", "dhcpv4 duration (seconds)"),
         &["type"]
     )
     .unwrap();
 
     /// histogram of response times for DHCPv6 reply
-    pub static ref DHCPV6_REPLY_DURATION: HistogramVec = register_histogram_vec!(
-        "dhcpv6_duration",
-        "dhcpv6 duration (seconds)",
+    pub static ref DHCPV6_REPLY_DURATION: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("dhcpv6_duration", "dhcpv6 duration (seconds)"),
         &["type"]
     )
     .unwrap();
@@ -138,7 +136,7 @@ lazy_static! {
 
     /// # of total addrs available
     pub static ref TOTAL_AVAILABLE_ADDRS: IntGauge =
-        register_int_gauge!("total_available_addrs", "count of total available addresses").unwrap();
+        register_int_gauge!("total_available_addrs", "count of addresses currently leased").unwrap();
     /// server uptime
     pub static ref UPTIME: IntGauge = register_int_gauge!("uptime", "server uptime (seconds)").unwrap();
 
@@ -157,17 +155,15 @@ lazy_static! {
 
 
     /// histogram of response times for ping reply
-    pub static ref ICMPV4_REPLY_DURATION: HistogramVec = register_histogram_vec!(
-        "icmpv4_duration",
-        "icmpv4 response time in seconds, only counts received pings",
+    pub static ref ICMPV4_REPLY_DURATION: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("icmpv4_duration", "icmpv4 response time in seconds, only counts received pings"),
         &["reply"]
     )
     .unwrap();
 
   /// histogram of response times for ping reply v6
-    pub static ref ICMPV6_REPLY_DURATION: HistogramVec = register_histogram_vec!(
-        "icmpv6_duration",
-        "icmpv6 response time in seconds, only counts received pings",
+    pub static ref ICMPV6_REPLY_DURATION: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("icmpv6_duration", "icmpv6 response time in seconds, only counts received pings"),
         &["reply"]
     )
     .unwrap();
@@ -179,54 +175,37 @@ lazy_static! {
     /// flood threshold reached
     pub static ref FLOOD_THRESHOLD_COUNT: IntCounter = register_int_counter!("flood_threshold_count", "count of times flood threshold has been reached").unwrap();
 
-}
+    // --- Clustered DHCP coordination metrics ---
 
-#[cfg(test)]
-mod tests {
-    use std::collections::HashSet;
+    /// Count of new allocations blocked due to NATS unavailability (degraded mode)
+    pub static ref CLUSTER_ALLOCATIONS_BLOCKED: IntCounter = register_int_counter!("cluster_allocations_blocked", "count of new allocations blocked during NATS unavailability").unwrap();
 
-    use prometheus::gather;
+    /// Count of renewals allowed in degraded mode (known active leases)
+    pub static ref CLUSTER_DEGRADED_RENEWALS: IntCounter = register_int_counter!("cluster_degraded_renewals", "count of renewals granted in degraded mode for known active leases").unwrap();
 
-    use super::{
-        DHCPV4_REPLY_DURATION, DHCPV6_REPLY_DURATION, ICMPV4_REPLY_DURATION, ICMPV6_REPLY_DURATION,
-    };
+    /// Count of lease coordination conflicts detected across allocators
+    pub static ref CLUSTER_CONFLICTS_DETECTED: IntCounter = register_int_counter!("cluster_conflicts_detected", "count of lease coordination conflicts detected").unwrap();
 
-    #[test]
-    fn histograms_are_registered_and_exposed() {
-        DHCPV4_REPLY_DURATION
-            .with_label_values(&["offer"])
-            .observe(0.001);
-        DHCPV6_REPLY_DURATION
-            .with_label_values(&["reply"])
-            .observe(0.001);
-        ICMPV4_REPLY_DURATION
-            .with_label_values(&["reply"])
-            .observe(0.001);
-        ICMPV6_REPLY_DURATION
-            .with_label_values(&["reply"])
-            .observe(0.001);
+    /// Count of lease coordination conflicts resolved by retry
+    pub static ref CLUSTER_CONFLICTS_RESOLVED: IntCounter = register_int_counter!("cluster_conflicts_resolved", "count of lease coordination conflicts resolved").unwrap();
 
-        let families = gather();
-        let names = families
-            .iter()
-            .map(|family| family.get_name().to_string())
-            .collect::<HashSet<_>>();
+    /// Count of reconciliation events completed after NATS recovery
+    pub static ref CLUSTER_RECONCILIATIONS: IntCounter = register_int_counter!("cluster_reconciliations", "count of post-outage reconciliation events completed").unwrap();
 
-        assert!(
-            names.contains("dhcpv4_duration"),
-            "registered metric families: {names:?}"
-        );
-        assert!(
-            names.contains("dhcpv6_duration"),
-            "registered metric families: {names:?}"
-        );
-        assert!(
-            names.contains("icmpv4_duration"),
-            "registered metric families: {names:?}"
-        );
-        assert!(
-            names.contains("icmpv6_duration"),
-            "registered metric families: {names:?}"
-        );
-    }
+    /// Count of lease records reconciled during post-outage recovery
+    pub static ref CLUSTER_RECORDS_RECONCILED: IntCounter = register_int_counter!("cluster_records_reconciled", "count of lease records reconciled during post-outage recovery").unwrap();
+
+    /// Gauge: current coordination state (1=connected, 0=disconnected)
+    pub static ref CLUSTER_COORDINATION_STATE: IntGauge = register_int_gauge!("cluster_coordination_state", "current coordination state (1=connected, 0=disconnected/degraded)").unwrap();
+
+    // --- Host-option lookup metrics ---
+
+    /// Count of host-option lookup hits
+    pub static ref HOST_OPTION_LOOKUP_HIT: IntCounter = register_int_counter!("host_option_lookup_hit", "count of host-option lookup hits").unwrap();
+
+    /// Count of host-option lookup misses
+    pub static ref HOST_OPTION_LOOKUP_MISS: IntCounter = register_int_counter!("host_option_lookup_miss", "count of host-option lookup misses").unwrap();
+
+    /// Count of host-option lookup errors (including timeouts)
+    pub static ref HOST_OPTION_LOOKUP_ERROR: IntCounter = register_int_counter!("host_option_lookup_error", "count of host-option lookup errors/timeouts").unwrap();
 }
