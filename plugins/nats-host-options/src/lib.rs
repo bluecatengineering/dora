@@ -8,7 +8,7 @@
 #![deny(rustdoc::broken_intra_doc_links)]
 #![allow(clippy::cognitive_complexity)]
 
-//! Host-option sync plugin for nats-mode DHCP.
+//! Host-option sync plugin for clustered DHCP.
 //!
 //! This plugin performs host-specific option lookups via NATS coordination
 //! and enriches DHCP responses with matching special options (e.g. boot/provision
@@ -29,7 +29,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use lazy_static::lazy_static;
-use prometheus::{IntCounter, register_int_counter};
+use prometheus::{register_int_counter, IntCounter};
 
 use dora_core::{
     async_trait,
@@ -119,22 +119,28 @@ pub fn resolve_v4_identity(msg: &Message) -> HostIdentity {
 /// Uses the DUID from the ClientId option. IAID is extracted from the
 /// first IA_NA or IA_PD option if present.
 pub fn resolve_v6_identity(msg: &v6::Message) -> HostIdentity {
-    let duid = msg.opts().get(v6::OptionCode::ClientId).and_then(|opt| {
-        if let v6::DhcpOption::ClientId(id) = opt {
-            Some(hex::encode(id))
-        } else {
-            None
-        }
-    });
+    let duid = msg
+        .opts()
+        .get(v6::OptionCode::ClientId)
+        .and_then(|opt| {
+            if let v6::DhcpOption::ClientId(id) = opt {
+                Some(hex::encode(id))
+            } else {
+                None
+            }
+        });
 
     // Extract IAID from IA_NA if present
-    let iaid = msg.opts().get(v6::OptionCode::IANA).and_then(|opt| {
-        if let v6::DhcpOption::IANA(iana) = opt {
-            Some(iana.id)
-        } else {
-            None
-        }
-    });
+    let iaid = msg
+        .opts()
+        .get(v6::OptionCode::IANA)
+        .and_then(|opt| {
+            if let v6::DhcpOption::IANA(iana) = opt {
+                Some(iana.id)
+            } else {
+                None
+            }
+        });
 
     HostIdentity {
         client_identifier: None,
@@ -283,7 +289,7 @@ fn record_lookup_metric(outcome: &HostOptionOutcome) {
 // Plugin struct (T021, T023, T024, T025, T026)
 // ---------------------------------------------------------------------------
 
-/// Host-option sync plugin for nats-mode DHCP.
+/// Host-option sync plugin for clustered DHCP.
 ///
 /// Performs host-specific option lookups via NATS and enriches DHCP responses.
 /// Registered for both v4 and v6 message pipelines.
@@ -303,7 +309,9 @@ impl fmt::Debug for HostOptionSync {
 impl HostOptionSync {
     /// Create a new host-option sync plugin.
     pub fn new(host_option_client: HostOptionClient) -> Self {
-        Self { host_option_client }
+        Self {
+            host_option_client,
+        }
     }
 }
 
@@ -475,7 +483,10 @@ impl dora_core::Register<Message> for HostOptionSync {
     fn register(self, srv: &mut dora_core::Server<Message>) {
         info!("HostOptionSync v4 plugin registered");
         let this = Arc::new(self);
-        srv.plugin_order::<Self, _>(this, &[std::any::TypeId::of::<nats_leases::NatsLeases>()]);
+        srv.plugin_order::<Self, _>(
+            this,
+            &[std::any::TypeId::of::<leases::ClusteredLeases>()],
+        );
     }
 }
 
@@ -487,7 +498,7 @@ impl dora_core::Register<v6::Message> for HostOptionSync {
             this,
             &[
                 std::any::TypeId::of::<message_type::MsgType>(),
-                std::any::TypeId::of::<nats_leases::NatsV6Leases>(),
+                std::any::TypeId::of::<leases::ClusteredV6Leases>(),
             ],
         );
     }
@@ -518,7 +529,10 @@ mod tests {
 
         let identity = resolve_v4_identity(&msg);
         assert_eq!(identity.client_identifier, Some("010203".to_string()));
-        assert_eq!(identity.mac_address, Some("aa:bb:cc:dd:ee:ff".to_string()));
+        assert_eq!(
+            identity.mac_address,
+            Some("aa:bb:cc:dd:ee:ff".to_string())
+        );
         assert!(identity.duid.is_none());
         assert!(identity.iaid.is_none());
     }
@@ -536,7 +550,10 @@ mod tests {
 
         let identity = resolve_v4_identity(&msg);
         assert!(identity.client_identifier.is_none());
-        assert_eq!(identity.mac_address, Some("aa:bb:cc:dd:ee:ff".to_string()));
+        assert_eq!(
+            identity.mac_address,
+            Some("aa:bb:cc:dd:ee:ff".to_string())
+        );
     }
 
     #[test]
@@ -600,10 +617,7 @@ mod tests {
         assert_eq!(count, 2);
         // The boot file is set via fname header
         assert_eq!(resp.fname().unwrap_or(b""), b"pxelinux.0");
-        assert_eq!(
-            resp.siaddr(),
-            "10.0.0.1".parse::<std::net::Ipv4Addr>().unwrap()
-        );
+        assert_eq!(resp.siaddr(), "10.0.0.1".parse::<std::net::Ipv4Addr>().unwrap());
     }
 
     #[test]

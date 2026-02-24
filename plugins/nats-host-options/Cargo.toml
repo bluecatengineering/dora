@@ -16,6 +16,8 @@ static-addr = { path = "../static-addr" }
 
 async-trait = { workspace = true }
 hex = "0.4"
+lazy_static = "1.4"
+prometheus = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 

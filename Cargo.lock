@@ -645,7 +645,6 @@ dependencies = [
  "serde_yaml",
  "topo_sort",
  "tracing",
- "url",
 ]
 
 [[package]]
@@ -952,20 +951,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dhcp-loadtest"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap 4.5.4",
- "dhcproto",
- "serde",
- "serde_json",
- "socket2 0.5.6",
- "thiserror 1.0.59",
- "tokio",
-]
-
-[[package]]
 name = "dhcproto"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1036,8 +1021,6 @@ dependencies = [
  "mac_address",
  "message-type",
  "nats-coordination",
- "nats-host-options",
- "nats-leases",
  "rand 0.8.5",
  "socket2 0.5.6",
  "static-addr",
@@ -2146,13 +2129,21 @@ dependencies = [
  "config",
  "ddns",
  "dora-core",
+ "hex",
  "ip-manager",
+ "ipnet",
+ "lazy_static",
  "message-type",
+ "nats-coordination",
+ "parking_lot 0.12.1",
+ "prometheus",
  "register_derive",
  "serde_yaml",
  "static-addr",
+ "thiserror 1.0.59",
  "tracing",
  "tracing-test",
+ "uuid",
 ]
 
 [[package]]
@@ -2386,60 +2377,12 @@ dependencies = [
  "async-trait",
  "chrono",
  "config",
- "futures",
  "serde",
  "serde_json",
  "thiserror 1.0.59",
  "tokio",
  "tracing",
  "tracing-test",
- "uuid",
-]
-
-[[package]]
-name = "nats-host-options"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "config",
- "dora-core",
- "hex",
- "lazy_static",
- "message-type",
- "nats-coordination",
- "nats-leases",
- "prometheus",
- "register_derive",
- "serde_json",
- "serde_yaml",
- "static-addr",
- "tokio",
- "tracing",
- "tracing-test",
-]
-
-[[package]]
-name = "nats-leases"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "chrono",
- "client-protection",
- "config",
- "ddns",
- "dora-core",
- "hex",
- "ip-manager",
- "lazy_static",
- "leases",
- "message-type",
- "nats-coordination",
- "parking_lot 0.12.1",
- "prometheus",
- "siphasher 1.0.2",
- "static-addr",
- "thiserror 1.0.59",
- "tracing",
  "uuid",
 ]
 
@@ -2842,7 +2785,7 @@ version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "90fcb95eef784c2ac79119d1dd819e162b5da872ce6f3c3abe1e8ca1c082f72b"
 dependencies = [
- "siphasher 0.3.11",
+ "siphasher",
  "uncased",
 ]
 
@@ -3845,12 +3788,6 @@ name = "siphasher"
 version = "0.3.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "38b58827f4464d87d377d175e90bf58eb00fd8716ff0a62f80356b5e61555d0d"
-
-[[package]]
-name = "siphasher"
-version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2aa850e253778c88a04c3d7323b043aeda9d3e30d5971937c1855769763678e"
 
 [[package]]
 name = "skeptic"

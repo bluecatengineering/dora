@@ -188,6 +188,10 @@ async fn start_clustered(
     debug!("starting database (local cache for clustered mode)");
     let ip_mgr = Arc::new(IpManager::new(SqliteDb::new(database_url).await?)?);
 
+    // Clone coordinator/server_id for v6 before moving into v4 clustered backend
+    let v6_lease_coordinator = lease_coordinator.clone();
+    let v6_server_id = server_id.clone();
+
     // Create clustered backend
     let clustered_backend = leases::ClusteredBackend::new(
         Arc::clone(&ip_mgr),
@@ -223,6 +227,13 @@ async fn start_clustered(
             Server::new(config.clone(), dhcp_cfg.v6().interfaces().to_owned())?;
         info!("starting v6 plugins (clustered)");
         MsgType::new(Arc::clone(&dhcp_cfg))?.register(&mut v6);
+        // Register stateful v6 lease plugin for clustered mode
+        leases::ClusteredV6Leases::new(
+            Arc::clone(&dhcp_cfg),
+            v6_lease_coordinator,
+            v6_server_id,
+        )
+        .register(&mut v6);
         HostOptionSync::new(host_option_client.clone()).register(&mut v6);
         Some(v6)
     } else {
@@ -235,8 +246,8 @@ async fn start_clustered(
         .await
         .context("error occurred in changing health status to Good")?;
 
-    // Update coordination state metric
-    dora_core::metrics::CLUSTER_COORDINATION_STATE.set(1);
+    // Update coordination state metric (owned by leases plugin)
+    leases::metrics::CLUSTER_COORDINATION_STATE.set(1);
 
     let token = CancellationToken::new();
     let api_guard = api.start(token.clone());

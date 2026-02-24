@@ -175,37 +175,4 @@ lazy_static! {
     /// flood threshold reached
     pub static ref FLOOD_THRESHOLD_COUNT: IntCounter = register_int_counter!("flood_threshold_count", "count of times flood threshold has been reached").unwrap();
 
-    // --- Clustered DHCP coordination metrics ---
-
-    /// Count of new allocations blocked due to NATS unavailability (degraded mode)
-    pub static ref CLUSTER_ALLOCATIONS_BLOCKED: IntCounter = register_int_counter!("cluster_allocations_blocked", "count of new allocations blocked during NATS unavailability").unwrap();
-
-    /// Count of renewals allowed in degraded mode (known active leases)
-    pub static ref CLUSTER_DEGRADED_RENEWALS: IntCounter = register_int_counter!("cluster_degraded_renewals", "count of renewals granted in degraded mode for known active leases").unwrap();
-
-    /// Count of lease coordination conflicts detected across allocators
-    pub static ref CLUSTER_CONFLICTS_DETECTED: IntCounter = register_int_counter!("cluster_conflicts_detected", "count of lease coordination conflicts detected").unwrap();
-
-    /// Count of lease coordination conflicts resolved by retry
-    pub static ref CLUSTER_CONFLICTS_RESOLVED: IntCounter = register_int_counter!("cluster_conflicts_resolved", "count of lease coordination conflicts resolved").unwrap();
-
-    /// Count of reconciliation events completed after NATS recovery
-    pub static ref CLUSTER_RECONCILIATIONS: IntCounter = register_int_counter!("cluster_reconciliations", "count of post-outage reconciliation events completed").unwrap();
-
-    /// Count of lease records reconciled during post-outage recovery
-    pub static ref CLUSTER_RECORDS_RECONCILED: IntCounter = register_int_counter!("cluster_records_reconciled", "count of lease records reconciled during post-outage recovery").unwrap();
-
-    /// Gauge: current coordination state (1=connected, 0=disconnected)
-    pub static ref CLUSTER_COORDINATION_STATE: IntGauge = register_int_gauge!("cluster_coordination_state", "current coordination state (1=connected, 0=disconnected/degraded)").unwrap();
-
-    // --- Host-option lookup metrics ---
-
-    /// Count of host-option lookup hits
-    pub static ref HOST_OPTION_LOOKUP_HIT: IntCounter = register_int_counter!("host_option_lookup_hit", "count of host-option lookup hits").unwrap();
-
-    /// Count of host-option lookup misses
-    pub static ref HOST_OPTION_LOOKUP_MISS: IntCounter = register_int_counter!("host_option_lookup_miss", "count of host-option lookup misses").unwrap();
-
-    /// Count of host-option lookup errors (including timeouts)
-    pub static ref HOST_OPTION_LOOKUP_ERROR: IntCounter = register_int_counter!("host_option_lookup_error", "count of host-option lookup errors/timeouts").unwrap();
 }
