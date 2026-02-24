@@ -951,20 +951,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dhcp-loadtest"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap 4.5.4",
- "dhcproto",
- "serde",
- "serde_json",
- "socket2 0.5.6",
- "thiserror 1.0.59",
- "tokio",
-]
-
-[[package]]
 name = "dhcproto"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1033,9 +1019,6 @@ dependencies = [
  "leases",
  "mac_address",
  "message-type",
- "nats-coordination",
- "nats-host-options",
- "nats-leases",
  "rand 0.8.5",
  "socket2 0.5.6",
  "static-addr",
@@ -2116,18 +2099,16 @@ checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 name = "leases"
 version = "0.1.0"
 dependencies = [
- "async-trait",
- "chrono",
  "client-protection",
  "config",
  "ddns",
  "dora-core",
  "ip-manager",
+ "ipnet",
  "message-type",
  "register_derive",
  "serde_yaml",
  "static-addr",
- "tracing",
  "tracing-test",
 ]
 
@@ -2362,59 +2343,12 @@ dependencies = [
  "async-trait",
  "chrono",
  "config",
- "futures",
  "serde",
  "serde_json",
  "thiserror 1.0.59",
  "tokio",
  "tracing",
  "tracing-test",
- "uuid",
-]
-
-[[package]]
-name = "nats-host-options"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "config",
- "dora-core",
- "hex",
- "lazy_static",
- "message-type",
- "nats-coordination",
- "nats-leases",
- "prometheus",
- "register_derive",
- "serde_json",
- "serde_yaml",
- "static-addr",
- "tokio",
- "tracing",
- "tracing-test",
-]
-
-[[package]]
-name = "nats-leases"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "chrono",
- "client-protection",
- "config",
- "ddns",
- "dora-core",
- "hex",
- "ip-manager",
- "lazy_static",
- "leases",
- "message-type",
- "nats-coordination",
- "parking_lot 0.12.1",
- "prometheus",
- "static-addr",
- "thiserror 1.0.59",
- "tracing",
  "uuid",
 ]
 
