@@ -8,6 +8,7 @@ use anyhow::{Context, Result, bail};
 use rand::{self, RngCore};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
+use url::Url;
 use wire::v6::ServerDuidInfo;
 
 pub mod client_classes;
@@ -61,6 +62,8 @@ pub struct NatsConfig {
     pub creds_file_path: Option<PathBuf>,
     /// Connection timeout.
     pub connect_timeout: Option<Duration>,
+    /// Maximum retries for initial NATS connection attempts.
+    pub connect_retry_max: u32,
     /// Request timeout.
     pub request_timeout: Option<Duration>,
 }
@@ -143,20 +146,21 @@ fn validate_nats_config(wire_cfg: &wire::Config) -> Result<Option<NatsConfig>> {
                 bail!("nats mode requires at least one NATS server URL in 'nats.servers'");
             }
 
-            for (i, server) in nats.servers.iter().enumerate() {
-                if server.trim().is_empty() {
-                    bail!(
-                        "NATS server URL at index {} is empty; all server URLs must be non-empty",
-                        i
-                    );
-                }
-            }
+            let normalized_servers = normalize_nats_servers(&nats.servers)?;
 
             if nats.contract_version.trim().is_empty() {
                 bail!("nats mode requires a non-empty 'nats.contract_version'");
             }
 
             // Resolve subject templates from prefix for fields that were left at defaults.
+            //
+            // Detection works by comparing each subject against its hardcoded default
+            // value. If a subject still equals the default, it is re-derived from
+            // `subject_prefix`. This means an explicitly-set value that happens to
+            // match the default is indistinguishable from "not set" and will be
+            // re-derived — which only matters if DEFAULT_SUBJECT_PREFIX changes in
+            // a future version (the previously-default subjects would then be
+            // re-derived with the new prefix instead of being preserved).
             let defaults = wire::NatsSubjects::default();
             let mut resolved_subjects = nats.subjects.clone();
             if resolved_subjects.lease_upsert == defaults.lease_upsert {
@@ -204,7 +208,7 @@ fn validate_nats_config(wire_cfg: &wire::Config) -> Result<Option<NatsConfig>> {
             }
 
             Ok(Some(NatsConfig {
-                servers: nats.servers.clone(),
+                servers: normalized_servers,
                 subject_prefix: nats.subject_prefix.clone(),
                 subjects: resolved_subjects,
                 leases_bucket: nats.leases_bucket.clone(),
@@ -224,10 +228,72 @@ fn validate_nats_config(wire_cfg: &wire::Config) -> Result<Option<NatsConfig>> {
                 tls_ca_path: nats.tls_ca_path.clone(),
                 creds_file_path: nats.creds_file_path.clone(),
                 connect_timeout: nats.connect_timeout_ms.map(Duration::from_millis),
+                connect_retry_max: nats
+                    .connect_retry_max
+                    .unwrap_or(wire::DEFAULT_CONNECT_RETRY_MAX),
                 request_timeout: nats.request_timeout_ms.map(Duration::from_millis),
             }))
         }
     }
+}
+
+fn normalize_nats_servers(raw_servers: &[String]) -> Result<Vec<String>> {
+    let mut servers = Vec::new();
+
+    for (idx, raw) in raw_servers.iter().enumerate() {
+        let mut split_any = false;
+        for (part_idx, part) in raw.split(',').enumerate() {
+            split_any = true;
+            let server = part.trim();
+            if server.is_empty() {
+                bail!(
+                    "NATS server URL at index {idx} contains an empty entry at position {part_idx}; remove extra commas or whitespace"
+                );
+            }
+
+            validate_single_nats_server(server).with_context(|| {
+                format!("invalid NATS server URL at index {idx} position {part_idx}: `{server}`")
+            })?;
+
+            servers.push(server.to_string());
+        }
+
+        if !split_any {
+            bail!("NATS server URL at index {idx} is empty; all server URLs must be non-empty");
+        }
+    }
+
+    if servers.is_empty() {
+        bail!("nats mode requires at least one NATS server URL in 'nats.servers'");
+    }
+
+    Ok(servers)
+}
+
+fn validate_single_nats_server(server: &str) -> Result<()> {
+    // Match async-nats behavior: if no scheme is provided, default to nats://
+    let parse_input = if server.contains("://") {
+        server.to_string()
+    } else {
+        format!("nats://{server}")
+    };
+
+    let parsed: Url = parse_input
+        .parse()
+        .with_context(|| "NATS server URL is invalid")?;
+
+    let scheme = parsed.scheme();
+    if !matches!(scheme, "nats" | "tls" | "ws" | "wss") {
+        bail!(
+            "NATS server URL has invalid scheme `{scheme}`; expected one of nats://, tls://, ws://, wss://"
+        );
+    }
+
+    if parsed.host_str().is_none() {
+        bail!("NATS server URL is missing host");
+    }
+
+    Ok(())
 }
 
 impl DhcpConfig {
@@ -617,6 +683,7 @@ networks:
         let cfg = crate::DhcpConfig::parse_str(yaml).unwrap();
         let nats = cfg.nats().unwrap();
         assert_eq!(nats.subjects.lease_upsert, "myorg.edge.lease.upsert");
+        assert_eq!(nats.connect_retry_max, wire::DEFAULT_CONNECT_RETRY_MAX);
         assert_eq!(
             nats.subjects.lease_snapshot_response,
             "myorg.edge.lease.snapshot.response"
@@ -635,6 +702,7 @@ nats:
     leases_bucket: "myorg.leases"
     host_options_bucket: "myorg.hostopts"
     lease_gc_interval_ms: 10000
+    connect_retry_max: 7
     subjects:
         lease_upsert: "myorg.dhcp.v1.lease.upsert"
         lease_release: "myorg.dhcp.v1.lease.release"
@@ -669,6 +737,7 @@ networks:
         assert_eq!(nats.lease_gc_interval, std::time::Duration::from_secs(10));
         assert_eq!(nats.security_mode, wire::NatsSecurityMode::UserPassword);
         assert_eq!(nats.username.as_deref(), Some("dora"));
+        assert_eq!(nats.connect_retry_max, 7);
         assert_eq!(
             nats.connect_timeout,
             Some(std::time::Duration::from_millis(5000))
@@ -734,6 +803,150 @@ networks:
         assert!(
             err.contains("empty"),
             "Error should mention empty server URL: {err}"
+        );
+    }
+
+    #[test]
+    fn test_nats_config_accepts_typical_server_url_forms() {
+        // Typical forms seen in NATS docs and clients:
+        // - nats://host:port
+        // - tls://host:port
+        // - ws://host:port and wss://host:port
+        // - host or host:port (defaults to nats:// in async-nats)
+        let yaml = r#"
+backend_mode: nats
+nats:
+    servers:
+        - "  nats://127.0.0.1:4222  "
+        - "tls://nats.example.com:4222"
+        - "ws://nats.example.com:80"
+        - "wss://nats.example.com:443"
+        - "demo.nats.io"
+        - "localhost:4222"
+    contract_version: "1.0.0"
+networks:
+    192.168.0.0/24:
+        ranges:
+            -
+                start: 192.168.0.100
+                end: 192.168.0.200
+                config:
+                    lease_time:
+                        default: 3600
+                options:
+                    values:
+                        3:
+                            type: ip
+                            value: 192.168.0.1
+"#;
+
+        let cfg = crate::DhcpConfig::parse_str(yaml).expect("config should parse");
+        let nats = cfg.nats().expect("nats config should exist");
+        assert_eq!(
+            nats.servers,
+            vec![
+                "nats://127.0.0.1:4222",
+                "tls://nats.example.com:4222",
+                "ws://nats.example.com:80",
+                "wss://nats.example.com:443",
+                "demo.nats.io",
+                "localhost:4222",
+            ]
+        );
+    }
+
+    #[test]
+    fn test_nats_config_accepts_comma_separated_server_entry() {
+        // docs.nats.io examples often show comma-separated seed URLs in one string.
+        // Accept that style and normalize into distinct server entries.
+        let yaml = r#"
+backend_mode: nats
+nats:
+    servers:
+        - "nats://192.168.1.4:4222,nats://192.168.1.5:4222"
+    contract_version: "1.0.0"
+networks:
+    192.168.0.0/24:
+        ranges:
+            -
+                start: 192.168.0.100
+                end: 192.168.0.200
+                config:
+                    lease_time:
+                        default: 3600
+                options:
+                    values:
+                        3:
+                            type: ip
+                            value: 192.168.0.1
+"#;
+
+        let cfg = crate::DhcpConfig::parse_str(yaml).expect("config should parse");
+        let nats = cfg.nats().expect("nats config should exist");
+        assert_eq!(
+            nats.servers,
+            vec!["nats://192.168.1.4:4222", "nats://192.168.1.5:4222"]
+        );
+    }
+
+    #[test]
+    fn test_nats_config_rejects_invalid_server_scheme() {
+        let yaml = r#"
+backend_mode: nats
+nats:
+    servers:
+        - "http://127.0.0.1:4222"
+    contract_version: "1.0.0"
+networks:
+    192.168.0.0/24:
+        ranges:
+            -
+                start: 192.168.0.100
+                end: 192.168.0.200
+                config:
+                    lease_time:
+                        default: 3600
+                options:
+                    values:
+                        3:
+                            type: ip
+                            value: 192.168.0.1
+"#;
+
+        let err = crate::DhcpConfig::parse_str(yaml).expect_err("invalid scheme must fail");
+        let err = format!("{err:#}");
+        assert!(err.contains("invalid scheme"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn test_nats_config_rejects_invalid_server_port() {
+        let yaml = r#"
+backend_mode: nats
+nats:
+    servers:
+        - "nats://127.0.0.1:70000"
+    contract_version: "1.0.0"
+networks:
+    192.168.0.0/24:
+        ranges:
+            -
+                start: 192.168.0.100
+                end: 192.168.0.200
+                config:
+                    lease_time:
+                        default: 3600
+                options:
+                    values:
+                        3:
+                            type: ip
+                            value: 192.168.0.1
+"#;
+
+        let err = crate::DhcpConfig::parse_str(yaml).expect_err("invalid port must fail");
+        let err = format!("{err:#}");
+        assert!(
+            err.contains("invalid") && err.contains("port"),
+            "unexpected error: {err}"
         );
     }
 

@@ -511,6 +511,7 @@ mod tests {
             tls_ca_path: None,
             creds_file_path: None,
             connect_timeout: None,
+            connect_retry_max: 2,
             request_timeout: None,
         }
     }

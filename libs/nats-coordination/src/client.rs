@@ -5,12 +5,12 @@
 //! modes are all optional runtime choices.
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_nats::ConnectOptions;
 use async_nats::jetstream;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use config::NatsConfig;
 use config::wire::NatsSecurityMode;
@@ -23,6 +23,12 @@ const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Default request timeout if not configured.
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_millis(2000);
+
+/// Base delay for retrying initial NATS connections.
+const CONNECT_RETRY_BASE_DELAY: Duration = Duration::from_secs(1);
+
+/// Upper bound for retry backoff during initial NATS connect.
+const MAX_CONNECT_RETRY_DELAY: Duration = Duration::from_secs(30);
 
 /// Connection state observable by consumers for degraded-mode checks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -155,6 +161,7 @@ impl NatsClient {
         // Connection timeout
         let connect_timeout = config.connect_timeout.unwrap_or(DEFAULT_CONNECT_TIMEOUT);
         opts = opts.connection_timeout(connect_timeout);
+        opts = opts.retry_on_initial_connect();
 
         Ok(opts)
     }
@@ -178,30 +185,71 @@ impl NatsClient {
         info!(
             servers = ?config.servers,
             security_mode = ?config.security_mode,
+            connect_retry_max = config.connect_retry_max,
             "connecting to NATS"
         );
 
         {
             let mut inner = self.inner.write().await;
+            inner.nats_client = None;
             inner.state = ConnectionState::Reconnecting;
         }
 
-        let opts = Self::build_connect_options(&config).await?;
-        let server_addr = config.servers.join(",");
+        let total_attempts = config.connect_retry_max.saturating_add(1);
+        for attempt in 0..total_attempts {
+            let opts = match Self::build_connect_options(&config).await {
+                Ok(opts) => opts,
+                Err(err) => {
+                    let mut inner = self.inner.write().await;
+                    inner.state = ConnectionState::Disconnected;
+                    return Err(err);
+                }
+            };
 
-        let client = opts.connect(&server_addr).await.map_err(|e| {
-            error!(error = %e, "NATS connection failed");
-            CoordinationError::Transport(format!("NATS connection failed: {e}"))
-        })?;
+            match opts.connect(config.servers.clone()).await {
+                Ok(client) => {
+                    let mut inner = self.inner.write().await;
+                    inner.nats_client = Some(client);
+                    inner.state = ConnectionState::Connected;
 
-        {
-            let mut inner = self.inner.write().await;
-            inner.nats_client = Some(client);
-            inner.state = ConnectionState::Connected;
+                    info!(
+                        attempt = attempt + 1,
+                        total_attempts, "NATS connection established"
+                    );
+                    return Ok(());
+                }
+                Err(err) => {
+                    let attempt_num = attempt + 1;
+                    if attempt_num >= total_attempts {
+                        error!(
+                            attempts = total_attempts,
+                            error = %err,
+                            "NATS connection failed after all retry attempts"
+                        );
+
+                        let mut inner = self.inner.write().await;
+                        inner.state = ConnectionState::Disconnected;
+                        return Err(CoordinationError::Transport(format!(
+                            "NATS connection failed after {total_attempts} attempt(s): {err}"
+                        )));
+                    }
+
+                    let delay = CONNECT_RETRY_BASE_DELAY
+                        .saturating_mul(2u32.saturating_pow(attempt))
+                        .min(MAX_CONNECT_RETRY_DELAY);
+                    warn!(
+                        attempt = attempt_num,
+                        total_attempts,
+                        retry_in_ms = delay.as_millis(),
+                        error = %err,
+                        "NATS connection attempt failed, retrying"
+                    );
+                    tokio::time::sleep(delay).await;
+                }
+            }
         }
 
-        info!("NATS connection established");
-        Ok(())
+        unreachable!("initial NATS connect loop should return on success or terminal failure")
     }
 
     /// Returns the current connection state.
@@ -250,6 +298,58 @@ impl NatsClient {
     pub async fn lease_gc_interval(&self) -> Duration {
         let inner = self.inner.read().await;
         inner.config.lease_gc_interval
+    }
+
+    /// Run a startup write-path selftest against the lease KV bucket.
+    ///
+    /// This verifies that JetStream KV is reachable for write/read/delete
+    /// operations before the process reports healthy.
+    pub async fn startup_write_selftest(&self) -> CoordinationResult<()> {
+        let bucket = self.leases_bucket().await;
+        let store = self.get_or_create_kv_bucket(&bucket, 16).await?;
+
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or_default();
+        let probe_key = format!("startup/selftest/{nonce}");
+        let probe_value = format!("dora-startup-selftest-{nonce}");
+
+        store
+            .put(&probe_key, probe_value.clone().into_bytes().into())
+            .await
+            .map_err(|e| {
+                CoordinationError::Transport(format!(
+                    "nats write selftest put failed for key '{probe_key}': {e}"
+                ))
+            })?;
+
+        let stored = store.get(probe_key.clone()).await.map_err(|e| {
+            CoordinationError::Transport(format!(
+                "nats write selftest get failed for key '{probe_key}': {e}"
+            ))
+        })?;
+
+        let Some(stored) = stored else {
+            return Err(CoordinationError::Transport(format!(
+                "nats write selftest get returned no value for key '{probe_key}'"
+            )));
+        };
+
+        if stored.as_ref() != probe_value.as_bytes() {
+            return Err(CoordinationError::Transport(format!(
+                "nats write selftest value mismatch for key '{probe_key}'"
+            )));
+        }
+
+        store.delete(&probe_key).await.map_err(|e| {
+            CoordinationError::Transport(format!(
+                "nats write selftest delete failed for key '{probe_key}': {e}"
+            ))
+        })?;
+
+        info!(bucket, key = %probe_key, "nats startup write selftest passed");
+        Ok(())
     }
 
     /// Build a JetStream context for the active NATS connection.
@@ -367,6 +467,7 @@ mod tests {
             tls_ca_path: None,
             creds_file_path: None,
             connect_timeout: Some(Duration::from_secs(2)),
+            connect_retry_max: 2,
             request_timeout: Some(Duration::from_millis(500)),
         }
     }

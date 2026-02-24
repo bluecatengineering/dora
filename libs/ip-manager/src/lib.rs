@@ -21,6 +21,7 @@ use chrono::{SecondsFormat, offset::Utc};
 use thiserror::Error;
 use tracing::{debug, error, info, trace, warn};
 
+pub mod memory;
 pub mod sqlite;
 
 use core::fmt;

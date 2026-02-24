@@ -108,6 +108,9 @@ fn default_coordination_state_poll_interval_ms() -> u64 {
     DEFAULT_COORDINATION_STATE_POLL_INTERVAL_MS
 }
 
+/// Default maximum retries for initial NATS connection attempts.
+pub const DEFAULT_CONNECT_RETRY_MAX: u32 = 10;
+
 /// Default contract version for the NATS clustering protocol.
 pub const DEFAULT_CONTRACT_VERSION: &str = "1.0.0";
 
@@ -167,6 +170,9 @@ pub struct NatsConfig {
     pub creds_file_path: Option<PathBuf>,
     /// Connection timeout in milliseconds (optional).
     pub connect_timeout_ms: Option<u64>,
+    /// Maximum retries for initial NATS connection before startup fails.
+    /// If unset, defaults to 10 retries.
+    pub connect_retry_max: Option<u32>,
     /// Request timeout in milliseconds for coordination calls (optional).
     pub request_timeout_ms: Option<u64>,
 }

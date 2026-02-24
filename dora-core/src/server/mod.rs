@@ -278,8 +278,10 @@ impl RunInner<v4::Message> {
             // drop timeouts
             Err(error) => Err(anyhow::anyhow!(error)),
         };
-        if let Err(err) = self.ctx.sent_metrics(start.elapsed()) {
-            warn!(?err, "error counting sent metrics");
+        if self.ctx.resp_msg().is_some() {
+            if let Err(err) = self.ctx.sent_metrics(start.elapsed()) {
+                warn!(?err, "error counting sent metrics");
+            }
         }
 
         // run post-response handler, if any
@@ -374,8 +376,10 @@ impl RunInner<v6::Message> {
             // drop timeouts
             Err(error) => Err(anyhow::anyhow!(error)),
         };
-        if let Err(err) = self.ctx.sent_metrics(start.elapsed()) {
-            warn!(?err, "error counting sent metrics");
+        if self.ctx.resp_msg().is_some() {
+            if let Err(err) = self.ctx.sent_metrics(start.elapsed()) {
+                warn!(?err, "error counting sent metrics");
+            }
         }
         // run post-response handler, if any
         self.service.run_post_response_handler(self.ctx).await;

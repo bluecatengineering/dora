@@ -3,6 +3,8 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
 
+mod startup_health;
+
 use config::DhcpConfig;
 use dora_core::{
     Register, Server,
@@ -15,11 +17,12 @@ use dora_core::{
     tracing::*,
 };
 use external_api::{ExternalApi, Health};
-use ip_manager::{IpManager, sqlite::SqliteDb};
+use ip_manager::{IpManager, memory::MemoryStore, sqlite::SqliteDb};
 use leases::Leases;
 use message_type::MsgType;
 use nats_host_options::HostOptionSync;
 use nats_leases::{NatsBackend, NatsLeases, NatsV6Leases};
+use startup_health::{verify_background_task_running, verify_startup_subsystems};
 use static_addr::StaticAddr;
 
 #[cfg(not(target_env = "musl"))]
@@ -63,7 +66,6 @@ fn main() -> Result<()> {
 
 async fn start(config: cli::Config) -> Result<()> {
     let database_url = config.database_url.clone();
-    info!(?database_url, "using database at path");
     let dora_id = config.dora_id.clone();
     info!(?dora_id, "using id");
     // setting DORA_ID for other plugins
@@ -79,12 +81,13 @@ async fn start(config: cli::Config) -> Result<()> {
 
     match backend_mode {
         config::wire::BackendMode::Standalone => {
+            info!(?database_url, "using database at path");
             info!("starting in standalone mode (SQLite backend)");
             start_standalone(config, dhcp_cfg, database_url).await
         }
         config::wire::BackendMode::Nats => {
-            info!("starting in nats mode (NATS coordination)");
-            start_nats(config, dhcp_cfg, database_url).await
+            info!("starting in nats mode (NATS coordination, no local SQLite)");
+            start_nats(config, dhcp_cfg).await
         }
     }
 }
@@ -125,30 +128,38 @@ async fn start_standalone(
     };
 
     let token = CancellationToken::new();
-    let api_guard = api.start(token.clone());
+    let api_sender = api.sender();
+    let mut api_guard = api.start(token.clone());
 
-    // Start servers first, then update health status
-    let server_result = match v6 {
-        Some(v6) => {
-            tokio::try_join!(
-                flatten(tokio::spawn(v4.start(shutdown_signal(token.clone())))),
-                flatten(tokio::spawn(v6.start(shutdown_signal(token.clone())))),
-            )
-        }
-        None => tokio::spawn(v4.start(shutdown_signal(token.clone()))).await,
-    };
+    let mut v4_task = tokio::spawn(v4.start(shutdown_signal(token.clone())));
+    let mut v6_task = v6.map(|v6| tokio::spawn(v6.start(shutdown_signal(token.clone()))));
 
-    // Update health status AFTER servers have started
-    debug!("changing health to good after servers started");
-    api.sender()
+    // Keep health BAD until all startup-critical tasks are confirmed running.
+    if let Err(err) =
+        verify_startup_subsystems(&mut api_guard, &mut v4_task, v6_task.as_mut(), "standalone")
+            .await
+    {
+        let _ = api_sender.send(Health::Bad).await;
+        token.cancel();
+        return Err(err);
+    }
+
+    debug!("changing health to good after startup checks passed");
+    api_sender
         .send(Health::Good)
         .await
         .context("error occurred in changing health status to Good")?;
 
+    let server_result = match v6_task {
+        Some(v6_task) => tokio::try_join!(flatten(v4_task), flatten(v6_task)).map(|_| ()),
+        None => flatten(v4_task).await.map(|_| ()),
+    };
+
     // Propagate server errors if any
     if let Err(err) = server_result {
         // Set health to bad since server failed
-        let _ = api.sender().send(Health::Bad).await;
+        let _ = api_sender.send(Health::Bad).await;
+        token.cancel();
         return Err(err);
     }
     if let Err(err) = api_guard.await {
@@ -158,11 +169,7 @@ async fn start_standalone(
 }
 
 /// Start the server in nats mode with NATS coordination.
-async fn start_nats(
-    config: cli::Config,
-    dhcp_cfg: Arc<DhcpConfig>,
-    database_url: String,
-) -> Result<()> {
+async fn start_nats(config: cli::Config, dhcp_cfg: Arc<DhcpConfig>) -> Result<()> {
     let nats_config = dhcp_cfg
         .nats()
         .ok_or_else(|| anyhow!("nats mode requires nats configuration"))?
@@ -193,9 +200,10 @@ async fn start_nats(
         nats_coordination::LeaseCoordinator::new(nats_client.clone(), server_id.clone());
     let gc_coordinator = lease_coordinator.clone();
 
-    // Create local IpManager for address selection and ping checks
-    debug!("starting database (local cache for nats mode)");
-    let ip_mgr = Arc::new(IpManager::new(SqliteDb::new(database_url).await?)?);
+    // Create local in-memory IpManager for address selection and ping checks.
+    // NATS mode avoids local SQLite persistence and uses JetStream for coordination state.
+    debug!("starting in-memory lease cache for nats mode");
+    let ip_mgr = Arc::new(IpManager::new(MemoryStore::new())?);
 
     // Clone coordinator/server_id for v6 before moving into v4 NATS backend
     let v6_lease_coordinator = lease_coordinator.clone();
@@ -253,41 +261,69 @@ async fn start_nats(
     };
 
     let token = CancellationToken::new();
-    let gc_task = spawn_lease_gc_task(gc_coordinator, nats_config.lease_gc_interval, token.clone());
+    let mut gc_task =
+        spawn_lease_gc_task(gc_coordinator, nats_config.lease_gc_interval, token.clone());
 
     // Spawn background task to monitor NATS connection state and update coordination availability flag
-    let coordination_monitor = spawn_coordination_monitor_task(
+    let mut coordination_monitor = spawn_coordination_monitor_task(
         nats_client.clone(),
         coordination_available,
         nats_config.coordination_state_poll_interval,
         token.clone(),
     );
 
-    let api_guard = api.start(token.clone());
+    let api_sender = api.sender();
+    let mut api_guard = api.start(token.clone());
 
-    // Start servers first, then update health status
-    let server_result = match v6 {
-        Some(v6) => {
-            tokio::try_join!(
-                flatten(tokio::spawn(v4.start(shutdown_signal(token.clone())))),
-                flatten(tokio::spawn(v6.start(shutdown_signal(token.clone())))),
-            )
-        }
-        None => tokio::spawn(v4.start(shutdown_signal(token.clone()))).await,
-    };
+    let mut v4_task = tokio::spawn(v4.start(shutdown_signal(token.clone())));
+    let mut v6_task = v6.map(|v6| tokio::spawn(v6.start(shutdown_signal(token.clone()))));
 
-    // Update health status AFTER servers have started
-    // If server_result is an error, health will be set to Bad via the error path
-    debug!("changing health to good after servers started");
-    api.sender()
+    // Keep health BAD until all startup-critical tasks are confirmed running.
+    if let Err(err) =
+        verify_startup_subsystems(&mut api_guard, &mut v4_task, v6_task.as_mut(), "nats").await
+    {
+        let _ = api_sender.send(Health::Bad).await;
+        token.cancel();
+        return Err(err);
+    }
+    if let Err(err) = verify_background_task_running("nats lease GC", &mut gc_task).await {
+        let _ = api_sender.send(Health::Bad).await;
+        token.cancel();
+        return Err(err);
+    }
+    if let Err(err) =
+        verify_background_task_running("nats coordination monitor", &mut coordination_monitor).await
+    {
+        let _ = api_sender.send(Health::Bad).await;
+        token.cancel();
+        return Err(err);
+    }
+    if let Err(err) = nats_client
+        .startup_write_selftest()
+        .await
+        .map_err(|e| anyhow!("nats startup write selftest failed: {e}"))
+    {
+        let _ = api_sender.send(Health::Bad).await;
+        token.cancel();
+        return Err(err);
+    }
+
+    debug!("changing health to good after startup checks and write selftest passed");
+    api_sender
         .send(Health::Good)
         .await
         .context("error occurred in changing health status to Good")?;
 
+    let server_result = match v6_task {
+        Some(v6_task) => tokio::try_join!(flatten(v4_task), flatten(v6_task)).map(|_| ()),
+        None => flatten(v4_task).await.map(|_| ()),
+    };
+
     // Propagate server errors if any
     if let Err(err) = server_result {
         // Set health to bad since server failed
-        let _ = api.sender().send(Health::Bad).await;
+        let _ = api_sender.send(Health::Bad).await;
+        token.cancel();
         return Err(err);
     }
     if let Err(err) = api_guard.await {

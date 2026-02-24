@@ -23,7 +23,6 @@ use dora_core::{
     anyhow::anyhow,
     chrono::{DateTime, SecondsFormat, Utc},
     dhcproto::v4::{DhcpOption, Message, MessageType, OptionCode},
-    metrics,
     prelude::*,
     tracing::warn,
 };
@@ -35,7 +34,11 @@ use config::{
     DhcpConfig,
     v4::{NetRange, Network},
 };
-use ip_manager::{IpError, IpManager, IpState, Storage};
+use ip_manager::{IpManager, IpState, Storage};
+
+// ---------------------------------------------------------------------------
+// Leases plugin: generic over Storage (used for standalone path)
+// ---------------------------------------------------------------------------
 
 #[derive(Register)]
 #[register(msg(Message))]
@@ -257,7 +260,7 @@ where
                     self.set_lease(ctx, lease, ip, expires_at, classes, range)?;
                     return Ok(Action::Continue);
                 }
-                Err(IpError::DbError(err)) => {
+                Err(ip_manager::IpError::DbError(err)) => {
                     // log database error and try next IP
                     error!(?err);
                 }
@@ -321,7 +324,7 @@ where
             // if we got a recent renewal and the threshold has not past yet, return the existing lease time
             // TODO: move to ip-manager?
             if let Some(remaining) = self.cache_threshold(client_id) {
-                metrics::RENEW_CACHE_HIT.inc();
+                dora_core::metrics::RENEW_CACHE_HIT.inc();
                 // lease was already handed out so it is valid for this range
                 let lease = (
                     remaining,

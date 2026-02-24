@@ -200,6 +200,7 @@ mod tests {
             tls_ca_path: None,
             creds_file_path: None,
             connect_timeout: Some(Duration::from_secs(1)),
+            connect_retry_max: 2,
             request_timeout: Some(Duration::from_millis(200)),
         };
         let resolver = crate::subjects::SubjectResolver::with_defaults();
