@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "bin",
+    "tools/dhcp-loadtest",
     # main server code
     "dora-core",
     "dora-cfg",
