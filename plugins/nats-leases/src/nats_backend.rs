@@ -14,23 +14,21 @@ use crate::metrics;
 use async_trait::async_trait;
 use config::v4::{NetRange, Network};
 use ip_manager::{IpManager, IpState, Storage};
+use leases::{LeaseError, LeaseStore};
 use nats_coordination::{LeaseCoordinator, LeaseOutcome, LeaseRecord, LeaseState, ProtocolFamily};
 use tracing::{debug, info, warn};
-
-use crate::backend::{BackendError, BackendResult, LeaseBackend, ReleaseInfo};
 
 /// Maximum retries for conflict resolution during clustered operations.
 const MAX_CONFLICT_RETRIES: u32 = 8;
 
 /// Clustered lease backend combining local IP management with NATS coordination.
-pub struct ClusteredBackend<S: Storage> {
+pub struct NatsBackend<S: Storage> {
     /// Local IP manager for address selection, ping checks, and local cache.
     ip_mgr: Arc<IpManager<S>>,
     /// NATS lease coordinator for cluster-wide state.
     coordinator: LeaseCoordinator,
     /// Server identity for lease records.
     server_id: String,
-    /// Subnet string for lease records (derived from config).
     /// We track known active leases locally for degraded-mode renewal checks.
     known_leases: Arc<parking_lot::RwLock<std::collections::HashMap<Vec<u8>, KnownLease>>>,
 }
@@ -42,15 +40,15 @@ struct KnownLease {
     expires_at: SystemTime,
 }
 
-impl<S: Storage> std::fmt::Debug for ClusteredBackend<S> {
+impl<S: Storage> std::fmt::Debug for NatsBackend<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ClusteredBackend")
+        f.debug_struct("NatsBackend")
             .field("server_id", &self.server_id)
             .finish()
     }
 }
 
-impl<S: Storage> ClusteredBackend<S> {
+impl<S: Storage> NatsBackend<S> {
     pub fn new(
         ip_mgr: Arc<IpManager<S>>,
         coordinator: LeaseCoordinator,
@@ -119,8 +117,8 @@ impl<S: Storage> ClusteredBackend<S> {
         LeaseRecord {
             lease_id: uuid::Uuid::new_v4().to_string(),
             protocol_family: ProtocolFamily::Dhcpv4,
-            subnet: format!("{}", subnet),
-            ip_address: format!("{}", ip),
+            subnet: subnet.to_string(),
+            ip_address: ip.to_string(),
             client_key_v4: Some(hex::encode(client_id)),
             duid: None,
             iaid: None,
@@ -133,14 +131,14 @@ impl<S: Storage> ClusteredBackend<S> {
         }
     }
 
-    /// Handle a LeaseOutcome from the coordinator, mapping to BackendResult.
+    /// Handle a LeaseOutcome from the coordinator.
     fn handle_outcome(
         &self,
         outcome: LeaseOutcome,
         client_id: &[u8],
         ip: IpAddr,
         expires_at: SystemTime,
-    ) -> BackendResult<()> {
+    ) -> Result<(), LeaseError> {
         match outcome {
             LeaseOutcome::Success(record) => {
                 debug!(
@@ -162,352 +160,26 @@ impl<S: Storage> ClusteredBackend<S> {
                     actual = actual_revision,
                     "lease conflict could not be resolved within retry budget"
                 );
-                Err(BackendError::Conflict(format!(
+                Err(LeaseError::Internal(format!(
                     "revision conflict: expected {expected_revision}, found {actual_revision}"
                 )))
             }
             LeaseOutcome::DegradedModeBlocked => {
                 metrics::CLUSTER_ALLOCATIONS_BLOCKED.inc();
                 info!(
-                    mode = "clustered",
+                    mode = "nats",
                     "new allocation blocked: NATS coordination unavailable"
                 );
-                Err(BackendError::CoordinationUnavailable)
+                Err(LeaseError::Unavailable)
             }
         }
     }
-}
 
-/// Map IpError to BackendError (same as standalone).
-fn map_ip_error<E: std::error::Error + Send + Sync + 'static>(
-    err: ip_manager::IpError<E>,
-) -> BackendError {
-    match err {
-        ip_manager::IpError::AddrInUse(ip) => BackendError::AddrInUse(ip),
-        ip_manager::IpError::Unreserved => BackendError::Unreserved,
-        ip_manager::IpError::RangeError { .. } => BackendError::RangeExhausted,
-        ip_manager::IpError::MaxAttempts { .. } => BackendError::RangeExhausted,
-        other => BackendError::Internal(other.to_string()),
-    }
-}
-
-#[async_trait]
-impl<S> LeaseBackend for ClusteredBackend<S>
-where
-    S: Storage + Send + Sync + 'static,
-{
-    async fn try_ip(
+    /// Check if a client has a known active lease (for degraded-mode renewals).
+    pub async fn lookup_active_lease(
         &self,
-        ip: IpAddr,
-        subnet: IpAddr,
         client_id: &[u8],
-        expires_at: SystemTime,
-        network: &Network,
-        state: Option<IpState>,
-    ) -> BackendResult<()> {
-        // Check coordination availability first
-        if !self.coordinator.is_available().await {
-            metrics::CLUSTER_ALLOCATIONS_BLOCKED.inc();
-            metrics::CLUSTER_COORDINATION_STATE.set(0);
-            info!(
-                mode = "clustered",
-                "try_ip blocked: NATS coordination unavailable"
-            );
-            return Err(BackendError::CoordinationUnavailable);
-        }
-        metrics::CLUSTER_COORDINATION_STATE.set(1);
-
-        // First, do local IP validation/ping check via IpManager
-        self.ip_mgr
-            .try_ip(ip, subnet, client_id, expires_at, network, state)
-            .await
-            .map_err(map_ip_error)?;
-
-        // Then coordinate with the cluster
-        let lease_state = match state {
-            Some(IpState::Lease) => LeaseState::Leased,
-            _ => LeaseState::Reserved,
-        };
-        let record = self.make_lease_record(ip, subnet, client_id, expires_at, lease_state);
-
-        let outcome = match self.coordinator.reserve(record).await {
-            Ok(outcome) => outcome,
-            Err(e) => {
-                let _ = self.ip_mgr.release_ip(ip, client_id).await;
-                return Err(BackendError::Internal(format!("coordination error: {e}")));
-            }
-        };
-
-        match outcome {
-            LeaseOutcome::Success(record) => {
-                debug!(
-                    ip = %record.ip_address,
-                    state = %record.state,
-                    revision = record.revision,
-                    "lease coordinated successfully"
-                );
-                self.record_known_lease(client_id, ip, expires_at);
-                Ok(())
-            }
-            LeaseOutcome::Conflict {
-                expected_revision,
-                actual_revision,
-            } => {
-                metrics::CLUSTER_CONFLICTS_DETECTED.inc();
-                self.quarantine_conflicted_ip(ip, client_id, network).await;
-                warn!(
-                    expected = expected_revision,
-                    actual = actual_revision,
-                    "lease conflict could not be resolved within retry budget"
-                );
-                Err(BackendError::Conflict(format!(
-                    "revision conflict: expected {expected_revision}, found {actual_revision}"
-                )))
-            }
-            LeaseOutcome::DegradedModeBlocked => {
-                metrics::CLUSTER_ALLOCATIONS_BLOCKED.inc();
-                info!(
-                    mode = "clustered",
-                    "new allocation blocked: NATS coordination unavailable"
-                );
-                let _ = self.ip_mgr.release_ip(ip, client_id).await;
-                Err(BackendError::CoordinationUnavailable)
-            }
-        }
-    }
-
-    async fn reserve_first(
-        &self,
-        range: &NetRange,
-        network: &Network,
-        client_id: &[u8],
-        expires_at: SystemTime,
-        state: Option<IpState>,
-    ) -> BackendResult<IpAddr> {
-        // Check coordination availability first
-        if !self.coordinator.is_available().await {
-            metrics::CLUSTER_ALLOCATIONS_BLOCKED.inc();
-            metrics::CLUSTER_COORDINATION_STATE.set(0);
-            info!(
-                mode = "clustered",
-                "reserve_first blocked: NATS coordination unavailable"
-            );
-            return Err(BackendError::CoordinationUnavailable);
-        }
-        metrics::CLUSTER_COORDINATION_STATE.set(1);
-
-        // Attempt local allocation + clustered reservation with bounded retries.
-        let mut attempts = 0u32;
-        let mut had_conflict = false;
-        loop {
-            let ip = self
-                .ip_mgr
-                .reserve_first(range, network, client_id, expires_at, state)
-                .await
-                .map_err(map_ip_error)?;
-
-            let lease_state = match state {
-                Some(IpState::Lease) => LeaseState::Leased,
-                _ => LeaseState::Reserved,
-            };
-            let record = self.make_lease_record(
-                ip,
-                network.subnet().into(),
-                client_id,
-                expires_at,
-                lease_state,
-            );
-
-            let outcome = match self.coordinator.reserve(record).await {
-                Ok(outcome) => outcome,
-                Err(e) => {
-                    let _ = self.ip_mgr.release_ip(ip, client_id).await;
-                    return Err(BackendError::Internal(format!("coordination error: {e}")));
-                }
-            };
-
-            match outcome {
-                LeaseOutcome::Success(confirmed) => {
-                    debug!(
-                        ip = %confirmed.ip_address,
-                        revision = confirmed.revision,
-                        "lease reservation coordinated successfully"
-                    );
-                    self.record_known_lease(client_id, ip, expires_at);
-                    if had_conflict {
-                        metrics::CLUSTER_CONFLICTS_RESOLVED.inc();
-                    }
-                    return Ok(ip);
-                }
-                LeaseOutcome::Conflict {
-                    expected_revision,
-                    actual_revision,
-                } => {
-                    attempts += 1;
-                    had_conflict = true;
-                    metrics::CLUSTER_CONFLICTS_DETECTED.inc();
-                    self.quarantine_conflicted_ip(ip, client_id, network).await;
-                    if attempts >= MAX_CONFLICT_RETRIES {
-                        warn!(
-                            attempts,
-                            expected = expected_revision,
-                            actual = actual_revision,
-                            "reservation conflict exhausted retry budget"
-                        );
-                        return Err(BackendError::Conflict(format!(
-                            "conflict after {attempts} retries: expected rev {expected_revision}, found {actual_revision}"
-                        )));
-                    }
-                    debug!(
-                        attempt = attempts,
-                        ?ip,
-                        "reservation conflict, trying a different address"
-                    );
-                    continue;
-                }
-                LeaseOutcome::DegradedModeBlocked => {
-                    metrics::CLUSTER_ALLOCATIONS_BLOCKED.inc();
-                    let _ = self.ip_mgr.release_ip(ip, client_id).await;
-                    return Err(BackendError::CoordinationUnavailable);
-                }
-            }
-        }
-    }
-
-    async fn try_lease(
-        &self,
-        ip: IpAddr,
-        client_id: &[u8],
-        expires_at: SystemTime,
-        network: &Network,
-    ) -> BackendResult<()> {
-        // For lease confirmation (REQUEST), allow renewal of known leases in degraded mode
-        if !self.coordinator.is_available().await {
-            // Check if this is a renewal of a known active lease
-            if let Some(known) = self.get_known_lease(client_id) {
-                if known.ip == ip {
-                    metrics::CLUSTER_DEGRADED_RENEWALS.inc();
-                    info!(
-                        ?ip,
-                        mode = "clustered",
-                        "degraded-mode renewal allowed for known active lease"
-                    );
-                    // Do the local lease update only
-                    self.ip_mgr
-                        .try_lease(ip, client_id, expires_at, network)
-                        .await
-                        .map_err(map_ip_error)?;
-                    self.record_known_lease(client_id, ip, expires_at);
-                    return Ok(());
-                }
-            }
-            // Not a known renewal - block
-            metrics::CLUSTER_ALLOCATIONS_BLOCKED.inc();
-            metrics::CLUSTER_COORDINATION_STATE.set(0);
-            info!(
-                mode = "clustered",
-                "try_lease blocked: NATS unavailable and not a known renewal"
-            );
-            return Err(BackendError::CoordinationUnavailable);
-        }
-        metrics::CLUSTER_COORDINATION_STATE.set(1);
-
-        // Local lease transition
-        self.ip_mgr
-            .try_lease(ip, client_id, expires_at, network)
-            .await
-            .map_err(map_ip_error)?;
-
-        // Coordinate with cluster
-        let record = self.make_lease_record(
-            ip,
-            network.subnet().into(),
-            client_id,
-            expires_at,
-            LeaseState::Leased,
-        );
-
-        let outcome = self
-            .coordinator
-            .lease(record)
-            .await
-            .map_err(|e| BackendError::Internal(format!("coordination error: {e}")))?;
-
-        self.handle_outcome(outcome, client_id, ip, expires_at)
-    }
-
-    async fn release_ip(&self, ip: IpAddr, client_id: &[u8]) -> BackendResult<Option<ReleaseInfo>> {
-        // Local release first
-        let info = match self.ip_mgr.release_ip(ip, client_id).await {
-            Ok(Some(info)) => {
-                self.remove_known_lease(client_id);
-                Some(ReleaseInfo {
-                    ip: info.ip(),
-                    client_id: info.id().map(|id| id.to_vec()),
-                })
-            }
-            Ok(None) => None,
-            Err(e) => return Err(map_ip_error(e)),
-        };
-
-        // Coordinate release with cluster (best-effort)
-        if self.coordinator.is_available().await {
-            let record = self.make_lease_record(
-                ip,
-                IpAddr::from([0, 0, 0, 0]), // subnet not critical for release
-                client_id,
-                SystemTime::now(),
-                LeaseState::Released,
-            );
-            if let Err(e) = self.coordinator.release(record).await {
-                warn!(error = %e, "failed to coordinate lease release with cluster");
-            }
-        }
-
-        Ok(info)
-    }
-
-    async fn probate_ip(
-        &self,
-        ip: IpAddr,
-        client_id: &[u8],
-        expires_at: SystemTime,
-    ) -> BackendResult<()> {
-        // Local probation
-        self.ip_mgr
-            .probate_ip(ip, client_id, expires_at)
-            .await
-            .map_err(map_ip_error)?;
-
-        self.remove_known_lease(client_id);
-
-        // Coordinate with cluster (best-effort)
-        if self.coordinator.is_available().await {
-            let record = self.make_lease_record(
-                ip,
-                IpAddr::from([0, 0, 0, 0]),
-                client_id,
-                expires_at,
-                LeaseState::Probated,
-            );
-            let probation_chrono: chrono::DateTime<chrono::Utc> = expires_at.into();
-            if let Err(e) = self.coordinator.probate(record, probation_chrono).await {
-                warn!(error = %e, "failed to coordinate lease probation with cluster");
-            }
-        }
-
-        Ok(())
-    }
-
-    fn is_coordination_available(&self) -> bool {
-        // We can't do async here, so use a synchronous approximation.
-        // The actual async check happens in the operation methods.
-        // For the sync check, we return true to let the operation methods
-        // do the authoritative check.
-        true
-    }
-
-    async fn lookup_active_lease(&self, client_id: &[u8]) -> BackendResult<Option<IpAddr>> {
+    ) -> Result<Option<IpAddr>, LeaseError> {
         // First check local known-lease cache
         if let Some(known) = self.get_known_lease(client_id) {
             return Ok(Some(known.ip));
@@ -529,15 +201,16 @@ where
         }
     }
 
-    async fn reconcile(&self) -> BackendResult<()> {
-        info!(mode = "clustered", "starting post-outage reconciliation");
+    /// Trigger post-outage reconciliation (snapshot refresh and conflict cleanup).
+    pub async fn reconcile(&self) -> Result<(), LeaseError> {
+        info!(mode = "nats", "starting post-outage reconciliation");
 
         // Request a snapshot from the coordination channel
         let snapshot = match self.coordinator.request_snapshot().await {
             Ok(snap) => snap,
             Err(e) => {
                 warn!(error = %e, "reconciliation snapshot request failed");
-                return Err(BackendError::Internal(format!(
+                return Err(LeaseError::Internal(format!(
                     "snapshot request failed: {e}"
                 )));
             }
@@ -578,17 +251,338 @@ where
         Ok(())
     }
 
-    async fn select_all(&self) -> BackendResult<Vec<ip_manager::State>> {
+    /// Select all local leases (for external API compatibility).
+    pub async fn select_all(&self) -> Result<Vec<ip_manager::State>, LeaseError> {
         self.ip_mgr
             .select_all()
             .await
-            .map_err(|e| BackendError::Internal(e.to_string()))
+            .map_err(|e| LeaseError::Internal(e.to_string()))
     }
 
-    async fn get(&self, ip: IpAddr) -> BackendResult<Option<ip_manager::State>> {
+    /// Get a local lease by IP (for external API compatibility).
+    pub async fn get(&self, ip: IpAddr) -> Result<Option<ip_manager::State>, LeaseError> {
         self.ip_mgr
             .get(ip)
             .await
-            .map_err(|e| BackendError::Internal(e.to_string()))
+            .map_err(|e| LeaseError::Internal(e.to_string()))
+    }
+}
+
+/// Map IpError to LeaseError.
+fn map_ip_error<E: std::error::Error + Send + Sync + 'static>(
+    err: ip_manager::IpError<E>,
+) -> LeaseError {
+    match err {
+        ip_manager::IpError::AddrInUse(ip) => LeaseError::AddrInUse(ip),
+        ip_manager::IpError::Unreserved => LeaseError::Unreserved,
+        ip_manager::IpError::RangeError { .. } => LeaseError::RangeExhausted,
+        ip_manager::IpError::MaxAttempts { .. } => LeaseError::RangeExhausted,
+        other => LeaseError::Internal(other.to_string()),
+    }
+}
+
+#[async_trait]
+impl<S> LeaseStore for NatsBackend<S>
+where
+    S: Storage + Send + Sync + 'static,
+{
+    async fn try_ip(
+        &self,
+        ip: IpAddr,
+        subnet: IpAddr,
+        client_id: &[u8],
+        expires_at: SystemTime,
+        network: &Network,
+        state: Option<IpState>,
+    ) -> Result<(), LeaseError> {
+        // Check coordination availability first
+        if !self.coordinator.is_available().await {
+            metrics::CLUSTER_ALLOCATIONS_BLOCKED.inc();
+            metrics::CLUSTER_COORDINATION_STATE.set(0);
+            info!(
+                mode = "nats",
+                "try_ip blocked: NATS coordination unavailable"
+            );
+            return Err(LeaseError::Unavailable);
+        }
+        metrics::CLUSTER_COORDINATION_STATE.set(1);
+
+        // First, do local IP validation/ping check via IpManager
+        self.ip_mgr
+            .try_ip(ip, subnet, client_id, expires_at, network, state)
+            .await
+            .map_err(map_ip_error)?;
+
+        // Then coordinate with the cluster
+        let lease_state = match state {
+            Some(IpState::Lease) => LeaseState::Leased,
+            _ => LeaseState::Reserved,
+        };
+        let record = self.make_lease_record(ip, subnet, client_id, expires_at, lease_state);
+
+        let outcome = match self.coordinator.reserve(record).await {
+            Ok(outcome) => outcome,
+            Err(e) => {
+                let _ = self.ip_mgr.release_ip(ip, client_id).await;
+                return Err(LeaseError::Internal(format!("coordination error: {e}")));
+            }
+        };
+
+        match outcome {
+            LeaseOutcome::Success(record) => {
+                debug!(
+                    ip = %record.ip_address,
+                    state = %record.state,
+                    revision = record.revision,
+                    "lease coordinated successfully"
+                );
+                self.record_known_lease(client_id, ip, expires_at);
+                Ok(())
+            }
+            LeaseOutcome::Conflict {
+                expected_revision,
+                actual_revision,
+            } => {
+                metrics::CLUSTER_CONFLICTS_DETECTED.inc();
+                self.quarantine_conflicted_ip(ip, client_id, network).await;
+                warn!(
+                    expected = expected_revision,
+                    actual = actual_revision,
+                    "lease conflict could not be resolved within retry budget"
+                );
+                Err(LeaseError::Internal(format!(
+                    "revision conflict: expected {expected_revision}, found {actual_revision}"
+                )))
+            }
+            LeaseOutcome::DegradedModeBlocked => {
+                metrics::CLUSTER_ALLOCATIONS_BLOCKED.inc();
+                info!(
+                    mode = "nats",
+                    "new allocation blocked: NATS coordination unavailable"
+                );
+                let _ = self.ip_mgr.release_ip(ip, client_id).await;
+                Err(LeaseError::Unavailable)
+            }
+        }
+    }
+
+    async fn reserve_first(
+        &self,
+        range: &NetRange,
+        network: &Network,
+        client_id: &[u8],
+        expires_at: SystemTime,
+        state: Option<IpState>,
+    ) -> Result<IpAddr, LeaseError> {
+        // Check coordination availability first
+        if !self.coordinator.is_available().await {
+            metrics::CLUSTER_ALLOCATIONS_BLOCKED.inc();
+            metrics::CLUSTER_COORDINATION_STATE.set(0);
+            info!(
+                mode = "nats",
+                "reserve_first blocked: NATS coordination unavailable"
+            );
+            return Err(LeaseError::Unavailable);
+        }
+        metrics::CLUSTER_COORDINATION_STATE.set(1);
+
+        // Attempt local allocation + clustered reservation with bounded retries.
+        let mut attempts = 0u32;
+        let mut had_conflict = false;
+        loop {
+            let ip = self
+                .ip_mgr
+                .reserve_first(range, network, client_id, expires_at, state)
+                .await
+                .map_err(map_ip_error)?;
+
+            let lease_state = match state {
+                Some(IpState::Lease) => LeaseState::Leased,
+                _ => LeaseState::Reserved,
+            };
+            let record = self.make_lease_record(
+                ip,
+                network.subnet().into(),
+                client_id,
+                expires_at,
+                lease_state,
+            );
+
+            let outcome = match self.coordinator.reserve(record).await {
+                Ok(outcome) => outcome,
+                Err(e) => {
+                    let _ = self.ip_mgr.release_ip(ip, client_id).await;
+                    return Err(LeaseError::Internal(format!("coordination error: {e}")));
+                }
+            };
+
+            match outcome {
+                LeaseOutcome::Success(confirmed) => {
+                    debug!(
+                        ip = %confirmed.ip_address,
+                        revision = confirmed.revision,
+                        "lease reservation coordinated successfully"
+                    );
+                    self.record_known_lease(client_id, ip, expires_at);
+                    if had_conflict {
+                        metrics::CLUSTER_CONFLICTS_RESOLVED.inc();
+                    }
+                    return Ok(ip);
+                }
+                LeaseOutcome::Conflict {
+                    expected_revision,
+                    actual_revision,
+                } => {
+                    attempts += 1;
+                    had_conflict = true;
+                    metrics::CLUSTER_CONFLICTS_DETECTED.inc();
+                    self.quarantine_conflicted_ip(ip, client_id, network).await;
+                    if attempts >= MAX_CONFLICT_RETRIES {
+                        warn!(
+                            attempts,
+                            expected = expected_revision,
+                            actual = actual_revision,
+                            "reservation conflict exhausted retry budget"
+                        );
+                        return Err(LeaseError::Internal(format!(
+                            "conflict after {attempts} retries: expected rev {expected_revision}, found {actual_revision}"
+                        )));
+                    }
+                    debug!(
+                        attempt = attempts,
+                        ?ip,
+                        "reservation conflict, trying a different address"
+                    );
+                    continue;
+                }
+                LeaseOutcome::DegradedModeBlocked => {
+                    metrics::CLUSTER_ALLOCATIONS_BLOCKED.inc();
+                    let _ = self.ip_mgr.release_ip(ip, client_id).await;
+                    return Err(LeaseError::Unavailable);
+                }
+            }
+        }
+    }
+
+    async fn try_lease(
+        &self,
+        ip: IpAddr,
+        client_id: &[u8],
+        expires_at: SystemTime,
+        network: &Network,
+    ) -> Result<(), LeaseError> {
+        // For lease confirmation (REQUEST), allow renewal of known leases in degraded mode
+        if !self.coordinator.is_available().await {
+            // Check if this is a renewal of a known active lease
+            if let Some(known) = self.get_known_lease(client_id) {
+                if known.ip == ip {
+                    metrics::CLUSTER_DEGRADED_RENEWALS.inc();
+                    info!(
+                        ?ip,
+                        mode = "nats",
+                        "degraded-mode renewal allowed for known active lease"
+                    );
+                    // Do the local lease update only
+                    self.ip_mgr
+                        .try_lease(ip, client_id, expires_at, network)
+                        .await
+                        .map_err(map_ip_error)?;
+                    self.record_known_lease(client_id, ip, expires_at);
+                    return Ok(());
+                }
+            }
+            // Not a known renewal - block
+            metrics::CLUSTER_ALLOCATIONS_BLOCKED.inc();
+            metrics::CLUSTER_COORDINATION_STATE.set(0);
+            info!(
+                mode = "nats",
+                "try_lease blocked: NATS unavailable and not a known renewal"
+            );
+            return Err(LeaseError::Unavailable);
+        }
+        metrics::CLUSTER_COORDINATION_STATE.set(1);
+
+        // Local lease transition
+        self.ip_mgr
+            .try_lease(ip, client_id, expires_at, network)
+            .await
+            .map_err(map_ip_error)?;
+
+        // Coordinate with cluster
+        let record = self.make_lease_record(
+            ip,
+            network.subnet().into(),
+            client_id,
+            expires_at,
+            LeaseState::Leased,
+        );
+
+        let outcome = self
+            .coordinator
+            .lease(record)
+            .await
+            .map_err(|e| LeaseError::Internal(format!("coordination error: {e}")))?;
+
+        self.handle_outcome(outcome, client_id, ip, expires_at)
+    }
+
+    async fn release_ip(&self, ip: IpAddr, client_id: &[u8]) -> Result<bool, LeaseError> {
+        // Local release first
+        let subnet = match self.ip_mgr.release_ip(ip, client_id).await {
+            Ok(Some(info)) => {
+                self.remove_known_lease(client_id);
+                info.network()
+            }
+            Ok(None) => return Ok(false),
+            Err(e) => return Err(map_ip_error(e)),
+        };
+
+        // Coordinate release with cluster (best-effort)
+        if self.coordinator.is_available().await {
+            let record = self.make_lease_record(
+                ip,
+                subnet,
+                client_id,
+                SystemTime::now(),
+                LeaseState::Released,
+            );
+            if let Err(e) = self.coordinator.release(record).await {
+                warn!(error = %e, "failed to coordinate lease release with cluster");
+            }
+        }
+
+        Ok(true)
+    }
+
+    async fn probate_ip(
+        &self,
+        ip: IpAddr,
+        client_id: &[u8],
+        expires_at: SystemTime,
+    ) -> Result<(), LeaseError> {
+        let subnet = match self.ip_mgr.get(ip).await {
+            Ok(Some(state)) => state.as_ref().network(),
+            _ => IpAddr::from([0, 0, 0, 0]),
+        };
+
+        // Local probation
+        self.ip_mgr
+            .probate_ip(ip, client_id, expires_at)
+            .await
+            .map_err(map_ip_error)?;
+
+        self.remove_known_lease(client_id);
+
+        // Coordinate with cluster (best-effort)
+        if self.coordinator.is_available().await {
+            let record =
+                self.make_lease_record(ip, subnet, client_id, expires_at, LeaseState::Probated);
+            let probation_chrono: chrono::DateTime<chrono::Utc> = expires_at.into();
+            if let Err(e) = self.coordinator.probate(record, probation_chrono).await {
+                warn!(error = %e, "failed to coordinate lease probation with cluster");
+            }
+        }
+
+        Ok(())
     }
 }

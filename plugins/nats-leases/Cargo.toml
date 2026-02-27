@@ -10,15 +10,10 @@ dora-core = { path = "../../dora-core" }
 config = { path = "../../libs/config" }
 leases = { path = "../leases" }
 nats-coordination = { path = "../../libs/nats-coordination" }
-client-protection = { path = "../../libs/client-protection" }
-ddns = { path = "../../libs/ddns" }
 ip-manager = { path = "../../libs/ip-manager" }
-message-type = { path = "../message-type" }
-static-addr = { path = "../static-addr" }
 
 async-trait = { workspace = true }
 prometheus = { workspace = true }
-thiserror = { workspace = true }
 tracing = { workspace = true }
 
 chrono = "0.4"

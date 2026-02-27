@@ -15,10 +15,10 @@ use dora_core::{
     tracing::*,
 };
 use external_api::{ExternalApi, Health};
-use host_option_sync::HostOptionSync;
 use ip_manager::{IpManager, sqlite::SqliteDb};
 use leases::Leases;
 use message_type::MsgType;
+use nats_host_options::HostOptionSync;
 use static_addr::StaticAddr;
 
 #[cfg(not(target_env = "musl"))]
@@ -81,8 +81,8 @@ async fn start(config: cli::Config) -> Result<()> {
             info!("starting in standalone mode (SQLite backend)");
             start_standalone(config, dhcp_cfg, database_url).await
         }
-        config::wire::BackendMode::Clustered => {
-            info!("starting in clustered mode (NATS coordination)");
+        config::wire::BackendMode::Nats => {
+            info!("starting in nats mode (NATS coordination)");
             start_clustered(config, dhcp_cfg, database_url).await
         }
     }
@@ -110,7 +110,7 @@ async fn start_standalone(
 
     MsgType::new(Arc::clone(&dhcp_cfg))?.register(&mut v4);
     StaticAddr::new(Arc::clone(&dhcp_cfg))?.register(&mut v4);
-    Leases::new(Arc::clone(&dhcp_cfg), Arc::clone(&ip_mgr)).register(&mut v4);
+    Leases::with_ip_manager(Arc::clone(&dhcp_cfg), Arc::clone(&ip_mgr)).register(&mut v4);
 
     let v6 = if dhcp_cfg.has_v6() {
         info!("starting v6 server");
@@ -148,19 +148,19 @@ async fn start_standalone(
     Ok(())
 }
 
-/// Start the server in clustered mode with NATS coordination.
+/// Start the server in nats mode with NATS coordination.
 async fn start_clustered(
     config: cli::Config,
     dhcp_cfg: Arc<DhcpConfig>,
     database_url: String,
 ) -> Result<()> {
     let cluster_config = dhcp_cfg
-        .cluster()
-        .ok_or_else(|| anyhow!("clustered mode requires cluster configuration"))?
+        .nats()
+        .ok_or_else(|| anyhow!("nats mode requires nats configuration"))?
         .clone();
 
     let server_id = config.effective_instance_id().to_string();
-    info!(?server_id, "clustered server identity");
+    info!(?server_id, "nats server identity");
 
     // Build NATS coordination components
     let subject_resolver = nats_coordination::SubjectResolver::new(
@@ -169,36 +169,32 @@ async fn start_clustered(
     )
     .map_err(|e| anyhow!("subject resolver error: {e}"))?;
 
-    let nats_client =
-        nats_coordination::NatsClient::new(cluster_config.clone(), subject_resolver);
+    let nats_client = nats_coordination::NatsClient::new(cluster_config.clone(), subject_resolver);
 
     // Connect to NATS
-    info!("connecting to NATS for clustered coordination");
+    info!("connecting to NATS for coordination");
     nats_client
         .connect()
         .await
         .map_err(|e| anyhow!("NATS connection failed: {e}"))?;
-    info!("NATS connection established for clustered mode");
+    info!("NATS connection established for nats mode");
 
     // Create lease coordinator
     let lease_coordinator =
         nats_coordination::LeaseCoordinator::new(nats_client.clone(), server_id.clone());
 
     // Create local IpManager for address selection and ping checks
-    debug!("starting database (local cache for clustered mode)");
+    debug!("starting database (local cache for nats mode)");
     let ip_mgr = Arc::new(IpManager::new(SqliteDb::new(database_url).await?)?);
 
-    // Clone coordinator/server_id for v6 before moving into v4 clustered backend
+    // Clone coordinator/server_id for v6 before moving into v4 backend
     let v6_lease_coordinator = lease_coordinator.clone();
     let v6_server_id = server_id.clone();
 
-    // Create clustered backend
-    let clustered_backend = leases::ClusteredBackend::new(
-        Arc::clone(&ip_mgr),
-        lease_coordinator,
-        server_id,
-    );
-    let backend: Arc<dyn leases::LeaseBackend> = Arc::new(clustered_backend);
+    // Create nats backend
+    let nats_backend =
+        nats_leases::NatsBackend::new(Arc::clone(&ip_mgr), lease_coordinator, server_id);
+    let backend = Arc::new(nats_backend);
 
     // Create host-option lookup client for response enrichment
     let host_option_client = nats_coordination::HostOptionClient::new(nats_client.clone());
@@ -210,30 +206,26 @@ async fn start_clustered(
         Arc::clone(&ip_mgr),
     );
 
-    // Start v4 server with clustered leases plugin and host-option sync
-    debug!("starting v4 server (clustered)");
+    // Start v4 server with nats leases plugin and host-option sync
+    debug!("starting v4 server (nats)");
     let mut v4: Server<v4::Message> =
         Server::new(config.clone(), dhcp_cfg.v4().interfaces().to_owned())?;
-    debug!("starting v4 plugins (clustered)");
+    debug!("starting v4 plugins (nats)");
 
     MsgType::new(Arc::clone(&dhcp_cfg))?.register(&mut v4);
     StaticAddr::new(Arc::clone(&dhcp_cfg))?.register(&mut v4);
-    leases::ClusteredLeases::new(Arc::clone(&dhcp_cfg), backend).register(&mut v4);
+    Leases::new(Arc::clone(&dhcp_cfg), backend).register(&mut v4);
     HostOptionSync::new(host_option_client.clone()).register(&mut v4);
 
     let v6 = if dhcp_cfg.has_v6() {
-        info!("starting v6 server (clustered)");
+        info!("starting v6 server (nats)");
         let mut v6: Server<v6::Message> =
             Server::new(config.clone(), dhcp_cfg.v6().interfaces().to_owned())?;
-        info!("starting v6 plugins (clustered)");
+        info!("starting v6 plugins (nats)");
         MsgType::new(Arc::clone(&dhcp_cfg))?.register(&mut v6);
-        // Register stateful v6 lease plugin for clustered mode
-        leases::ClusteredV6Leases::new(
-            Arc::clone(&dhcp_cfg),
-            v6_lease_coordinator,
-            v6_server_id,
-        )
-        .register(&mut v6);
+        // Register stateful v6 lease plugin for nats mode
+        nats_leases::NatsV6Leases::new(Arc::clone(&dhcp_cfg), v6_lease_coordinator, v6_server_id)
+            .register(&mut v6);
         HostOptionSync::new(host_option_client.clone()).register(&mut v6);
         Some(v6)
     } else {
@@ -246,8 +238,8 @@ async fn start_clustered(
         .await
         .context("error occurred in changing health status to Good")?;
 
-    // Update coordination state metric (owned by leases plugin)
-    leases::metrics::CLUSTER_COORDINATION_STATE.set(1);
+    // Update coordination state metric (owned by nats-leases plugin)
+    nats_leases::metrics::CLUSTER_COORDINATION_STATE.set(1);
 
     let token = CancellationToken::new();
     let api_guard = api.start(token.clone());

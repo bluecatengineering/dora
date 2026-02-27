@@ -16,19 +16,12 @@ message-type = { path = "../message-type" }
 
 register_derive = { path = "../../libs/register_derive" }
 ip-manager = { path = "../../libs/ip-manager" }
-nats-coordination = { path = "../../libs/nats-coordination" }
 ddns = { path = "../../libs/ddns" }
 
 async-trait = { workspace = true }
 chrono = "0.4"
 ipnet = { workspace = true }
-hex = "0.4"
-lazy_static = "1.4"
-parking_lot = "0.12"
-prometheus = { workspace = true }
 thiserror = { workspace = true }
-tracing = { workspace = true }
-uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 serde_yaml = { workspace = true }
