@@ -13,3 +13,17 @@ server_id
 # Nix files
 flake.lock
 result
+
+# AI tool directories
+.claude/
+.codex/
+.opencode/
+.windsurf/
+.gemini/
+.cursor/
+.qwen/
+.kilocode/
+.augment/
+.roo/
+.amazonq/
+.github/copilot/
