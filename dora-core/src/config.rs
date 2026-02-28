@@ -92,6 +92,22 @@ pub mod cli {
         /// NOTE: in memory sqlite db connection idle timeout is 5 mins
         #[clap(short, env, value_parser, default_value = DEFAULT_DATABASE_URL)]
         pub database_url: String,
+        /// Override backend mode from CLI/env. Accepts "standalone" or "nats".
+        /// When set, this takes precedence over the config file's backend_mode field.
+        /// Only affects behavior when the config file also provides the required
+        /// nats settings (nats section). Defaults to the config file value.
+        #[clap(long, env = "DORA_BACKEND_MODE", value_parser)]
+        pub backend_mode: Option<String>,
+        /// Instance identity for nats mode. Used as the server_id in lease records
+        /// and coordination messages. Defaults to the value of --dora-id.
+        /// Only meaningful in nats mode.
+        #[clap(long, env = "DORA_INSTANCE_ID", value_parser)]
+        pub instance_id: Option<String>,
+        /// NATS server URL(s) override for nats mode, comma-separated.
+        /// When set, overrides 'nats.servers' from the config file.
+        /// Only meaningful in nats mode.
+        #[clap(long, env = "DORA_NATS_SERVERS", value_parser)]
+        pub nats_servers: Option<String>,
     }
 
     impl Config {
@@ -108,6 +124,23 @@ pub mod cli {
         /// are we bound to the default dhcpv6 port?
         pub fn is_default_port_v6(&self) -> bool {
             self.v6_addr.port() == v6::SERVER_PORT
+        }
+
+        /// Returns the effective instance ID for nats mode.
+        /// Uses --instance-id / DORA_INSTANCE_ID if set, otherwise falls back to dora_id.
+        pub fn effective_instance_id(&self) -> &str {
+            self.instance_id.as_deref().unwrap_or(&self.dora_id)
+        }
+
+        /// Parses NATS server URLs from the CLI/env override, if provided.
+        /// Returns None when the override is not set.
+        pub fn nats_server_overrides(&self) -> Option<Vec<String>> {
+            self.nats_servers.as_ref().map(|s| {
+                s.split(',')
+                    .map(|url| url.trim().to_owned())
+                    .filter(|url| !url.is_empty())
+                    .collect()
+            })
         }
     }
 }

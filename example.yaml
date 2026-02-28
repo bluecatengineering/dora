@@ -1,3 +1,51 @@
+# Backend mode: "standalone" (default) or "nats".
+# Standalone uses local SQLite storage. NATS mode uses NATS for
+# lease coordination and persistence across multiple DHCP servers.
+#
+# backend_mode: standalone
+#
+# NATS coordination configuration (required when backend_mode is "nats").
+# All fields except 'servers' have sensible defaults.
+#
+# nats:
+#   # NATS server URL(s). At least one is required for nats mode.
+#   servers:
+#     - "nats://nats1.example.com:4222"
+#     - "nats://nats2.example.com:4222"
+#   # Subject prefix for all coordination channels (default: "dora.cluster").
+#   subject_prefix: "dora.cluster"
+#   # Contract version for the clustering protocol (default: "1.0.0").
+#   contract_version: "1.0.0"
+#   # Override individual subject names if needed (defaults are derived from subject_prefix):
+#   # subjects:
+#   #   lease_upsert: "dora.cluster.lease.upsert"
+#   #   lease_release: "dora.cluster.lease.release"
+#   #   lease_snapshot_request: "dora.cluster.lease.snapshot.request"
+#   #   lease_snapshot_response: "dora.cluster.lease.snapshot.response"
+#   # JetStream KV buckets used in nats mode:
+#   leases_bucket: "dora_leases"
+#   host_options_bucket: "dora_host_options"
+#   # Lease GC sweep interval in milliseconds:
+#   lease_gc_interval_ms: 60000
+#   # Security mode: "none" (default), "user_password", "token", "nkey", "tls", "creds_file".
+#   security_mode: none
+#   # Credentials for user_password mode:
+#   # username: "dora"
+#   # password: "secret"
+#   # Token for token mode:
+#   # token: "my-nats-token"
+#   # NKey seed file for nkey mode:
+#   # nkey_seed_path: "/etc/dora/nkey.seed"
+#   # TLS settings for tls mode (also used as transport encryption in other modes):
+#   # tls_cert_path: "/etc/dora/client.crt"
+#   # tls_key_path: "/etc/dora/client.key"
+#   # tls_ca_path: "/etc/dora/ca.crt"
+#   # Credentials file for creds_file mode:
+#   # creds_file_path: "/etc/dora/nats.creds"
+#   # Optional timeouts (milliseconds):
+#   # connect_timeout_ms: 5000
+#   # request_timeout_ms: 3000
+#
 # (default false) Normally, client id is determined by (opt 61) client identifier option,
 # or the DHCP header field `chaddr`. Sometimes, we want to configure
 # the server to only look at the `chaddr` field. Setting `chaddr_only` to true

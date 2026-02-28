@@ -1,0 +1,25 @@
+[package]
+name = "nats-coordination"
+version = "0.1.0"
+edition = "2024"
+license = "MPL-2.0"
+workspace = "../../"
+description = "NATS-backed lease coordination and host-option lookup for nats-mode DHCP operation"
+
+[dependencies]
+config = { path = "../config" }
+
+async-nats = "0.38"
+async-trait = { workspace = true }
+chrono = { version = "0.4", features = ["serde"] }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full", "test-util"] }
+tracing-test = { workspace = true }

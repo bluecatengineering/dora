@@ -17,6 +17,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use async_trait::async_trait;
 use client_protection::RenewThreshold;
 use ddns::{DdnsUpdate, dhcid::DhcId};
 use dora_core::{
@@ -35,38 +36,215 @@ use config::{
     DhcpConfig,
     v4::{NetRange, Network},
 };
-use ip_manager::{IpError, IpManager, IpState, Storage};
+use ip_manager::{IpManager, IpState, Storage};
+
+/// Error type for lease store operations.
+#[derive(Debug, thiserror::Error)]
+pub enum LeaseError {
+    /// The requested IP address is already in use or assigned.
+    #[error("address in use: {0}")]
+    AddrInUse(IpAddr),
+
+    /// No available address in the requested range.
+    #[error("no address available in range")]
+    RangeExhausted,
+
+    /// The address is not reserved or the client ID does not match.
+    #[error("address unreserved or client mismatch")]
+    Unreserved,
+
+    /// Lease coordination/storage is unavailable (clustered mode).
+    #[error("lease backend unavailable")]
+    Unavailable,
+
+    /// Internal/storage error.
+    #[error("internal error: {0}")]
+    Internal(String),
+}
+
+/// Abstract lease storage interface.
+///
+/// The standalone path uses `IpManagerStore<S>`. Clustered/NATS mode can
+/// provide its own implementation (see `nats-leases`).
+#[async_trait]
+pub trait LeaseStore: Send + Sync + fmt::Debug + 'static {
+    /// Try to reserve a specific IP for a client.
+    async fn try_ip(
+        &self,
+        ip: IpAddr,
+        subnet: IpAddr,
+        client_id: &[u8],
+        expires_at: SystemTime,
+        network: &Network,
+        state: Option<IpState>,
+    ) -> Result<(), LeaseError>;
+
+    /// Reserve the first available IP in a range.
+    async fn reserve_first(
+        &self,
+        range: &NetRange,
+        network: &Network,
+        client_id: &[u8],
+        expires_at: SystemTime,
+        state: Option<IpState>,
+    ) -> Result<IpAddr, LeaseError>;
+
+    /// Transition a reserved IP to leased state.
+    async fn try_lease(
+        &self,
+        ip: IpAddr,
+        client_id: &[u8],
+        expires_at: SystemTime,
+        network: &Network,
+    ) -> Result<(), LeaseError>;
+
+    /// Release a lease for the given IP/client pair.
+    ///
+    /// Returns `true` if a lease was found and released.
+    async fn release_ip(&self, ip: IpAddr, client_id: &[u8]) -> Result<bool, LeaseError>;
+
+    /// Mark an IP as probated (declined).
+    async fn probate_ip(
+        &self,
+        ip: IpAddr,
+        client_id: &[u8],
+        expires_at: SystemTime,
+    ) -> Result<(), LeaseError>;
+}
+
+/// Standalone lease store adapter wrapping `IpManager<S>`.
+pub struct IpManagerStore<S: Storage> {
+    ip_mgr: Arc<IpManager<S>>,
+}
+
+impl<S: Storage> fmt::Debug for IpManagerStore<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("IpManagerStore").finish()
+    }
+}
+
+impl<S: Storage> IpManagerStore<S> {
+    pub fn new(ip_mgr: Arc<IpManager<S>>) -> Self {
+        Self { ip_mgr }
+    }
+
+    /// Access the underlying IpManager (for external API compatibility).
+    pub fn ip_mgr(&self) -> &Arc<IpManager<S>> {
+        &self.ip_mgr
+    }
+}
+
+/// Map IpError to LeaseError.
+fn map_ip_error<E: std::error::Error + Send + Sync + 'static>(
+    err: ip_manager::IpError<E>,
+) -> LeaseError {
+    match err {
+        ip_manager::IpError::AddrInUse(ip) => LeaseError::AddrInUse(ip),
+        ip_manager::IpError::Unreserved => LeaseError::Unreserved,
+        ip_manager::IpError::RangeError { .. } => LeaseError::RangeExhausted,
+        ip_manager::IpError::MaxAttempts { .. } => LeaseError::RangeExhausted,
+        other => LeaseError::Internal(other.to_string()),
+    }
+}
+
+#[async_trait]
+impl<S> LeaseStore for IpManagerStore<S>
+where
+    S: Storage + Send + Sync + 'static,
+{
+    async fn try_ip(
+        &self,
+        ip: IpAddr,
+        subnet: IpAddr,
+        client_id: &[u8],
+        expires_at: SystemTime,
+        network: &Network,
+        state: Option<IpState>,
+    ) -> Result<(), LeaseError> {
+        self.ip_mgr
+            .try_ip(ip, subnet, client_id, expires_at, network, state)
+            .await
+            .map_err(map_ip_error)
+    }
+
+    async fn reserve_first(
+        &self,
+        range: &NetRange,
+        network: &Network,
+        client_id: &[u8],
+        expires_at: SystemTime,
+        state: Option<IpState>,
+    ) -> Result<IpAddr, LeaseError> {
+        self.ip_mgr
+            .reserve_first(range, network, client_id, expires_at, state)
+            .await
+            .map_err(map_ip_error)
+    }
+
+    async fn try_lease(
+        &self,
+        ip: IpAddr,
+        client_id: &[u8],
+        expires_at: SystemTime,
+        network: &Network,
+    ) -> Result<(), LeaseError> {
+        self.ip_mgr
+            .try_lease(ip, client_id, expires_at, network)
+            .await
+            .map_err(map_ip_error)
+    }
+
+    async fn release_ip(&self, ip: IpAddr, client_id: &[u8]) -> Result<bool, LeaseError> {
+        self.ip_mgr
+            .release_ip(ip, client_id)
+            .await
+            .map(|info| info.is_some())
+            .map_err(map_ip_error)
+    }
+
+    async fn probate_ip(
+        &self,
+        ip: IpAddr,
+        client_id: &[u8],
+        expires_at: SystemTime,
+    ) -> Result<(), LeaseError> {
+        self.ip_mgr
+            .probate_ip(ip, client_id, expires_at)
+            .await
+            .map_err(map_ip_error)
+    }
+}
 
 #[derive(Register)]
 #[register(msg(Message))]
 #[register(plugin(StaticAddr))]
-pub struct Leases<S>
+pub struct Leases<B>
 where
-    S: Storage,
+    B: LeaseStore,
 {
     cfg: Arc<DhcpConfig>,
     ddns: DdnsUpdate,
-    ip_mgr: Arc<IpManager<S>>,
+    store: Arc<B>,
     renew_cache: Option<RenewThreshold<Vec<u8>>>,
 }
 
-impl<S> fmt::Debug for Leases<S>
+impl<B> fmt::Debug for Leases<B>
 where
-    S: Storage,
+    B: LeaseStore,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Leases").field("cfg", &self.cfg).finish()
     }
 }
 
-impl<S> Leases<S>
+impl<B> Leases<B>
 where
-    S: Storage,
+    B: LeaseStore,
 {
-    pub fn new(cfg: Arc<DhcpConfig>, ip_mgr: Arc<IpManager<S>>) -> Self {
+    pub fn new(cfg: Arc<DhcpConfig>, store: Arc<B>) -> Self {
         Self {
             renew_cache: cfg.v4().cache_threshold().map(RenewThreshold::new),
-            ip_mgr,
+            store,
             cfg,
             ddns: DdnsUpdate::new(),
         }
@@ -83,6 +261,7 @@ where
             .as_ref()
             .and_then(|cache| cache.remove(&id.to_vec()));
     }
+
     pub fn cache_insert(&self, id: &[u8], lease_time: Duration) {
         self.renew_cache
             .as_ref()
@@ -117,10 +296,20 @@ where
     }
 }
 
-#[async_trait]
-impl<S> Plugin<Message> for Leases<S>
+/// Convenience constructor for standalone mode.
+impl<S> Leases<IpManagerStore<S>>
 where
     S: Storage + Send + Sync + 'static,
+{
+    pub fn with_ip_manager(cfg: Arc<DhcpConfig>, ip_mgr: Arc<IpManager<S>>) -> Self {
+        Self::new(cfg, Arc::new(IpManagerStore::new(ip_mgr)))
+    }
+}
+
+#[async_trait]
+impl<B> Plugin<Message> for Leases<B>
+where
+    B: LeaseStore,
 {
     #[instrument(level = "debug", skip_all)]
     async fn handle(&self, ctx: &mut MsgContext<Message>) -> Result<Action> {
@@ -163,9 +352,9 @@ where
     }
 }
 
-impl<S> Leases<S>
+impl<B> Leases<B>
 where
-    S: Storage,
+    B: LeaseStore,
 {
     async fn bootp(
         &self,
@@ -202,7 +391,7 @@ where
             // within our range. `range` makes sure IP is not in exclude list
             if let Some(range) = network.range(ip, classes) {
                 match self
-                    .ip_mgr
+                    .store
                     .try_ip(
                         ip.into(),
                         network.subnet().into(),
@@ -220,11 +409,15 @@ where
                             expires_at = %print_time(expires_at),
                             range = ?range.addrs(),
                             subnet = ?network.subnet(),
-                           "reserved IP for client-- sending offer"
+                            "reserved IP for client-- sending offer"
                         );
                         let lease = range.lease().determine_lease(ctx.requested_lease_time());
                         self.set_lease(ctx, lease, ip, expires_at, classes, range)?;
                         return Ok(Action::Continue);
+                    }
+                    Err(LeaseError::Unavailable) => {
+                        debug!("new allocation blocked: backend unavailable");
+                        return Ok(Action::NoResponse);
                     }
                     // address in use from ping or cannot reserve this ip
                     // try to assign an IP
@@ -240,7 +433,7 @@ where
         // no requested IP, so find the next available
         for range in network.ranges_with_class(classes) {
             match self
-                .ip_mgr
+                .store
                 .reserve_first(range, network, client_id, expires_at, state)
                 .await
             {
@@ -257,9 +450,13 @@ where
                     self.set_lease(ctx, lease, ip, expires_at, classes, range)?;
                     return Ok(Action::Continue);
                 }
-                Err(IpError::DbError(err)) => {
-                    // log database error and try next IP
-                    error!(?err);
+                Err(LeaseError::Unavailable) => {
+                    debug!("new allocation blocked: backend unavailable");
+                    return Ok(Action::NoResponse);
+                }
+                Err(LeaseError::Internal(err)) => {
+                    // log storage error and try next IP
+                    error!(%err);
                 }
                 _ => {
                     // all other errors try next
@@ -344,7 +541,7 @@ where
             let expires_at = SystemTime::now() + lease.0;
 
             match self
-                .ip_mgr
+                .store
                 .try_lease(ip.into(), client_id, expires_at, network)
                 .await
             {
@@ -372,6 +569,15 @@ where
                     }
                     return Ok(Action::Continue);
                 }
+                Err(LeaseError::Unavailable) => {
+                    debug!("lease blocked: backend unavailable");
+                    if network.authoritative() {
+                        ctx.update_resp_msg(MessageType::Nak)
+                            .context("failed to set msg type")?;
+                        return Ok(Action::Respond);
+                    }
+                    ctx.resp_msg_take();
+                }
                 // ip not reserved or chaddr doesn't match
                 Err(err) if network.authoritative() => {
                     debug!(?err, "can't give out lease");
@@ -392,9 +598,9 @@ where
 
     async fn release(&self, ctx: &mut MsgContext<Message>, client_id: &[u8]) -> Result<Action> {
         let ip = ctx.msg().ciaddr().into();
-        if let Some(info) = self.ip_mgr.release_ip(ip, client_id).await? {
+        if self.store.release_ip(ip, client_id).await? {
             self.cache_remove(client_id);
-            debug!(?info, "released ip");
+            debug!(?ip, ?client_id, "released ip");
         } else {
             debug!(?ip, ?client_id, "ip not found in storage");
         }
@@ -416,7 +622,7 @@ where
             Err(anyhow!("decline has no option 50 (requested IP)"))
         }?;
         let expires_at = SystemTime::now() + network.probation_period();
-        self.ip_mgr
+        self.store
             .probate_ip((*declined_ip).into(), client_id, expires_at)
             .await?;
         // IP is decline, remove from cache
@@ -434,7 +640,7 @@ where
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub struct ExpiresAt(pub SystemTime);
 
-fn print_time(expires_at: SystemTime) -> String {
+pub fn print_time(expires_at: SystemTime) -> String {
     DateTime::<Utc>::from(expires_at).to_rfc3339_opts(SecondsFormat::Secs, true)
 }
 
@@ -474,9 +680,8 @@ mod tests {
     #[traced_test]
     async fn test_request() -> Result<()> {
         let cfg = DhcpConfig::parse_str(SAMPLE_YAML).unwrap();
-        // println!("{cfg:#?}");
         let mgr = Arc::new(IpManager::new(SqliteDb::new("sqlite::memory:").await?)?);
-        let leases = Leases::new(Arc::new(cfg.clone()), mgr);
+        let leases = Leases::with_ip_manager(Arc::new(cfg.clone()), mgr);
         let mut ctx = message_type::util::blank_ctx(
             "192.168.0.1:67".parse()?,
             "192.168.0.1".parse()?,
@@ -500,7 +705,7 @@ mod tests {
     async fn test_discover() -> Result<()> {
         let cfg = DhcpConfig::parse_str(SAMPLE_YAML).unwrap();
         let mgr = Arc::new(IpManager::new(SqliteDb::new("sqlite::memory:").await?)?);
-        let leases = Leases::new(Arc::new(cfg.clone()), mgr);
+        let leases = Leases::with_ip_manager(Arc::new(cfg.clone()), mgr);
         let mut ctx = message_type::util::blank_ctx(
             "192.168.0.1:67".parse()?,
             "192.168.0.1".parse()?,
@@ -536,7 +741,7 @@ mod tests {
     async fn test_release() -> Result<()> {
         let cfg = DhcpConfig::parse_str(SAMPLE_YAML).unwrap();
         let mgr = IpManager::new(SqliteDb::new("sqlite::memory:").await?)?;
-        let leases = Leases::new(Arc::new(cfg.clone()), Arc::new(mgr));
+        let leases = Leases::with_ip_manager(Arc::new(cfg.clone()), Arc::new(mgr));
         let mut ctx = message_type::util::blank_ctx(
             "192.168.0.1:67".parse()?,
             "192.168.0.1".parse()?,

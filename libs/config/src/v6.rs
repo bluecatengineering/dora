@@ -140,9 +140,22 @@ pub struct Network {
 }
 
 impl Network {
+    pub fn full_subnet(&self) -> Ipv6Net {
+        self.subnet
+    }
+
     pub fn subnet(&self) -> Ipv6Addr {
         self.subnet.network()
     }
+
+    pub fn valid_time(&self) -> LeaseTime {
+        self.valid
+    }
+
+    pub fn preferred_time(&self) -> LeaseTime {
+        self.preferred
+    }
+
     pub fn authoritative(&self) -> bool {
         self.authoritative
     }

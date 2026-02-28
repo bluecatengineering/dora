@@ -13,8 +13,11 @@ external-api = { path = "../external-api" }
 message-type = { path = "../plugins/message-type" }
 leases = { path = "../plugins/leases" }
 static-addr = { path = "../plugins/static-addr" }
+nats-leases = { path = "../plugins/nats-leases" }
+nats-host-options = { path = "../plugins/nats-host-options" }
 # libs
 ip-manager = { path = "../libs/ip-manager" }
+nats-coordination = { path = "../libs/nats-coordination" }
 config = { path = "../libs/config" }
 tokio-util = { workspace = true }
 # external

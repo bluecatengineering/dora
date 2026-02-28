@@ -426,8 +426,13 @@ impl Plugin<v6::Message> for MsgType {
 
         // let network = self.cfg.v6().get_network(meta.ifindex);
 
-        // create initial response with reply type
-        let mut resp = v6::Message::new_with_id(Reply, req.xid());
+        // create initial response. Solicit uses Advertise, other stateful replies use Reply.
+        let initial_type = if matches!(msg_type, Solicit) {
+            Advertise
+        } else {
+            Reply
+        };
+        let mut resp = v6::Message::new_with_id(initial_type, req.xid());
 
         let server_id = self.cfg.v6().server_id();
         // TODO RelayForw type
@@ -459,6 +464,17 @@ impl Plugin<v6::Message> for MsgType {
                     ?msg_type,
                     "couldn't match any options with INFORMATION-REQUEST message"
                 );
+            }
+            // Solicit is only passed through in nats mode where a downstream
+            // v6 lease plugin handles it. In standalone mode there is no v6
+            // lease plugin, so passing it through would send an empty Reply.
+            Solicit if self.cfg.is_nats() => {
+                ctx.set_resp_msg(resp);
+                return Ok(Action::Continue);
+            }
+            Request | Renew | Release | Decline => {
+                ctx.set_resp_msg(resp);
+                return Ok(Action::Continue);
             }
             _ => {
                 debug!("currently unsupported message type");

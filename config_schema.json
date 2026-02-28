@@ -221,6 +221,79 @@
                 "type": "string"
             }
         },
+        "backend_mode": {
+            "description": "Lease backend mode: standalone (default, SQLite) or nats (NATS)",
+            "type": "string",
+            "enum": ["standalone", "nats"],
+            "default": "standalone"
+        },
+        "nats": {
+            "description": "NATS coordination configuration for nats mode",
+            "type": "object",
+            "properties": {
+                "servers": {
+                    "description": "NATS server URL(s). At least one required for nats mode.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "minItems": 1
+                },
+                "subject_prefix": {
+                    "description": "Subject prefix for all NATS coordination channels",
+                    "type": "string",
+                    "default": "dora.cluster"
+                },
+                "subjects": {
+                    "description": "Override individual NATS subject names",
+                    "type": "object",
+                    "properties": {
+                        "lease_upsert": { "type": "string" },
+                        "lease_release": { "type": "string" },
+                        "lease_snapshot_request": { "type": "string" },
+                        "lease_snapshot_response": { "type": "string" }
+                    }
+                },
+                "leases_bucket": {
+                    "description": "JetStream KV bucket name for lease records/indexes",
+                    "type": "string",
+                    "default": "dora_leases"
+                },
+                "host_options_bucket": {
+                    "description": "JetStream KV bucket name for host-option records",
+                    "type": "string",
+                    "default": "dora_host_options"
+                },
+                "lease_gc_interval_ms": {
+                    "description": "NATS lease garbage-collection sweep interval in milliseconds",
+                    "type": "integer",
+                    "default": 60000,
+                    "minimum": 1
+                },
+                "contract_version": {
+                    "description": "Contract version for the clustering protocol",
+                    "type": "string",
+                    "default": "1.0.0"
+                },
+                "security_mode": {
+                    "description": "NATS security mode",
+                    "type": "string",
+                    "enum": ["none", "user_password", "token", "nkey", "tls", "creds_file"],
+                    "default": "none"
+                },
+                "username": { "type": "string" },
+                "password": { "type": "string" },
+                "token": { "type": "string" },
+                "nkey_seed_path": { "type": "string" },
+                "tls_cert_path": { "type": "string" },
+                "tls_key_path": { "type": "string" },
+                "tls_ca_path": { "type": "string" },
+                "creds_file_path": { "type": "string" },
+                "connect_timeout_ms": { "type": "integer" },
+                "request_timeout_ms": { "type": "integer" }
+            },
+            "required": ["servers"]
+        },
         "networks": {
             "description": "top level bucket for network configurations",
             "type": "object",

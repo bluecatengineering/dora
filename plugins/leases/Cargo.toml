@@ -18,7 +18,10 @@ register_derive = { path = "../../libs/register_derive" }
 ip-manager = { path = "../../libs/ip-manager" }
 ddns = { path = "../../libs/ddns" }
 
+async-trait = { workspace = true }
+chrono = "0.4"
 ipnet = { workspace = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 serde_yaml = { workspace = true }

@@ -7,8 +7,8 @@ use std::time::Instant;
 
 use lazy_static::lazy_static;
 use prometheus::{
-    HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, register_int_counter,
-    register_int_counter_vec, register_int_gauge,
+    register_int_counter, register_int_counter_vec, register_int_gauge, HistogramOpts,
+    HistogramVec, IntCounter, IntCounterVec, IntGauge,
 };
 use prometheus_static_metric::make_static_metric;
 
@@ -174,4 +174,5 @@ lazy_static! {
     pub static ref RENEW_CACHE_HIT: IntCounter = register_int_counter!("renew_cache_hit_count", "count of renew cache hits inside of renewal time").unwrap();
     /// flood threshold reached
     pub static ref FLOOD_THRESHOLD_COUNT: IntCounter = register_int_counter!("flood_threshold_count", "count of times flood threshold has been reached").unwrap();
+
 }

@@ -1,0 +1,27 @@
+[package]
+name = "nats-host-options"
+version = "0.1.0"
+edition = "2024"
+license = "MPL-2.0"
+description = "Host-specific option lookup and response enrichment plugin for NATS mode"
+
+[dependencies]
+dora-core = { path = "../../dora-core" }
+config = { path = "../../libs/config" }
+nats-coordination = { path = "../../libs/nats-coordination" }
+register_derive = { path = "../../libs/register_derive" }
+message-type = { path = "../message-type" }
+nats-leases = { path = "../nats-leases" }
+static-addr = { path = "../static-addr" }
+
+async-trait = { workspace = true }
+hex = "0.4"
+lazy_static = "1.4"
+prometheus = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full", "test-util"] }
+tracing-test = { workspace = true }
+serde_yaml = { workspace = true }
