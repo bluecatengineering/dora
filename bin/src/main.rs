@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
 
-use config::DhcpConfig;
+use config::{DhcpConfig, v4::StorageConfig};
 use dora_core::{
     Register, Server,
     config::{
@@ -60,8 +60,6 @@ fn main() -> Result<()> {
 }
 
 async fn start(config: cli::Config) -> Result<()> {
-    let database_url = config.database_url.clone();
-    info!(?database_url, "using database at path");
     let dora_id = config.dora_id.clone();
     info!(?dora_id, "using id");
     // setting DORA_ID for other plugins
@@ -70,8 +68,24 @@ async fn start(config: cli::Config) -> Result<()> {
 
     debug!("parsing DHCP config");
     let dhcp_cfg = Arc::new(DhcpConfig::parse(&config.config_path)?);
+    let store_cfg = dhcp_cfg
+        .v4()
+        .resolve_storage(config.database_url.as_deref());
+    info!(?store_cfg, "using database with config");
+
+    let database_uri = match &store_cfg {
+        StorageConfig::Mem(_) => "sqlite::memory:".to_owned(),
+        StorageConfig::Sqlite(cfg) => cfg.path.to_string(),
+    };
+    let a = Arc::new(IpManager::new(
+        Box::new(SqliteDb::new(database_uri).await?)
+            as Box<dyn ip_manager::Storage<Error = ip_manager::sqlx::Error>>,
+    )?);
     debug!("starting database");
-    let ip_mgr = Arc::new(IpManager::new(SqliteDb::new(database_url).await?)?);
+    let ip_mgr = match &store_cfg {
+        StorageConfig::Mem(cfg) => Arc::new(IpManager::new(Box::new(MemDb::new()))),
+        StorageConfig::Sqlite(cfg) => a,
+    };
     // start external api for healthchecks
     let api = ExternalApi::new(
         config.external_api,

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, net::IpAddr, num::NonZeroU32, time::Duration};
+use std::{collections::HashMap, net::IpAddr, num::NonZeroU32, path::PathBuf, time::Duration};
 
 use anyhow::{Context, Result};
 use ipnet::Ipv4Net;
@@ -28,6 +28,25 @@ pub struct Config {
     pub v6: Option<v6::Config>,
     pub client_classes: Option<ClientClasses>,
     pub ddns: Option<v4::ddns::Ddns>,
+    pub lease_storage: Option<LeaseStorage>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum LeaseStorage {
+    Mem(MemConfig),
+    Sqlite(SqliteConfig),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemConfig {
+    pub persist: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SqliteConfig {
+    pub path: String,
+    pub persist: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

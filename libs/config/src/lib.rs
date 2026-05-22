@@ -42,6 +42,9 @@ impl DhcpConfig {
     pub fn path(&self) -> Option<&Path> {
         self.path.as_deref()
     }
+    pub fn lease_storage(&self) -> Option<&wire::LeaseStorage> {
+        self.v4.lease_storage()
+    }
 }
 
 /// server instance config

@@ -2,12 +2,14 @@ use std::{
     collections::{HashMap, HashSet},
     net::Ipv4Addr,
     ops::RangeInclusive,
+    path::PathBuf,
     time::Duration,
 };
 
 use anyhow::{Context, Result};
 use client_classification::PacketDetails;
 use dora_core::{
+    config::cli,
     dhcproto::{
         self,
         v4::{DhcpOption, DhcpOptions, Message, OptionCode},
@@ -48,6 +50,13 @@ pub struct Config {
     v6: Option<crate::v6::Config>,
     client_classes: Option<ClientClasses>,
     ddns: Option<Ddns>,
+    lease_storage: Option<wire::LeaseStorage>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StorageConfig {
+    Mem(wire::MemConfig),
+    Sqlite(wire::SqliteConfig),
 }
 
 impl TryFrom<wire::Config> for Config {
@@ -104,6 +113,7 @@ impl TryFrom<wire::Config> for Config {
                 .transpose()
                 .context("unable to parse client_classes config")?,
             ddns: cfg.ddns,
+            lease_storage: cfg.lease_storage,
         })
     }
 }
@@ -111,6 +121,9 @@ impl TryFrom<wire::Config> for Config {
 impl Config {
     pub fn ddns(&self) -> Option<&Ddns> {
         self.ddns.as_ref()
+    }
+    pub fn lease_storage(&self) -> Option<&wire::LeaseStorage> {
+        self.lease_storage.as_ref()
     }
     pub fn v6(&self) -> Option<&crate::v6::Config> {
         self.v6.as_ref()
@@ -262,6 +275,52 @@ impl Config {
         match Self::json(input.as_ref()) {
             Ok(r) => Ok(r),
             Err(_err) => Self::yaml(input.as_ref()),
+        }
+    }
+
+    pub fn resolve_storage(&self, cli_db_uri: Option<&str>) -> StorageConfig {
+        // Determine database URI with the following priority:
+        //   1. CLI / env var (-d / DATABASE_URL) – explicit override
+        //   2. `lease_storage` section in the config file
+        //   3. Hard-coded default path
+        match (self.lease_storage(), cli_db_uri) {
+            // CLI override wins regardless of config
+            (_, Some(uri)) => {
+                tracing::info!(?uri, "using database from CLI/env override");
+                StorageConfig::Sqlite(wire::SqliteConfig {
+                    path: uri.to_owned(),
+                    persist: true,
+                })
+            }
+            // sqlite config, no override: honour persist flag
+            (Some(wire::LeaseStorage::Sqlite(o)), None) => {
+                if o.persist {
+                    tracing::info!(path = %o.path, "using sqlite database from lease_storage config");
+                    StorageConfig::Sqlite(o.clone())
+                } else {
+                    tracing::info!("sqlite persist=false, using in-memory database");
+                    StorageConfig::Sqlite(wire::SqliteConfig {
+                        path: "sqlite::memory:".to_owned(),
+                        persist: false,
+                    })
+                }
+            }
+            // mem config
+            (Some(wire::LeaseStorage::Mem(o)), None) => {
+                tracing::debug!("using in-memory database from lease_storage config");
+                StorageConfig::Mem(o.clone())
+            }
+            // no config, no CLI: fall back to default path
+            (None, None) => {
+                tracing::info!(
+                    path = cli::DEFAULT_DATABASE_URL,
+                    "using default database URI"
+                );
+                StorageConfig::Sqlite(wire::SqliteConfig {
+                    path: cli::DEFAULT_DATABASE_URL.to_owned(),
+                    persist: true,
+                })
+            }
         }
     }
 }

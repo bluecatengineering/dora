@@ -88,10 +88,12 @@ pub mod cli {
         /// set the log level. All valid RUST_LOG arguments are accepted
         #[clap(long, env, value_parser, default_value = DEFAULT_DORA_LOG)]
         pub dora_log: String,
-        /// Path to the database use "sqlite::memory:" for in mem db ex. "em.db"
-        /// NOTE: in memory sqlite db connection idle timeout is 5 mins
-        #[clap(short, env, value_parser, default_value = DEFAULT_DATABASE_URL)]
-        pub database_url: String,
+        /// Path to the database use "sqlite::memory:" for in sqlite mem db ex. "em.db"
+        /// NOTE: in memory sqlite db connection idle timeout is 5 mins.
+        /// If not provided, falls back to `lease_storage` in the config file,
+        /// then to the default path (/var/lib/dora/leases.db).
+        #[clap(short, env, value_parser)]
+        pub database_url: Option<String>,
     }
 
     impl Config {

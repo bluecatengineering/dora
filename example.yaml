@@ -40,6 +40,13 @@
 # interfaces:
 #   - enp6s0
 #
+lease_storage:
+    type: mem # mem | sqlite
+    persist: false # true | false
+    # For sqlite, specify a path to the database file:
+    # type: sqlite
+    # path: /var/lib/dora/leases.db
+    # persist: true
 networks:
     192.168.5.0/24:
         # Authoritative:
