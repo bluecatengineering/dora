@@ -24,6 +24,28 @@ use tracing::{debug, error, info, trace, warn};
 pub mod mem;
 pub mod sqlite;
 
+/// A type-erased, owned error — used as `Storage::Error` in [`DynStorage`].
+#[derive(Debug)]
+pub struct BoxError(pub Box<dyn std::error::Error + Send + Sync + 'static>);
+
+impl fmt::Display for BoxError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&*self.0, f)
+    }
+}
+
+impl std::error::Error for BoxError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.0.source()
+    }
+}
+
+impl BoxError {
+    pub fn new<E: std::error::Error + Send + Sync + 'static>(e: E) -> Self {
+        BoxError(Box::new(e))
+    }
+}
+
 use core::fmt;
 pub use sqlx;
 use std::{
@@ -145,6 +167,223 @@ pub trait Storage: Send + Sync + 'static {
         expires_at: SystemTime,
     ) -> Result<Option<State>, Self::Error>;
     async fn count(&self, state: IpState) -> Result<usize, Self::Error>;
+}
+
+/// Wraps any `S: Storage` and erases its concrete error type to [`BoxError`],
+/// allowing the backend to be used as `Box<dyn Storage<Error = BoxError>>`.
+pub struct DynStorage<S>(pub S);
+
+#[async_trait]
+impl<S: Storage> Storage for DynStorage<S> {
+    type Error = BoxError;
+
+    async fn update_expired(
+        &self,
+        ip: IpAddr,
+        state: Option<IpState>,
+        id: &[u8],
+        expires_at: SystemTime,
+    ) -> Result<bool, Self::Error> {
+        self.0
+            .update_expired(ip, state, id, expires_at)
+            .await
+            .map_err(BoxError::new)
+    }
+
+    async fn insert(
+        &self,
+        ip: IpAddr,
+        network: IpAddr,
+        id: &[u8],
+        expires_at: SystemTime,
+        state: Option<IpState>,
+    ) -> Result<(), Self::Error> {
+        self.0
+            .insert(ip, network, id, expires_at, state)
+            .await
+            .map_err(BoxError::new)
+    }
+
+    async fn get(&self, ip: IpAddr) -> Result<Option<State>, Self::Error> {
+        self.0.get(ip).await.map_err(BoxError::new)
+    }
+
+    async fn get_id(&self, id: &[u8]) -> Result<Option<IpAddr>, Self::Error> {
+        self.0.get_id(id).await.map_err(BoxError::new)
+    }
+
+    async fn select_all(&self) -> Result<Vec<State>, Self::Error> {
+        self.0.select_all().await.map_err(BoxError::new)
+    }
+
+    async fn release_ip(&self, ip: IpAddr, id: &[u8]) -> Result<Option<ClientInfo>, Self::Error> {
+        self.0.release_ip(ip, id).await.map_err(BoxError::new)
+    }
+
+    async fn delete(&self, ip: IpAddr) -> Result<(), Self::Error> {
+        self.0.delete(ip).await.map_err(BoxError::new)
+    }
+
+    async fn next_expired(
+        &self,
+        range: RangeInclusive<IpAddr>,
+        network: IpAddr,
+        id: &[u8],
+        expires_at: SystemTime,
+        state: Option<IpState>,
+    ) -> Result<Option<IpAddr>, Self::Error> {
+        self.0
+            .next_expired(range, network, id, expires_at, state)
+            .await
+            .map_err(BoxError::new)
+    }
+
+    async fn insert_max_in_range(
+        &self,
+        range: RangeInclusive<IpAddr>,
+        exclusions: &HashSet<Ipv4Addr>,
+        network: IpAddr,
+        id: &[u8],
+        expires_at: SystemTime,
+        state: Option<IpState>,
+    ) -> Result<Option<IpAddr>, Self::Error> {
+        self.0
+            .insert_max_in_range(range, exclusions, network, id, expires_at, state)
+            .await
+            .map_err(BoxError::new)
+    }
+
+    async fn update_unexpired(
+        &self,
+        ip: IpAddr,
+        state: IpState,
+        id: &[u8],
+        expires_at: SystemTime,
+        new_id: Option<&[u8]>,
+    ) -> Result<Option<IpAddr>, Self::Error> {
+        self.0
+            .update_unexpired(ip, state, id, expires_at, new_id)
+            .await
+            .map_err(BoxError::new)
+    }
+
+    async fn update_ip(
+        &self,
+        ip: IpAddr,
+        state: IpState,
+        id: Option<&[u8]>,
+        expires_at: SystemTime,
+    ) -> Result<Option<State>, Self::Error> {
+        self.0
+            .update_ip(ip, state, id, expires_at)
+            .await
+            .map_err(BoxError::new)
+    }
+
+    async fn count(&self, state: IpState) -> Result<usize, Self::Error> {
+        self.0.count(state).await.map_err(BoxError::new)
+    }
+}
+
+/// Blanket impl so `Box<dyn Storage<Error = anyhow::Error>>` itself satisfies `Storage`.
+#[async_trait]
+impl<S: Storage + ?Sized> Storage for Box<S> {
+    type Error = S::Error;
+
+    async fn update_expired(
+        &self,
+        ip: IpAddr,
+        state: Option<IpState>,
+        id: &[u8],
+        expires_at: SystemTime,
+    ) -> Result<bool, Self::Error> {
+        (**self).update_expired(ip, state, id, expires_at).await
+    }
+
+    async fn insert(
+        &self,
+        ip: IpAddr,
+        network: IpAddr,
+        id: &[u8],
+        expires_at: SystemTime,
+        state: Option<IpState>,
+    ) -> Result<(), Self::Error> {
+        (**self).insert(ip, network, id, expires_at, state).await
+    }
+
+    async fn get(&self, ip: IpAddr) -> Result<Option<State>, Self::Error> {
+        (**self).get(ip).await
+    }
+
+    async fn get_id(&self, id: &[u8]) -> Result<Option<IpAddr>, Self::Error> {
+        (**self).get_id(id).await
+    }
+
+    async fn select_all(&self) -> Result<Vec<State>, Self::Error> {
+        (**self).select_all().await
+    }
+
+    async fn release_ip(&self, ip: IpAddr, id: &[u8]) -> Result<Option<ClientInfo>, Self::Error> {
+        (**self).release_ip(ip, id).await
+    }
+
+    async fn delete(&self, ip: IpAddr) -> Result<(), Self::Error> {
+        (**self).delete(ip).await
+    }
+
+    async fn next_expired(
+        &self,
+        range: RangeInclusive<IpAddr>,
+        network: IpAddr,
+        id: &[u8],
+        expires_at: SystemTime,
+        state: Option<IpState>,
+    ) -> Result<Option<IpAddr>, Self::Error> {
+        (**self)
+            .next_expired(range, network, id, expires_at, state)
+            .await
+    }
+
+    async fn insert_max_in_range(
+        &self,
+        range: RangeInclusive<IpAddr>,
+        exclusions: &HashSet<Ipv4Addr>,
+        network: IpAddr,
+        id: &[u8],
+        expires_at: SystemTime,
+        state: Option<IpState>,
+    ) -> Result<Option<IpAddr>, Self::Error> {
+        (**self)
+            .insert_max_in_range(range, exclusions, network, id, expires_at, state)
+            .await
+    }
+
+    async fn update_unexpired(
+        &self,
+        ip: IpAddr,
+        state: IpState,
+        id: &[u8],
+        expires_at: SystemTime,
+        new_id: Option<&[u8]>,
+    ) -> Result<Option<IpAddr>, Self::Error> {
+        (**self)
+            .update_unexpired(ip, state, id, expires_at, new_id)
+            .await
+    }
+
+    async fn update_ip(
+        &self,
+        ip: IpAddr,
+        state: IpState,
+        id: Option<&[u8]>,
+        expires_at: SystemTime,
+    ) -> Result<Option<State>, Self::Error> {
+        (**self).update_ip(ip, state, id, expires_at).await
+    }
+
+    async fn count(&self, state: IpState) -> Result<usize, Self::Error> {
+        (**self).count(state).await
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

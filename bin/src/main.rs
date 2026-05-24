@@ -15,7 +15,7 @@ use dora_core::{
     tracing::*,
 };
 use external_api::{ExternalApi, Health};
-use ip_manager::{IpManager, sqlite::SqliteDb};
+use ip_manager::{DynStorage, IpManager, mem, sqlite::SqliteDb};
 use leases::Leases;
 use message_type::MsgType;
 use static_addr::StaticAddr;
@@ -77,14 +77,16 @@ async fn start(config: cli::Config) -> Result<()> {
         StorageConfig::Mem(_) => "sqlite::memory:".to_owned(),
         StorageConfig::Sqlite(cfg) => cfg.path.to_string(),
     };
-    let a = Arc::new(IpManager::new(
-        Box::new(SqliteDb::new(database_uri).await?)
-            as Box<dyn ip_manager::Storage<Error = ip_manager::sqlx::Error>>,
-    )?);
-    debug!("starting database");
-    let ip_mgr = match &store_cfg {
-        StorageConfig::Mem(cfg) => Arc::new(IpManager::new(Box::new(MemDb::new()))),
-        StorageConfig::Sqlite(cfg) => a,
+    debug!("starting lease manager");
+    let ip_mgr = match store_cfg {
+        StorageConfig::Mem(_cfg) => Arc::new(
+            IpManager::new(Box::new(DynStorage(mem::MemDb::new()))
+                as Box<dyn ip_manager::Storage<Error = ip_manager::BoxError>>)?,
+        ),
+        StorageConfig::Sqlite(_cfg) => Arc::new(
+            IpManager::new(Box::new(DynStorage(SqliteDb::new(database_uri).await?))
+                as Box<dyn ip_manager::Storage<Error = ip_manager::BoxError>>)?,
+        ),
     };
     // start external api for healthchecks
     let api = ExternalApi::new(
